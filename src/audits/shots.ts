@@ -1,9 +1,25 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import type { MotionOptions } from '../config/types.ts';
+import { UsageError } from '../core/errors.ts';
 import type { Page } from '../core/peer-types.ts';
 import type { Audit, AuditContext, Finding } from '../core/types.ts';
-import { displayPath, inParallelTabs, onePagePerTemplate, slug, viewport } from '../core/util.ts';
+import {
+  displayPath,
+  inParallelTabs,
+  onePagePerTemplate,
+  pathOf,
+  slug,
+  viewport,
+} from '../core/util.ts';
 
 interface Frame {
   shot: Buffer;
@@ -68,7 +84,10 @@ const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: nu
   return { changed, total: width * height, diffBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) };
 };
 
-const gallery = (rows: { name: string; percent: string }[]) => `<!doctype html>
+const gallery = (
+  rows: { name: string; percent: string }[],
+  baselineHref: string,
+) => `<!doctype html>
 <meta charset="utf-8"><title>screenshot diff</title>
 <style>
  body{font:14px/1.5 system-ui;margin:2rem;background:#111;color:#eee}
@@ -81,8 +100,15 @@ ${rows
   .map(
     ({ name, percent }) => `<h2>${name} — ${percent}% changed</h2>
 <div class="row">
-${['baseline', 'current', 'diff']
-  .map((dir) => ` <figure><figcaption>${dir}</figcaption><img src="${dir}/${name}.png"></figure>`)
+${[
+  ['baseline', baselineHref],
+  ['current', 'current'],
+  ['diff', 'diff'],
+]
+  .map(
+    ([label, dir]) =>
+      ` <figure><figcaption>${label}</figcaption><img src="${dir}/${name}.png"></figure>`,
+  )
   .join('\n')}
 </div>`,
   )
@@ -152,11 +178,19 @@ export const shots: Audit = {
     const updateBaseline = config.shots.updateBaseline;
     const out = resolve(config.outDir, config.shots.outDir);
     const shown = displayPath(root, out);
-    const baselineDir = join(out, 'baseline');
+    const baselineDir = config.shots.baselineDir
+      ? resolve(config.shots.baselineDir)
+      : join(out, 'baseline');
+    const shownBaseline = displayPath(root, baselineDir);
     const currentDir = join(out, 'current');
     const diffDir = join(out, 'diff');
     const motionDir = join(out, 'motion');
     const png = (dir: string, name: string) => join(dir, `${name}.png`);
+    if ([out, currentDir, diffDir, motionDir].includes(baselineDir)) {
+      throw new UsageError(
+        `shots.baselineDir must not be ${shownBaseline}, where vidimus writes its own output`,
+      );
+    }
 
     const urls = onePagePerTemplate(
       pageUrls({ exclude, allLocales: allLocales || config.allLocales }),
@@ -170,6 +204,7 @@ export const shots: Audit = {
 
     for (const dir of [currentDir, diffDir, motionDir])
       rmSync(dir, { recursive: true, force: true });
+    rmSync(join(out, 'diff.html'), { force: true });
     mkdirSync(currentDir, { recursive: true });
 
     const browser = await launchBrowser({
@@ -180,36 +215,54 @@ export const shots: Audit = {
     const lines: string[] = [];
     const motionNotes = new Map<string, string>();
     let missingBaseline = 0;
+    const failed = new Map<string, { path: string; error: string }>();
+
+    const capture = async (
+      page: Page,
+      size: ReturnType<typeof viewport>,
+      url: string,
+      name: string,
+    ) => {
+      await page.setViewport(size);
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(url, { waitUntil: 'load' });
+      await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+      await page.screenshot({
+        path: png(currentDir, name) as `${string}.png`,
+        fullPage: true,
+        captureBeyondViewport: false,
+      });
+      let note = '';
+      if (motion) {
+        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);
+        await page.reload({ waitUntil: 'load' });
+        await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+        const { frames, settled } = await captureMotion(page, motion);
+        if (frames.length > 1) {
+          note = `  ${frames.length} frames -> motion/${name}.gif${settled ? '' : ' (never settled)'}`;
+          mkdirSync(motionDir, { recursive: true });
+          await writeGif(importPeer, frames, join(motionDir, `${name}.gif`));
+          motionNotes.set(name, note);
+        }
+      }
+      if (updateBaseline) lines.push(`${name}.png${note}`);
+    };
 
     try {
       await inParallelTabs(browser, concurrency, shotList, async (page, { size, url, name }) => {
-        await page.setViewport(size);
-        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-        await page.goto(url, { waitUntil: 'load' });
-        await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
-        await page.screenshot({
-          path: png(currentDir, name) as `${string}.png`,
-          fullPage: true,
-          captureBeyondViewport: false,
-        });
-        let note = '';
-        if (motion) {
-          await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);
-          await page.reload({ waitUntil: 'load' });
-          await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
-          const { frames, settled } = await captureMotion(page, motion);
-          if (frames.length > 1) {
-            note = `  ${frames.length} frames -> motion/${name}.gif${settled ? '' : ' (never settled)'}`;
-            mkdirSync(motionDir, { recursive: true });
-            await writeGif(importPeer, frames, join(motionDir, `${name}.gif`));
-            motionNotes.set(name, note);
-          }
+        try {
+          await capture(page, size, url, name);
+        } catch (error) {
+          failed.set(name, {
+            path: pathOf(url, origin),
+            error: error instanceof Error ? error.message : String(error),
+          });
+          lines.push(`${name}.png  failed`);
         }
-        if (updateBaseline) lines.push(`${name}.png${note}`);
       });
 
       if (!updateBaseline) {
-        const names = shotList.map(({ name }) => name);
+        const names = shotList.map(({ name }) => name).filter((name) => !failed.has(name));
         const withBaseline = names.filter((name) => existsSync(png(baselineDir, name)));
         missingBaseline = names.length - withBaseline.length;
         for (const name of names.filter((name) => !withBaseline.includes(name))) {
@@ -245,16 +298,38 @@ export const shots: Audit = {
     changes.sort((a, b) => a.name.localeCompare(b.name));
     for (const line of lines) log(line);
 
+    const failures: Finding[] = [...failed]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, { path, error }]) => ({
+        message: `failed to capture ${name}`,
+        details: [error],
+        where: [path],
+        fix: `Check that ${path} loads in a browser, raise shots.settleTimeout or shots.protocolTimeout, or add it to shots.exclude.`,
+      }));
+
     if (updateBaseline) {
-      rmSync(baselineDir, { recursive: true, force: true });
+      if (failures.length) {
+        return {
+          status: 'failed',
+          summary: `baseline not updated: ${failures.length} screenshot(s) failed`,
+          findings: failures,
+        };
+      }
+      mkdirSync(baselineDir, { recursive: true });
+      for (const file of readdirSync(baselineDir).filter((name) => name.endsWith('.png'))) {
+        rmSync(join(baselineDir, file));
+      }
       cpSync(currentDir, baselineDir, { recursive: true });
       return {
-        summary: `baseline updated from ${shotList.length} screenshots in ${shown}/baseline`,
+        summary: `baseline updated from ${shotList.length} screenshots in ${shownBaseline}`,
       };
     }
 
     if (changes.length) {
-      writeFileSync(join(out, 'diff.html'), gallery(changes));
+      writeFileSync(
+        join(out, 'diff.html'),
+        gallery(changes, relative(out, baselineDir).split(sep).join('/')),
+      );
       log(`side-by-side gallery at ${shown}/diff.html`);
     }
     const findings: Finding[] = changes
@@ -265,20 +340,21 @@ export const shots: Audit = {
         fix: changedShotFix(`${shown}/diff.html`),
       }));
     const beyond = findings.length;
+    findings.push(...failures);
     if (missingBaseline) {
-      const none = missingBaseline === shotList.length;
+      const none = missingBaseline === shotList.length - failed.size;
       findings.push({
         message: none
-          ? `no baseline in ${shown}/baseline: nothing was compared`
+          ? `no baseline in ${shownBaseline}: nothing was compared`
           : `${missingBaseline} screenshot(s) have no baseline`,
         ...(!none && {
           details: shotList
             .map(({ name }) => name)
-            .filter((name) => !existsSync(png(baselineDir, name)))
+            .filter((name) => !failed.has(name) && !existsSync(png(baselineDir, name)))
             .map((name) => `${name}.png`),
           severity: 'warn' as const,
         }),
-        fix: `Run vidimus shots --update-baseline and commit ${shown}/baseline, or add the new pages to shots.exclude.`,
+        fix: `Run vidimus shots --update-baseline, or add the new pages to shots.exclude.`,
       });
     }
 
@@ -290,7 +366,9 @@ export const shots: Audit = {
         beyond
           ? `${beyond} screenshot(s) changed beyond the allowed diff`
           : `${changes.length} changed within tolerance`
-      }${missingBaseline ? `, ${missingBaseline} without baseline` : ''}`,
+      }${missingBaseline ? `, ${missingBaseline} without baseline` : ''}${
+        failures.length ? `, ${failures.length} failed` : ''
+      }`,
       findings,
     };
   },

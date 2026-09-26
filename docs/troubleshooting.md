@@ -139,11 +139,12 @@ vidimus: /path/to/site/vidimus.config.ts: unknown config key "seo.titleLenght"
 ```
 
 Unknown keys in a config file or `--set` stop the run with exit code `2`; that is intended.
-`npx vidimus config --no-config` lists every valid key. Two places are not checked:
+`npx vidimus config --no-config` lists every valid key. `ignore` rules are checked too: an
+unknown key, an empty rule `{}`, a value that is not a string or an invalid regular expression
+also exits `2`. Two places are not checked:
 
 - `VIDIMUS_*` variables that do not name a key are ignored
-- entries of arrays, such as `ignore` rules: a misspelled key there is dropped, and a rule left
-  without keys matches every finding
+- entries of other arrays, such as `server.headers` rules: a misspelled key there is not reported
 
 Values in a config file are not type-checked when loaded. Use the `$schema` in JSON configs or
 `defineConfig` in TS configs to catch those in the editor.
@@ -174,11 +175,8 @@ stops with Node's `EADDRINUSE` error and exit code `2`. Pick another with `--por
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| `0` | every audit passed, warned or was skipped |
-| `1` | at least one audit failed or errored, including a missing peer or a browser that did not start |
-| `2` | bad usage or config: unknown flag, audit, reporter or config key, a value that does not convert, a missing config file or build, an invalid baseline file, or an unexpected error outside the audits |
-
-Warnings exit `0` unless `--strict` is set. A skipped audit (`○`) is not a failure: `csp`
-without a meta CSP, or `i18n` without `i18n.files`, `locales` and `defaultLocale`.
+The full table is in [CLI](./cli#exit-codes). An audit that errors, from a missing peer or a
+browser that did not start, exits `1` like a failure; a problem before the audits start, such as
+config, a missing build or a port in use, exits `2`. Warnings exit `0` unless `--strict` is set.
+A skipped audit (`○`) is not a failure: `csp` without a meta CSP, or `i18n` without
+`i18n.files`, `locales` and `defaultLocale`.

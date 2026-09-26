@@ -54,11 +54,12 @@ const coerce = (raw: string, current: unknown, source: string): unknown => {
     throw new UsageError(`${source}: "${raw}" is not a boolean`);
   }
   if (Array.isArray(current) && !raw.trim().startsWith('[')) {
+    const numeric = current.some((item) => typeof item === 'number');
     return raw
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean)
-      .map((item) => (typeof current[0] === 'number' ? Number(item) : item));
+      .map((item) => (numeric && !Number.isNaN(Number(item)) ? Number(item) : item));
   }
   try {
     return JSON.parse(raw);
@@ -92,7 +93,13 @@ export const setPath = <T extends object>(
     if (lenient) return object;
     throw new UsageError(`${source}: unknown config key "${[...parents, head].join('.')}"`);
   }
-  if (rest.length === 0) return { ...tree, [key]: coerce(raw, tree[key], source) } as T;
+  if (rest.length === 0) {
+    const value =
+      parents.join('.') === 'security.require' && /^false$/i.test(raw)
+        ? false
+        : coerce(raw, tree[key], source);
+    return { ...tree, [key]: value } as T;
+  }
   const child = tree[key];
   if (!isPlainObject(child)) {
     if (lenient) return object;

@@ -42,7 +42,7 @@ export const links: Audit = {
       retry: config.links.retry,
       retryErrors: config.links.retry,
       urlRewriteExpressions: site
-        ? [{ pattern: new RegExp(`^${escapeRegExp(site)}`), replacement: origin }]
+        ? [{ pattern: new RegExp(`^${escapeRegExp(site)}(?=[/?#]|$)`), replacement: origin }]
         : [],
       linksToSkip: [
         ...config.links.skip,

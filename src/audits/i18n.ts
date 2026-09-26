@@ -32,7 +32,13 @@ export const i18n: Audit = {
     const load = (locale: string): Record<string, unknown> => {
       const file = fileOf(locale);
       if (!existsSync(file)) throw new Error(`no translation file for "${locale}" at ${file}`);
-      return Object.fromEntries(flatten(JSON.parse(readFileSync(file, 'utf8'))));
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(readFileSync(file, 'utf8'));
+      } catch (error) {
+        throw new Error(`${file}: ${(error as Error).message}`);
+      }
+      return Object.fromEntries(flatten(parsed));
     };
 
     const base = load(defaultLocale);
@@ -44,9 +50,11 @@ export const i18n: Audit = {
 
     for (const [locale, dict] of translations) {
       const problems = {
-        missing: baseKeys.filter((key) => !(key in dict)),
+        missing: baseKeys.filter((key) => !Object.hasOwn(dict, key)),
         unknown: Object.keys(dict).filter((key) => !Object.hasOwn(base, key)),
-        empty: baseKeys.filter((key) => key in dict && isBlank(dict[key]) && !isBlank(base[key])),
+        empty: baseKeys.filter(
+          (key) => Object.hasOwn(dict, key) && isBlank(dict[key]) && !isBlank(base[key]),
+        ),
       };
       const shown = displayPath(root, fileOf(locale));
       const fixes = {

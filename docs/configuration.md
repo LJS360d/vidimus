@@ -108,8 +108,9 @@ vidimus: config file not found: /path/to/site/vidimus.config.json
 ```
 
 Key names are checked; values in a config file are not. Use the JSON Schema or the types of
-`defineConfig` to catch a string where a number belongs. Entries of arrays (`ignore` rules,
-`server.headers` rules) are not checked either.
+`defineConfig` to catch a string where a number belongs. `ignore` rules are checked in full
+([below](#ignore-rules-in-detail)); entries of other arrays, such as `server.headers` rules, are
+not.
 
 ## Top-level keys
 

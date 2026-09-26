@@ -56,7 +56,7 @@ describe('r12s audit', () => {
   }, async () => {
     const cwd = fixture({
       'dist/index.html': page(
-        'width=device-width, initial-scale=1, maximum-scale=1.0',
+        'width=device-width, initial-scale=1, user-scalable=0',
         '<p style="font-size:8px">tiny</p><nav><a href="/a">a</a><a href="/b">b</a></nav>',
       ),
     });

@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import {
   type BuiltPage,
   decodeEntities,
+  isNoindex,
   linksWithRel,
   localFile,
   meta,
-  readPages,
+  originOf,
   resolveHref,
   tags,
   textOf,
@@ -15,15 +16,6 @@ import type { Audit, Finding, Severity } from '../core/types.ts';
 import { matchesAny, stripBase } from '../core/util.ts';
 
 const SITEMAPS = ['sitemap.xml', 'sitemap-index.xml', 'sitemap_index.xml'];
-const ROBOTS_META = new Set(['robots', 'googlebot']);
-
-const originOf = (url: string) => {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '';
-  }
-};
 
 const pathnameOf = (url: string, siteUrl: string) => {
   try {
@@ -34,12 +26,10 @@ const pathnameOf = (url: string, siteUrl: string) => {
 };
 
 const isRedirect = (html: string) =>
-  tags(html, 'meta').some(({ attrs }) => (attrs['http-equiv'] ?? '').toLowerCase() === 'refresh');
-
-const isNoindex = (html: string) =>
   tags(html, 'meta').some(
     ({ attrs }) =>
-      ROBOTS_META.has((attrs.name ?? '').toLowerCase()) && /\bnoindex\b/i.test(attrs.content ?? ''),
+      (attrs['http-equiv'] ?? '').toLowerCase() === 'refresh' &&
+      /(^|[;,\s])url\s*=/i.test(attrs.content ?? ''),
   );
 
 const locs = (xml: string, parent: string) =>
@@ -81,10 +71,10 @@ export const seo: Audit = {
   description:
     'titles, descriptions, canonical, hreflang, noindex, sitemap, robots.txt and orphan pages',
   requires: 'dist',
-  async run({ config, dist }) {
+  async run({ config, builtPages, dist }) {
     const options = config.seo;
     const siteOrigin = originOf(config.siteUrl);
-    const built = readPages(dist, config.exclude);
+    const built = builtPages(config.exclude);
     const pages = built.filter((page) => !matchesAny(options.exclude, page.path));
     if (!pages.length) return { status: 'skipped', summary: 'no pages to check' };
 

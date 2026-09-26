@@ -16,60 +16,147 @@ export interface BuiltPage {
   html: string;
 }
 
+// Latin-1 names, in code point order from U+00A0.
+const LATIN1 = [
+  'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg',
+  'macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14',
+  'frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave',
+  'Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde',
+  'Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute',
+  'acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute',
+  'icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave',
+  'uacute ucirc uuml yacute thorn yuml',
+]
+  .join(' ')
+  .split(' ');
+
 const ENTITIES: Record<string, string> = {
+  ...Object.fromEntries(LATIN1.map((name, i) => [name, String.fromCodePoint(0xa0 + i)])),
   amp: '&',
   lt: '<',
   gt: '>',
   quot: '"',
   apos: "'",
-  nbsp: ' ',
+  OElig: 'Œ',
+  oelig: 'œ',
+  Scaron: 'Š',
+  scaron: 'š',
+  Yuml: 'Ÿ',
+  fnof: 'ƒ',
+  circ: 'ˆ',
+  tilde: '˜',
+  ensp: '\u2002',
+  emsp: '\u2003',
+  thinsp: '\u2009',
+  zwnj: '\u200c',
+  zwj: '\u200d',
+  lrm: '\u200e',
+  rlm: '\u200f',
+  ndash: '–',
+  mdash: '—',
+  lsquo: '‘',
+  rsquo: '’',
+  sbquo: '‚',
+  ldquo: '“',
+  rdquo: '”',
+  bdquo: '„',
+  dagger: '†',
+  Dagger: '‡',
+  bull: '•',
+  hellip: '…',
+  permil: '‰',
+  prime: '′',
+  Prime: '″',
+  lsaquo: '‹',
+  rsaquo: '›',
+  euro: '€',
+  trade: '™',
+  larr: '←',
+  uarr: '↑',
+  rarr: '→',
+  darr: '↓',
+  harr: '↔',
+  minus: '−',
+  infin: '∞',
+  ne: '≠',
+  le: '≤',
+  ge: '≥',
+  hearts: '♥',
 };
 
 export const decodeEntities = (text: string) =>
-  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
-    if (code[0] !== '#') return ENTITIES[code.toLowerCase()] ?? entity;
+  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z\d]*);/gi, (entity, code: string) => {
+    if (code[0] !== '#') {
+      const name = Object.hasOwn(ENTITIES, code) ? code : code.toLowerCase();
+      return (Object.hasOwn(ENTITIES, name) && ENTITIES[name]) || entity;
+    }
     const point =
       code[1]?.toLowerCase() === 'x' ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1));
-    return Number.isFinite(point) ? String.fromCodePoint(point) : entity;
+    return Number.isInteger(point) && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
   });
 
 const blankOut = (match: string) => match.replace(/[^\n]/g, ' ');
 
-export const stripNonMarkup = (html: string) =>
-  html
-    .replace(/<!--[\s\S]*?-->/g, blankOut)
-    .replace(
-      /(<(script|style|template)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
-      (_, open: string, _name, body: string, close: string) => open + blankOut(body) + close,
-    );
+export const stripComments = (html: string) =>
+  html.replace(/(<(script|style)\b[^>]*>[\s\S]*?<\/\2\s*>)|<!--[\s\S]*?-->/gi, (match, block) =>
+    block ? match : blankOut(match),
+  );
 
+export const stripNonMarkup = (html: string) =>
+  stripComments(html).replace(
+    /(<(script|style|template)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
+    (_, open: string, _name, body: string, close: string) => open + blankOut(body) + close,
+  );
+
+// Attributes are separated by whitespace, or by nothing after a quoted value (minifiers emit a="x"b="y").
 const TAG =
-  /<([a-zA-Z][\w:-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
+  /<([a-zA-Z][\w:-]*)((?:(?:\s+|(?<=["']))[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
 const ATTR = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
 
 const parseAttrs = (source: string) => {
   const attrs: Record<string, string> = {};
   for (const [, name = '', double, single, bare] of source.matchAll(ATTR)) {
     const key = name.toLowerCase();
-    if (!(key in attrs)) attrs[key] = decodeEntities(double ?? single ?? bare ?? '');
+    if (!Object.hasOwn(attrs, key)) attrs[key] = decodeEntities(double ?? single ?? bare ?? '');
   }
   return attrs;
 };
 
+interface Parsed {
+  stripped: string;
+  tags: Tag[];
+}
+
+const PARSE_CACHE_SIZE = 32;
+const parseCache = new Map<string, Parsed>();
+
+const parse = (html: string): Parsed => {
+  const cached = parseCache.get(html);
+  if (cached) return cached;
+  const stripped = stripNonMarkup(html);
+  const parsed = {
+    stripped,
+    tags: [...stripped.matchAll(TAG)].map((match) => ({
+      name: (match[1] ?? '').toLowerCase(),
+      attrs: parseAttrs(match[2] ?? ''),
+      index: match.index,
+    })),
+  };
+  if (parseCache.size >= PARSE_CACHE_SIZE) parseCache.delete(parseCache.keys().next().value ?? '');
+  parseCache.set(html, parsed);
+  return parsed;
+};
+
 export const tags = (html: string, ...names: string[]): Tag[] => {
+  const all = parse(html).tags;
+  if (!names.length) return [...all];
   const wanted = new Set(names.map((name) => name.toLowerCase()));
-  const found: Tag[] = [];
-  for (const match of stripNonMarkup(html).matchAll(TAG)) {
-    const name = (match[1] ?? '').toLowerCase();
-    if (wanted.size && !wanted.has(name)) continue;
-    found.push({ name, attrs: parseAttrs(match[2] ?? ''), index: match.index });
-  }
-  return found;
+  return all.filter(({ name }) => wanted.has(name));
 };
 
 export const textOf = (html: string, name: string) => {
   const match = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}\\s*>`, 'id').exec(
-    stripNonMarkup(html),
+    parse(html).stripped,
   );
   const [start, end] = match?.indices?.[1] ?? [];
   if (start === undefined || end === undefined) return undefined;
@@ -93,17 +180,74 @@ export const linksWithRel = (html: string, rel: string) =>
 
 const pagePath = (rel: string) => `/${rel.replace(/(^|\/)index\.html$/, '$1')}`;
 
-export const readPages = (dist: string, exclude: Pattern[] = []): BuiltPage[] =>
-  globSync('**/*.html', { cwd: dist })
-    .map((rel) => rel.split(sep).join('/'))
-    .filter((rel) => !matchesAny(exclude, rel))
-    .sort()
-    .map((rel) => {
-      const file = join(dist, rel);
-      return { file, rel, path: pagePath(rel), html: readFileSync(file, 'utf8') };
-    });
+export type PageReader = (exclude?: Pattern[]) => BuiltPage[];
 
-const isFile = (path: string) => statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+export const createPageReader = (dist: string): PageReader => {
+  let rels: string[] | undefined;
+  const contents = new Map<string, string>();
+  const read = (file: string) => {
+    let html = contents.get(file);
+    if (html === undefined) {
+      html = readFileSync(file, 'utf8');
+      contents.set(file, html);
+    }
+    return html;
+  };
+  return (exclude = []) => {
+    rels ??= globSync('**/*.html', { cwd: dist })
+      .map((rel) => rel.split(sep).join('/'))
+      .sort();
+    return rels
+      .filter((rel) => !matchesAny(exclude, rel))
+      .map((rel) => {
+        const file = join(dist, rel);
+        return {
+          file,
+          rel,
+          path: pagePath(rel),
+          get html() {
+            return read(file);
+          },
+        };
+      });
+  };
+};
+
+// A URL runs to the next whitespace, so commas inside it (/w_400,h_300/a.jpg) are kept.
+export const srcsetUrls = (srcset = '') => {
+  const urls: string[] = [];
+  let i = 0;
+  while (i < srcset.length) {
+    while (i < srcset.length && /[\s,]/.test(srcset.charAt(i))) i += 1;
+    const start = i;
+    while (i < srcset.length && !/\s/.test(srcset.charAt(i))) i += 1;
+    let url = srcset.slice(start, i);
+    if (url.endsWith(',')) {
+      url = url.replace(/,+$/, '');
+    } else {
+      let depth = 0;
+      for (; i < srcset.length; i += 1) {
+        const char = srcset.charAt(i);
+        if (char === '(') depth += 1;
+        else if (char === ')') depth -= 1;
+        else if (char === ',' && depth <= 0) break;
+      }
+    }
+    if (url) urls.push(url);
+  }
+  return urls;
+};
+
+const ROBOTS_META = new Set(['robots', 'googlebot']);
+
+export const isNoindex = (html: string) =>
+  tags(html, 'meta').some(
+    ({ attrs }) =>
+      ROBOTS_META.has((attrs.name ?? '').toLowerCase()) && /\bnoindex\b/i.test(attrs.content ?? ''),
+  );
+
+export const isFile = (path: string) =>
+  statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
 
 export const localFile = (dist: string, pathname: string) => {
   let decoded: string;
@@ -112,12 +256,13 @@ export const localFile = (dist: string, pathname: string) => {
   } catch {
     return null;
   }
+  if (decoded.includes('\0')) return null;
   const base = join(dist, decoded);
   if (base !== dist && !base.startsWith(dist + sep)) return null;
   return [base, join(base, 'index.html'), `${base}.html`].find(isFile) ?? null;
 };
 
-const originOf = (url: string) => {
+export const originOf = (url: string) => {
   try {
     return new URL(url).origin;
   } catch {

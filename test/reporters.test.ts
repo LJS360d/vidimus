@@ -85,6 +85,26 @@ describe('junit reporter with warnings', () => {
   });
 });
 
+describe('junit reporter edge cases', () => {
+  it('keeps characters outside the BMP and drops invalid control characters', () => {
+    const xml = toJUnit({
+      ...report,
+      results: [
+        {
+          name: 'seo',
+          status: 'failed',
+          summary: 'x',
+          findings: [{ message: 'rocket 🚀 bell \u0007' }],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    assert.match(xml, /rocket 🚀 bell "/);
+  });
+});
+
 describe('github reporter', () => {
   it('escapes workflow command data and properties', () => {
     assert.equal(
@@ -92,6 +112,10 @@ describe('github reporter', () => {
       '::error title=vidimus a%3Ab::line 1%0Aline 2 100%25\n',
     );
     assert.equal(annotation('t', 'm', undefined, 'warning'), '::warning title=t::m\n');
+    assert.equal(
+      annotation('t', 'm', join('/repo', 'site', 'dist', 'a.html'), 'error', '/repo'),
+      '::error file=site/dist/a.html,title=t::m\n',
+    );
   });
 });
 
@@ -164,6 +188,13 @@ describe('createReporters', () => {
     assert.deepEqual(names(['github', 'json'], { GITHUB_ACTIONS: 'true' }), ['github', 'json']);
     assert.deepEqual(names(['pretty', 'json:out.json', 'junit']), ['pretty', 'json', 'junit']);
     assert.throws(() => names(['nope']), { name: 'UsageError' });
+    assert.throws(() => names(['json', 'junit']), /both write to stdout/);
+  });
+
+  it('passes custom reporters through even when they have a target field', () => {
+    const custom = { name: 'mine', target: 'somewhere', onEnd: () => {} };
+    const [reporter] = createReporters([custom], { cwd: process.cwd(), env: {} });
+    assert.equal(reporter, custom);
   });
 
   it('writes json and junit reports to files', async () => {

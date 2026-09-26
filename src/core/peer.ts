@@ -23,6 +23,43 @@ export const importPeer = <T>(peer: string): Promise<T> => {
   return loaded.get(peer) as Promise<T>;
 };
 
+export const sharedBrowser = (launch: () => Promise<Browser>) => {
+  let current: Promise<Browser> | undefined;
+  let users = 0;
+  return async (): Promise<Browser> => {
+    users += 1;
+    current ??= launch();
+    const launching = current;
+    let browser: Browser;
+    try {
+      browser = await launching;
+    } catch (error) {
+      users -= 1;
+      if (current === launching) current = undefined;
+      throw error;
+    }
+    const context = await browser.createBrowserContext();
+    let released = false;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      users -= 1;
+      await context.close().catch(() => {});
+      if (users > 0 || current !== launching) return;
+      current = undefined;
+      await browser.close();
+    };
+    return new Proxy(browser, {
+      get(target, property) {
+        if (property === 'close') return release;
+        if (property === 'newPage') return () => context.newPage();
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  };
+};
+
 export const launchBrowser = async (
   config: VidimusConfig,
   options: LaunchOptions = {},

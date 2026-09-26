@@ -260,3 +260,44 @@ describe('security audit against a live origin', () => {
     assert.match(result.findings[1]?.fix ?? '', /server_tokens off/);
   });
 });
+
+describe('security audit following redirects', () => {
+  let server: Server;
+  let origin = '';
+
+  before(async () => {
+    server = createServer((req, res) => {
+      if (req.url === '/') {
+        res.writeHead(301, { location: '/home/' }).end();
+        return;
+      }
+      if (req.url === '/away/') {
+        res.writeHead(302, { location: 'https://elsewhere.invalid/' }).end();
+        return;
+      }
+      res
+        .writeHead(200, {
+          'strict-transport-security': 'max-age=31536000',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+          'permissions-policy': 'camera=()',
+          'x-frame-options': 'DENY',
+        })
+        .end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => new Promise((resolve) => server.close(resolve)));
+
+  it('checks the headers of the page a same-origin redirect leads to', async () => {
+    const result = await audit(
+      { 'dist/index.html': page(), 'dist/away/index.html': page(), 'dist/_headers': '' },
+      { origin },
+    );
+    const onHome = result.findings.filter(({ where }) => where?.includes('/'));
+    assert.deepEqual(onHome, []);
+    assert.ok(result.findings.some(({ where }) => where?.includes('/away/')));
+  });
+});

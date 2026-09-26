@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readPages } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
 
@@ -95,9 +94,9 @@ export const html: Audit = {
   name: 'html',
   description: 'html-validate finds no HTML errors',
   requires: 'dist',
-  async run({ config, root, dist, importPeer }) {
+  async run({ config, root, builtPages, importPeer }) {
     const { exclude, extends: extendsPresets, rules } = config.html;
-    const pages = readPages(dist, config.exclude).filter(({ path }) => !matchesAny(exclude, path));
+    const pages = builtPages(config.exclude).filter(({ path }) => !matchesAny(exclude, path));
     if (pages.length === 0) return { status: 'skipped', summary: 'no built HTML pages' };
 
     const { HtmlValidate, StaticConfigLoader } =

@@ -58,6 +58,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
   },
   shots: {
     outDir: 'shots',
+    baselineDir: '',
     viewports: [{ width: 375, height: 667 }, 1280],
     exclude: [],
     sample: [],

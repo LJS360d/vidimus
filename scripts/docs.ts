@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   globSync,
@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
+import { promisify } from 'node:util';
 import {
   canonicalUrl,
   dogfoodNote,
@@ -32,10 +33,10 @@ const engineDirs = flavors.filter(({ path }) => path).map(({ id }) => id);
 
 const parse = (file: string): Page => {
   const source = readFileSync(join(docs, file), 'utf8');
-  const match = /^---\n([\s\S]*?)\n---\n/.exec(source);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(source);
   const field = (key: string) =>
     new RegExp(`^${key}:\\s*(.*)$`, 'm')
-      .exec(match?.[1] ?? '')?.[1]
+      .exec(match?.[1]?.replaceAll('\r', '') ?? '')?.[1]
       ?.trim()
       .replace(/^(['"])(.*)\1$/, '$2') ?? '';
   return {
@@ -43,7 +44,7 @@ const parse = (file: string): Page => {
     slug: file === 'home.md' ? '' : slugOf(file),
     title: field('title'),
     description: field('description'),
-    body: source.slice(match?.[0].length ?? 0).replace(/^\n+/, ''),
+    body: source.slice(match?.[0].length ?? 0).replace(/^(\r?\n)+/, ''),
   };
 };
 
@@ -295,18 +296,51 @@ const injectMdbook = (all: Page[]) => {
   }
 };
 
-const run = (command: string, args: string[], cwd = root) =>
-  execFileSync(command, args, { cwd, stdio: 'inherit' });
+const execFileAsync = promisify(execFile);
 
-const build = () => {
+const run = async (command: string, args: string[], cwd = root) => {
+  try {
+    const { stdout, stderr } = await execFileAsync(command, args, {
+      cwd,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+  } catch (error) {
+    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+    throw new Error(`${command} ${args.join(' ')} failed`, { cause: error });
+  }
+};
+
+const nativeTools = { hugo: 'version', zola: '--version', mdbook: '--version' };
+
+const requireTools = () => {
+  const missing = Object.entries(nativeTools)
+    .filter(([tool, arg]) => spawnSync(tool, [arg], { stdio: 'ignore' }).status !== 0)
+    .map(([tool]) => tool);
+  if (missing.length) {
+    console.error(
+      `missing ${missing.join(', ')}: run \`mise install\` to get the versions pinned in mise.toml`,
+    );
+    process.exit(1);
+  }
+};
+
+const build = async () => {
+  requireTools();
   const all = sync();
   clean(dist);
-  run('pnpm', ['exec', 'vitepress', 'build', 'docs']);
-  run('pnpm', ['exec', 'astro', 'build', '--root', 'docs/astro']);
-  run('hugo', ['--source', 'docs/hugo', '--destination', '../dist/hugo', '--quiet']);
-  run('pnpm', ['exec', 'eleventy', '--quiet'], join(docs, 'eleventy'));
-  run('zola', ['build', '--output-dir', '../dist/zola', '--force'], join(docs, 'zola'));
-  run('mdbook', ['build', '--dest-dir', '../dist/mdbook'], join(docs, 'mdbook'));
+  // VitePress empties docs/dist, so it goes first; the others each write their own subfolder.
+  await run('pnpm', ['exec', 'vitepress', 'build', 'docs']);
+  await Promise.all([
+    run('pnpm', ['exec', 'astro', 'build', '--root', 'docs/astro']),
+    run('hugo', ['--source', 'docs/hugo', '--destination', '../dist/hugo', '--quiet']),
+    run('pnpm', ['exec', 'eleventy', '--quiet'], join(docs, 'eleventy')),
+    run('zola', ['build', '--output-dir', '../dist/zola', '--force'], join(docs, 'zola')),
+    run('mdbook', ['build', '--dest-dir', '../dist/mdbook'], join(docs, 'mdbook')),
+  ]);
   injectMdbook(all);
   rmSync(join(dist, 'zola', '404.html'), { force: true });
   for (const asset of ['favicon.svg', 'apple-touch-icon.png'])
@@ -314,7 +348,7 @@ const build = () => {
       copyFileSync(join(docs, 'public', asset), join(dist, engine, asset));
 };
 
-const commands: Record<string, () => void> = {
+const commands: Record<string, () => unknown> = {
   sync,
   build,
 };
@@ -324,4 +358,4 @@ if (!command) {
   console.error(`usage: node scripts/docs.ts ${Object.keys(commands).join('|')}`);
   process.exit(2);
 }
-command();
+await command();

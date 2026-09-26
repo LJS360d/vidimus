@@ -75,6 +75,23 @@ const find = (result: Awaited<ReturnType<typeof audit>>, message: RegExp) =>
   result.findings.find((finding) => message.test(finding.message));
 
 describe('seo audit', () => {
+  it('skips redirect stubs but still checks pages that only auto-reload', async () => {
+    const result = await audit(
+      site({
+        'dist/old/index.html': '<meta http-equiv="refresh" content="0; url=/about/">',
+        'dist/live/index.html': page({
+          path: '/live/',
+          title: null,
+          head: '<meta http-equiv="refresh" content="300">',
+          links: ['/'],
+        }),
+        'dist/sitemap.xml': sitemap('/', '/about/', '/live/'),
+      }),
+    );
+    assert.ok(result.findings.some(({ where }) => where?.includes('/live/')));
+    assert.ok(!result.findings.some(({ where }) => where?.includes('/old/')));
+  });
+
   it('passes a clean site', async () => {
     const result = await audit(site());
     assert.deepEqual(result.findings, []);

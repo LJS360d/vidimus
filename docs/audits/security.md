@@ -27,9 +27,11 @@ npx vidimus security --origin https://preview.example.com  # headers from a live
 Static hosts set headers outside the HTML, so vidimus reads them from one of two places:
 
 1. **A live origin**, when `--origin` (or the `origin` config key) is set. vidimus sends a
-   `HEAD` request for every built page to the origin plus the page path, without following
-   redirects, and retries with `GET` if the server answers `405`. A request that fails is an
-   error finding, `could not fetch headers`, with the reason as detail.
+   `HEAD` request for every built page to the origin plus the page path, and retries with
+   `GET` if the server answers `405`. Redirects on the same origin (such as `/about` to
+   `/about/`) are followed, up to 5; a redirect to another origin is not, and its own
+   headers are checked. A request that fails or takes longer than 20 seconds is an error
+   finding, `could not fetch headers`, with the reason as detail.
 2. **A headers file in the build**, `dist/_headers` by default (`security.file`), in the
    Netlify and Cloudflare Pages format. Put it in the folder your framework copies to the
    build as is (`public/` in most of them).

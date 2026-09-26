@@ -70,6 +70,7 @@ such as timing measurements; the built-in `lighthouse` does.
 | `origin` | where the build is served, without a trailing slash, base path included (`http://localhost:4322/project`) |
 | `resolve(...segments)` | resolves a path from `root` |
 | `pageUrls(query?)` | absolute URLs of the built pages under `origin` |
+| `builtPages(exclude?)` | the built HTML files as `{ file, rel, path, html }`, minus files matching `exclude` |
 | `log(line?)` | adds lines to the audit's log; multi-line strings are split |
 | `importPeer(name)` | imports an optional dependency, with an install hint if it is missing |
 | `launchBrowser(options?)` | launches puppeteer with the `browser` config |
@@ -90,9 +91,16 @@ error.
 `MissingPeerError`: the audit errors with `"name" is not installed. Add it as a dev dependency:
 npm i -D name`, and the other audits carry on.
 
+`builtPages()` reads each file once per run and shares it between audits. `exclude` patterns
+match the path relative to `dist` (`blog/index.html`); the top-level `exclude` is not applied, so
+pass `config.exclude` to honour it.
+
 `launchBrowser(options)` needs `puppeteer` installed. It passes puppeteer's `LaunchOptions`
 through, uses `browser.executablePath` when set, and appends `options.args` to `browser.args`.
-Close the browser yourself, in a `finally`.
+Without options, audits running at the same time share one browser process, each in its own
+browser context (separate cookies and storage); `close()` releases your share and the browser
+closes when the last audit is done. Pass options to get a browser of
+your own. Either way, close it yourself, in a `finally`.
 
 The run gives no audit-specific config section to plugins: unknown keys are a config error.
 Take options through a function instead:

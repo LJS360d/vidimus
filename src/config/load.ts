@@ -124,6 +124,37 @@ const checkIgnoreRules = (rules: unknown) => {
   });
 };
 
+const PATTERN_LISTS = ['exclude', 'sample', 'allow', 'allowNoindex', 'skip'];
+
+const checkPattern = (at: string, pattern: unknown) => {
+  if (typeof pattern !== 'string') throw new UsageError(`${at}: must be a string`);
+  try {
+    new RegExp(pattern);
+  } catch (error) {
+    throw new UsageError(`${at}: ${(error as Error).message}`);
+  }
+};
+
+const checkPatterns = (config: VidimusConfig) => {
+  const lists = (tree: Record<string, unknown>, path: string[]) => {
+    for (const [key, value] of Object.entries(tree)) {
+      const at = [...path, key].join('.');
+      if (PATTERN_LISTS.includes(key) && Array.isArray(value)) {
+        for (const [index, pattern] of value.entries()) checkPattern(`${at}[${index}]`, pattern);
+      } else if (isPlainObject(value) && path.length === 0) {
+        lists(value, [key]);
+      }
+    }
+  };
+  lists(config as unknown as Record<string, unknown>, []);
+  for (const [index, { match }] of config.server.headers.entries()) {
+    checkPattern(`server.headers[${index}].match`, match);
+  }
+  for (const [name, pattern] of Object.entries(config.security.require)) {
+    if (pattern !== false) checkPattern(`security.require.${name}`, pattern);
+  }
+};
+
 const resolveRoot = (root: string | undefined, base: string) =>
   root === undefined ? undefined : isAbsolute(root) ? root : resolve(base, root);
 
@@ -161,6 +192,7 @@ export const loadConfig = async ({
   config = merge(config, { ...overrides, root: resolveRoot(overrides.root, cwd) });
   config = { ...config, root: resolveRoot(config.root, cwd) ?? cwd };
   checkIgnoreRules(config.ignore);
+  checkPatterns(config);
 
   return { config, source };
 };

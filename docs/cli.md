@@ -63,7 +63,7 @@ Each flag sets a config key and wins over every other source:
 
 A relative `--root` resolves from the working directory; relative `--dist` and `--out-dir`
 resolve from `root`. See [How it works](./how-it-works#config). `--port` accepts an
-integer from 0 to 65535.
+integer from 0 to 65535; `0` picks a free port. A port already in use exits `2`.
 
 Any other key goes through `--set`, which uses the exact key path and is checked against the
 known keys:
@@ -113,7 +113,10 @@ npx vidimus init --force         # overwrite an existing file
 ```
 
 The file is written to the working directory with `distDir: 'dist'`, an empty `siteUrl` and an
-empty `exclude`. Fill in `siteUrl` before the first run.
+empty `exclude`. Fill in `siteUrl` before the first run. `init` refuses to create a second
+config file when one in another format already exists. If the working directory has a
+`.gitignore` that does not list `.vidimus` yet, `init` appends it, so reports and screenshot
+baselines stay out of git; see [shots](./audits/shots#sharing-the-baseline) to commit a baseline.
 
 ## Output
 
@@ -150,14 +153,11 @@ Formats, targets and custom reporters are covered in [Reporters](./reporters).
 
 ## Exit codes
 
-Exit codes: `0` all passed, warned or skipped, `1` an audit failed or errored, `2` bad usage or
-config.
-
 | Code | When |
 | --- | --- |
-| `0` | every audit passed, warned or was skipped, or `--help` / `--version` |
-| `1` | at least one audit failed or errored, including a missing peer dependency |
-| `2` | unknown flag, command, audit or reporter; unknown config key or unparsable value; missing config file or build output; invalid baseline file; an unexpected error outside the audits |
+| `0` | every audit passed, warned or was skipped, or `--help` / `--version`; warnings exit `0` unless `--strict` is set |
+| `1` | at least one audit failed or errored, including a missing peer dependency or a browser that did not start |
+| `2` | unknown flag, command, audit or reporter; unknown config key, unparsable value or invalid pattern; missing config file or build output; invalid baseline file; port in use; an unexpected error outside the audits |
 
 Usage errors print one line starting with `vidimus:`; unexpected errors print a stack trace.
 

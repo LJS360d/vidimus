@@ -8,7 +8,7 @@ const escapeXml = (text: string) =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;')
-    .replace(/[^\t\n\r -퟿-�]/gu, '');
+    .replace(/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '');
 
 const attrs = (values: Record<string, string | number>) =>
   Object.entries(values)

@@ -35,7 +35,9 @@ const expect = (label: string, ok: boolean, output = '') => {
 
 try {
   execFileSync('pnpm', ['pack', '--pack-destination', work], { cwd: repo, stdio: 'inherit' });
-  const tarball = join(work, readdirSync(work).find((name) => name.endsWith('.tgz')) ?? '');
+  const packed = readdirSync(work).find((name) => name.endsWith('.tgz'));
+  if (!packed) throw new Error(`pnpm pack wrote no tarball to ${work}`);
+  const tarball = join(work, packed);
 
   write('package.json', JSON.stringify({ name: 'site', private: true, type: 'module' }));
   write('dist/index.html', '<!doctype html><html lang="en"><title>Smoke</title><p>hi</p></html>');
@@ -125,8 +127,27 @@ export const report = () => run({ audits: ['csp'] });
     needsPeer.stdout + needsPeer.stderr,
   );
 
+  write('.gitignore', 'node_modules');
   const init = vidimus('init', '--format', 'ts');
   expect('init writes a TS config', init.status === 0, init.stderr);
+  const gitignore = () => readFileSync(join(project, '.gitignore'), 'utf8');
+  expect(
+    'init adds .vidimus to an existing .gitignore',
+    gitignore() === 'node_modules\n.vidimus\n',
+    gitignore(),
+  );
+  const again = vidimus('init', '--format', 'ts', '--force');
+  expect(
+    'init --force leaves a .gitignore that lists .vidimus unchanged',
+    again.status === 0 && gitignore() === 'node_modules\n.vidimus\n',
+    again.stderr + gitignore(),
+  );
+  const second = vidimus('init', '--format', 'json');
+  expect(
+    'init refuses a second config file in another format',
+    second.status === 2 && /vidimus\.config\.ts already exists/.test(second.stderr),
+    second.stderr,
+  );
 
   const config = vidimus('config');
   expect('config resolves with the generated file', config.status === 0, config.stderr);

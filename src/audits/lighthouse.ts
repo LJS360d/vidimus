@@ -73,17 +73,23 @@ export const lighthouse: Audit = {
       for (const url of urls) {
         const path = pathOf(url, origin);
         const name = slug(url, origin);
-        const result = await runLighthouse(url, {
-          port,
-          output: 'html',
-          logLevel: 'error',
-          onlyCategories: categories,
-        });
-        if (!result || result.lhr.runtimeError) {
+        let result: Awaited<ReturnType<Lighthouse>>;
+        let thrown = '';
+        try {
+          result = await runLighthouse(url, {
+            port,
+            output: 'html',
+            logLevel: 'error',
+            onlyCategories: categories,
+          });
+        } catch (error) {
+          thrown = error instanceof Error ? error.message : String(error);
+        }
+        if (thrown || !result || result.lhr.runtimeError) {
           const error = result?.lhr.runtimeError;
           findings.push({
             message: `failed to load ${path}`,
-            details: error ? [`${error.code} - ${error.message}`] : [],
+            details: thrown ? [thrown] : error ? [`${error.code} - ${error.message}`] : [],
             fix: loadFailureFix(path, config.lighthouse.urls.length > 0),
           });
           continue;

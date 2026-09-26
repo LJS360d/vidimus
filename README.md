@@ -10,7 +10,7 @@
 how to fix what it finds.
 
 ```sh
-npm i -D vidimus
+npm i -D vidimus puppeteer pa11y linkinator
 npm run build && npx vidimus
 ```
 
@@ -32,11 +32,8 @@ npm run build && npx vidimus
 | `a11y` `links` `r12s` `privacy` `html` `shots` `lighthouse` | run the tools you install next to vidimus (puppeteer, pa11y, linkinator, html-validate, lighthouse, sharp) |
 
 `i18n`, `csp`, `a11y`, `links` and `r12s` run by default; `npx vidimus all` runs everything,
-`npx vidimus seo budget` runs just those. The default set needs:
-
-```sh
-npm i -D puppeteer pa11y linkinator
-```
+`npx vidimus seo budget` runs just those. The default set needs puppeteer, pa11y and
+linkinator, installed above; the others are needed only by the audits that use them.
 
 What each audit checks and its options: [ljs360d.github.io/vidimus/audits](https://ljs360d.github.io/vidimus/audits/).
 

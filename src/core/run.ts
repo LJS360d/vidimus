@@ -7,8 +7,9 @@ import { createReporters } from '../reporters/registry.ts';
 import type { Reporter } from '../reporters/types.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
 import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
+import { createPageReader } from './html.ts';
 import { createPageUrls } from './pages.ts';
-import { importPeer, launchBrowser } from './peer.ts';
+import { importPeer, launchBrowser, sharedBrowser } from './peer.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, RunReport } from './types.ts';
 import { basePathOf } from './util.ts';
@@ -28,11 +29,12 @@ export const selectAudits = (
   config: VidimusConfig,
 ) => {
   const named = requested.filter((name) => name !== 'all');
-  const names = named.length
-    ? named
-    : (requested.includes('all') ? [...registry.keys()] : config.audits).filter(
-        (name) => config.severity[name] !== 'off',
-      );
+  const enabled = (names: string[]) => names.filter((name) => config.severity[name] !== 'off');
+  const names = requested.includes('all')
+    ? [...enabled([...registry.keys()]), ...named]
+    : named.length
+      ? named
+      : enabled(config.audits);
   const unknown = names.filter((name) => !registry.has(name));
   if (unknown.length) {
     throw new UsageError(
@@ -57,27 +59,22 @@ export const runAudits = async (
     throw new UsageError(`no build output at ${dist}. Run the build first.`);
   }
 
-  const origin = (
-    config.origin || `http://localhost:${config.port}${basePathOf(config.siteUrl)}`
-  ).replace(/\/$/, '');
-  const server =
-    needsServer && !config.origin
-      ? await serve(dist, config.port, config.server, config.siteUrl)
-      : undefined;
-  const pageUrls = createPageUrls(config, dist, origin);
   const baselineFile = config.baseline.file ? resolve(config.root, config.baseline.file) : '';
   const baseline = baselineFile
     ? readBaseline(baselineFile)
     : { version: 1 as const, findings: [] };
   const unsuppressed = new Map<string, Finding[]>();
 
-  for (const reporter of reporters) {
-    await reporter.onStart?.({
-      audits: audits.map(({ name }) => name),
-      origin: needsServer ? origin : '',
-      serving: server ? config.distDir : undefined,
-    });
-  }
+  const server =
+    needsServer && !config.origin
+      ? await serve(dist, config.port, config.server, config.siteUrl)
+      : undefined;
+  const origin = (
+    config.origin || `http://localhost:${server?.port ?? config.port}${basePathOf(config.siteUrl)}`
+  ).replace(/\/$/, '');
+  const builtPages = createPageReader(dist);
+  const browser = sharedBrowser(() => launchBrowser(config));
+  const pageUrls = createPageUrls(config, dist, builtPages, origin);
 
   const runOne = async (audit: Audit): Promise<AuditResult> => {
     const log: string[] = [];
@@ -89,9 +86,10 @@ export const runAudits = async (
       origin,
       resolve: (...segments) => resolve(config.root, ...segments),
       pageUrls,
+      builtPages,
       log: (line = '') => log.push(...line.split('\n')),
       importPeer,
-      launchBrowser: (options) => launchBrowser(config, options),
+      launchBrowser: (options) => (options ? launchBrowser(config, options) : browser()),
     };
     let settled: Pick<AuditResult, 'status' | 'summary' | 'findings'>;
     let suppressed = 0;
@@ -131,6 +129,13 @@ export const runAudits = async (
 
   const results: AuditResult[] = [];
   try {
+    for (const reporter of reporters) {
+      await reporter.onStart?.({
+        audits: audits.map(({ name }) => name),
+        origin: needsServer ? origin : '',
+        serving: server ? config.distDir : undefined,
+      });
+    }
     results.push(...(await Promise.all(audits.filter((audit) => !audit.exclusive).map(runOne))));
     for (const audit of audits.filter((audit) => audit.exclusive))
       results.push(await runOne(audit));

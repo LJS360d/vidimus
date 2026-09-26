@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { type LoadConfigOptions, loadConfig } from './config/load.ts';
+import { CONFIG_FILES, type LoadConfigOptions, loadConfig } from './config/load.ts';
 import type { UserConfig } from './config/types.ts';
 import { UsageError } from './core/errors.ts';
 import { auditRegistry, runAudits, selectAudits } from './core/run.ts';
@@ -99,6 +99,19 @@ export default defineConfig({
   },
 };
 
+/** Appends the default output directory to an existing .gitignore; true when it was added. */
+const ignoreOutDir = (gitignore: string) => {
+  if (!existsSync(gitignore)) return false;
+  const current = readFileSync(gitignore, 'utf8');
+  const listed = current
+    .split(/\r?\n/)
+    .some((line) => /^(\*\*\/|\/)?\.vidimus(\/.*)?$/.test(line.trim()));
+  if (listed) return false;
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n';
+  appendFileSync(gitignore, `${separator}.vidimus\n`);
+  return true;
+};
+
 const program = new Command('vidimus')
   .description('Pre-publication checks for public static websites')
   .version(version)
@@ -175,8 +188,11 @@ program
     const target = resolve(file);
     if (existsSync(target) && !flags.force)
       throw new UsageError(`${file} already exists (use --force)`);
+    const other = CONFIG_FILES.find((name) => name !== file && existsSync(resolve(name)));
+    if (other) throw new UsageError(`${other} already exists; remove it before creating ${file}`);
     writeFileSync(target, content);
     console.log(`created ${file}`);
+    if (ignoreOutDir(resolve('.gitignore'))) console.log('added .vidimus to .gitignore');
   });
 
 try {

@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { relative, sep } from 'node:path';
 import type { Finding } from '../core/types.ts';
 import { firstFew } from '../core/util.ts';
 import type { Reporter } from './types.ts';
@@ -23,9 +23,10 @@ export const annotation = (
   message: string,
   file?: string,
   level: 'error' | 'warning' = 'error',
+  root = process.cwd(),
 ) => {
   const properties = [
-    ...(file ? [`file=${escapeProperty(relative(process.cwd(), file))}`] : []),
+    ...(file ? [`file=${escapeProperty(relative(root, file).split(sep).join('/'))}`] : []),
     `title=${escapeProperty(title)}`,
   ].join(',');
   return `::${level} ${properties}::${escapeData(message)}\n`;
@@ -34,26 +35,35 @@ export const annotation = (
 export const github = (
   stream: NodeJS.WritableStream = process.stdout,
   env: NodeJS.ProcessEnv = process.env,
-): Reporter => ({
-  name: 'github',
-  onAuditEnd(result) {
-    const title = `vidimus ${result.name}`;
-    if (result.status === 'errored') stream.write(annotation(title, result.summary));
-    for (const finding of result.findings) {
-      const level = finding.severity === 'warn' ? 'warning' : 'error';
-      stream.write(annotation(title, describe(finding), finding.file, level));
-    }
-  },
-  onEnd({ results }) {
-    if (!env.GITHUB_STEP_SUMMARY) return;
-    const rows = results.map(
-      ({ name, status, summary }) => `| ${name} | ${status} | ${summary.replaceAll('|', '\\|')} |`,
-    );
-    appendFileSync(
-      env.GITHUB_STEP_SUMMARY,
-      ['### vidimus', '', '| Audit | Status | Summary |', '| --- | --- | --- |', ...rows, ''].join(
-        '\n',
-      ),
-    );
-  },
-});
+): Reporter => {
+  const root = env.GITHUB_WORKSPACE || process.cwd();
+  return {
+    name: 'github',
+    onAuditEnd(result) {
+      const title = `vidimus ${result.name}`;
+      if (result.status === 'errored') stream.write(annotation(title, result.summary));
+      for (const finding of result.findings) {
+        const level = finding.severity === 'warn' ? 'warning' : 'error';
+        stream.write(annotation(title, describe(finding), finding.file, level, root));
+      }
+    },
+    onEnd({ results }) {
+      if (!env.GITHUB_STEP_SUMMARY) return;
+      const rows = results.map(
+        ({ name, status, summary }) =>
+          `| ${name} | ${status} | ${summary.replaceAll('|', '\\|')} |`,
+      );
+      appendFileSync(
+        env.GITHUB_STEP_SUMMARY,
+        [
+          '### vidimus',
+          '',
+          '| Audit | Status | Summary |',
+          '| --- | --- | --- |',
+          ...rows,
+          '',
+        ].join('\n'),
+      );
+    },
+  };
+};

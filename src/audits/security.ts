@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BuiltPage, Tag } from '../core/html.ts';
-import { readPages, relTokens, resolveHref, tags } from '../core/html.ts';
+import { relTokens, resolveHref, srcsetUrls, tags } from '../core/html.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
 import { escapeRegExp, inParallel, matchesAny } from '../core/util.ts';
 
@@ -64,10 +64,28 @@ export const headersFor = (rules: HeaderRule[], path: string): HeaderMap => {
   return headers;
 };
 
-const fetchHeaders = async (url: string): Promise<HeaderMap> => {
-  let response = await fetch(url, { method: 'HEAD', redirect: 'manual' });
-  if (response.status === 405) response = await fetch(url, { redirect: 'manual' });
+const FETCH_TIMEOUT = 20_000;
+const MAX_REDIRECTS = 5;
+
+const request = async (url: string) => {
+  const init = { redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT) } as const;
+  let response = await fetch(url, { ...init, method: 'HEAD' });
+  if (response.status === 405) response = await fetch(url, init);
   await response.body?.cancel();
+  return response;
+};
+
+const fetchHeaders = async (url: string): Promise<HeaderMap> => {
+  let current = new URL(url);
+  let response = await request(current.href);
+  for (let hops = 0; hops < MAX_REDIRECTS; hops += 1) {
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !location) break;
+    const next = new URL(location, current);
+    if (next.origin !== current.origin) break;
+    current = next;
+    response = await request(current.href);
+  }
   return Object.fromEntries([...response.headers].map(([name, value]) => [name, value]));
 };
 
@@ -116,11 +134,7 @@ const LINK_RESOURCES = ['stylesheet', 'icon', 'preload', 'modulepreload', 'manif
 const urlsIn = (tag: Tag, attr: string) => {
   const value = tag.attrs[attr];
   if (!value) return [];
-  if (attr !== 'srcset') return [value.trim()];
-  return value
-    .split(',')
-    .map((candidate) => candidate.trim().split(/\s+/)[0] ?? '')
-    .filter(Boolean);
+  return attr === 'srcset' ? srcsetUrls(value) : [value.trim()];
 };
 
 const insecureResources = (html: string) => {
@@ -181,9 +195,9 @@ export const security: Audit = {
   name: 'security',
   description: 'security headers, clickjacking, unsafe CSP, mixed content and SRI',
   requires: 'dist',
-  async run({ config, dist, log }) {
+  async run({ config, builtPages, dist, log }) {
     const options = config.security;
-    const pages = readPages(dist, config.exclude).filter(
+    const pages = builtPages(config.exclude).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (!pages.length) return { status: 'skipped', summary: 'no pages to check' };

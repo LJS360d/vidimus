@@ -9,16 +9,12 @@ vidimus runs on Node 22.18 or later and checks the output of your build: Astro, 
 Hugo, Next.js static export, VitePress, plain HTML, anything that produces a folder of pages.
 
 ```sh
-npm i -D vidimus
+npm i -D vidimus puppeteer pa11y linkinator
 npm run build && npx vidimus
 ```
 
-By default it serves `dist/` locally and runs `i18n`, `csp`, `a11y`, `links` and `r12s`. Those
-browser audits need their tools installed next to vidimus:
-
-```sh
-npm i -D puppeteer pa11y linkinator
-```
+By default it serves `dist/` locally and runs `i18n`, `csp`, `a11y`, `links` and `r12s`; the
+last three use puppeteer, pa11y and linkinator, installed next to vidimus above.
 
 The tools are optional peer dependencies, so you install only what the audits you run need. A
 missing one fails only its own audit, with the command to install it. `npx vidimus csp seo
@@ -47,7 +43,8 @@ Every finding tells you what to do:
     → Add one <h1> heading describing the page, or turn seo.h1 off.
 ```
 
-`✖` fails the run, `⚠` is a warning. Exit code `0` means nothing failed.
+`✖` fails the run, `⚠` is a warning. Exit code `0` means nothing failed; all codes are in
+[CLI](./cli#exit-codes).
 
 A finding is reported once, with the pages it was found on (`on:`), the file it is in when
 there is one (`in:`), and the fix (`→`). Each audit ends with a summary line, and the run with

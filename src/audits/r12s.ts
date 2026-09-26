@@ -114,7 +114,9 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       detail: 'no viewport meta: the page renders at desktop width on phones',
       nodes: [],
     });
-  } else if (/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0*)?(?![\d.])/.test(meta)) {
+  } else if (
+    /user-scalable\s*=\s*(no|0)\b|maximum-scale\s*=\s*(0*\.\d+|0+|1(\.0*)?)(?![\d.])/i.test(meta)
+  ) {
     findings.push({ rule: 'viewport', detail: `pinch zoom is disabled: "${meta}"`, nodes: [] });
   }
 

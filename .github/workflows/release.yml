@@ -9,20 +9,33 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
-  release:
+  # Everything that runs third-party code (install scripts, tests, the smoke run) happens here,
+  # without write access to the repository or an OIDC token.
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: ./.github/actions/setup
+      - run: pnpm run check
+      - run: pnpm run smoke
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: npm install -g npm@^11.5.1
-      - run: pnpm run check
-      - run: pnpm run smoke
 
       - name: Apply pending changesets
         run: |
@@ -33,7 +46,16 @@ jobs:
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add -A
             git commit -m "chore(release): v$version [skip ci]"
-            git push origin HEAD:main
+            if ! git push origin HEAD:main; then
+              # A rerun of a run that already pushed its release commit: continue from that commit.
+              git fetch origin main
+              existing=$(git log origin/main --fixed-strings --grep "chore(release): v$version [skip ci]" --format=%H -1)
+              if [ -z "$existing" ]; then
+                echo "::error::could not push the release commit for v$version"
+                exit 1
+              fi
+              git checkout --detach "$existing"
+            fi
           fi
 
       - name: Publish to npm
@@ -43,20 +65,27 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if npm view "vidimus@$version" version > /dev/null 2>&1; then
             echo "vidimus@$version is already on npm"
-            echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           pnpm run build
           npm publish --access public --ignore-scripts
-          echo "published=true" >> "$GITHUB_OUTPUT"
 
+      # Keyed on the tag and the release rather than on this run publishing, so a rerun after a
+      # failure here still creates them.
       - name: Tag and GitHub release
-        if: steps.publish.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.publish.outputs.version }}
         run: |
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
-          awk -v heading="## $VERSION" '$0 == heading { found = 1; next } /^## / && found { exit } found' CHANGELOG.md > notes.md
-          gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "tag v$VERSION already exists"
+          else
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "release v$VERSION already exists"
+          else
+            awk -v heading="## $VERSION" '$0 == heading { found = 1; next } /^## / && found { exit } found' CHANGELOG.md > notes.md
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag
+          fi

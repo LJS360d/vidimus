@@ -26,8 +26,19 @@ export const slug = (url: string, root = '') =>
     .replace(/^\/|\/$/g, '')
     .replaceAll('/', '_') || 'index';
 
+const compiled = new Map<Pattern, RegExp>();
+
+export const regex = (pattern: Pattern) => {
+  let re = compiled.get(pattern);
+  if (!re) {
+    re = new RegExp(pattern);
+    compiled.set(pattern, re);
+  }
+  return re;
+};
+
 export const matchesAny = (patterns: Pattern[], text: string) =>
-  patterns.some((pattern) => new RegExp(pattern).test(text));
+  patterns.some((pattern) => regex(pattern).test(text));
 
 export const firstFew = (values: Iterable<string>, max = 3) => {
   const all = [...values];
@@ -44,36 +55,40 @@ export const inParallel = async <T>(
   items: T[],
   work: (item: T) => Promise<void>,
 ) => {
+  if (!items.length) return;
   const queue = items[Symbol.iterator]();
+  const workers = Math.min(Math.max(1, Math.floor(concurrency) || 1), items.length);
   await Promise.all(
-    Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    Array.from({ length: workers }, async () => {
       for (const item of queue) await work(item);
     }),
   );
 };
 
-export const inParallelTabs = <T>(
+export const inParallelTabs = async <T>(
   browser: Browser,
   tabs: number,
   items: T[],
   work: (page: Page, item: T) => Promise<void>,
 ) => {
+  if (!items.length) return;
   const queue = items[Symbol.iterator]();
-  return Promise.all(
-    Array.from({ length: Math.min(tabs, items.length) }, async () => {
-      const page = await browser.newPage();
+  const workers = Math.min(Math.max(1, Math.floor(tabs) || 1), items.length);
+  await inParallel(workers, Array.from({ length: workers }), async () => {
+    const page = await browser.newPage();
+    try {
       for (const item of queue) await work(page, item);
-      await page.close();
-    }),
-  );
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
 };
 
 export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[], root = '') => {
   const seen = new Set<Pattern>();
   return urls.filter((url) => {
-    const template = templatePatterns.find((pattern) =>
-      new RegExp(pattern).test(pathOf(url, root)),
-    );
+    const path = pathOf(url, root);
+    const template = templatePatterns.find((pattern) => regex(pattern).test(path));
     if (!template) return true;
     if (seen.has(template)) return false;
     seen.add(template);

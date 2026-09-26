@@ -33,6 +33,22 @@ describe('csp audit', () => {
     assert.equal(ok, true);
   });
 
+  it('checks uppercase tags and data-src, and ignores commented-out blocks', async () => {
+    const policy = `script-src '${hash(allowed)}'`;
+    const cwd = fixture({
+      'dist/index.html': `<meta http-equiv="content-security-policy" content="${policy}">
+<!-- <script>commented()</script> -->
+<SCRIPT>upper()</SCRIPT>
+<script data-src="/lazy.js">inline()</script>
+<script src="/app.js"></script>`,
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
+    assert.deepEqual(
+      results[0]?.findings.map(({ details }) => details?.[0]),
+      ['upper()…', 'inline()…'],
+    );
+  });
+
   it('skips when no page declares a CSP', async () => {
     const cwd = fixture({ 'dist/index.html': '<p>hi</p>' });
     const { results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
@@ -67,6 +83,40 @@ describe('i18n audit', () => {
         'Translate them in locales/it.json, or copy the en text until a translation is ready.',
       ],
     );
+  });
+
+  it('treats keys named like Object.prototype members as ordinary keys', async () => {
+    const cwd = fixture({
+      'locales/en.json': JSON.stringify({ constructor: 'Build', toString: 'Text' }),
+      'locales/it.json': JSON.stringify({ toString: '' }),
+      'vidimus.config.json': JSON.stringify({
+        locales: ['en', 'it'],
+        defaultLocale: 'en',
+        i18n: { files: 'locales/{locale}.json' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['i18n'], reporters: [] });
+    assert.deepEqual(
+      results[0]?.findings.map(({ message, details }) => [message, details]),
+      [
+        ['it: 1 missing key(s)', ['constructor']],
+        ['it: 1 empty key(s)', ['toString']],
+      ],
+    );
+  });
+
+  it('names the file of a malformed translation', async () => {
+    const cwd = fixture({
+      'locales/en.json': '{ nope',
+      'vidimus.config.json': JSON.stringify({
+        locales: ['en', 'it'],
+        defaultLocale: 'en',
+        i18n: { files: 'locales/{locale}.json' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['i18n'], reporters: [] });
+    assert.equal(results[0]?.status, 'errored');
+    assert.match(results[0]?.summary ?? '', /en\.json: /);
   });
 
   it('is skipped when not configured', async () => {

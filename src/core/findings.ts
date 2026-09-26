@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, relative } from 'node:path';
+import { dirname, isAbsolute, relative, sep } from 'node:path';
 import type { AuditSeverity, IgnoreRule } from '../config/types.ts';
 import { UsageError } from './errors.ts';
 import type { AuditOutcome, AuditResult, Finding } from './types.ts';
+import { regex } from './util.ts';
 
 export interface AcceptedFinding {
   audit: string;
@@ -19,7 +20,7 @@ export interface BaselineFile {
 const matches = (pattern: string | undefined, text: string | undefined) => {
   if (pattern === undefined) return true;
   try {
-    return new RegExp(pattern).test(text ?? '');
+    return regex(pattern).test(text ?? '');
   } catch (error) {
     throw new UsageError(`ignore: ${(error as Error).message}`);
   }
@@ -44,9 +45,7 @@ export const applyIgnore = (audit: string, findings: Finding[], rules: IgnoreRul
 const portable = (root: string, file: string | undefined) =>
   file === undefined
     ? undefined
-    : isAbsolute(file)
-      ? relative(root, file).split('\\').join('/')
-      : file;
+    : (isAbsolute(file) ? relative(root, file) : file).split(sep).join('/').split('\\').join('/');
 
 const toAccepted = (root: string, audit: string, finding: Finding): AcceptedFinding => ({
   audit,
@@ -117,6 +116,11 @@ export const settle = (
   const failing =
     outcome.status === 'failed' ||
     settled.some((finding) => strict || (finding.severity ?? 'error') === 'error');
-  if (failing && !(downgraded && !strict)) return { status: 'failed', summary, findings: settled };
+  if (failing && !(downgraded && !strict)) {
+    const escalated = strict
+      ? settled.map((finding) => ({ ...finding, severity: 'error' as const }))
+      : settled;
+    return { status: 'failed', summary, findings: escalated };
+  }
   return { status: settled.length || failing ? 'warned' : 'passed', summary, findings: settled };
 };

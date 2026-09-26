@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 type ImageType = 'png' | 'gif' | 'jpeg' | 'webp' | 'avif' | 'svg';
 
 export interface ImageSize {
@@ -91,6 +93,14 @@ const svg = (buffer: Buffer) => {
   if (box?.length !== 4) return undefined;
   const [, , boxWidth = 0, boxHeight = 0] = box;
   return sized(boxWidth, boxHeight, 'svg');
+};
+
+export const imageSizeOf = (file: string) => {
+  try {
+    return imageSize(readFileSync(file));
+  } catch {
+    return undefined;
+  }
 };
 
 export const imageSize = (buffer: Buffer): ImageSize | undefined => {

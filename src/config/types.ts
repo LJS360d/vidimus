@@ -85,6 +85,7 @@ export interface VidimusConfig {
   };
   shots: {
     outDir: string;
+    baselineDir: string;
     viewports: (number | ViewportSize)[];
     exclude: Pattern[];
     sample: Pattern[];

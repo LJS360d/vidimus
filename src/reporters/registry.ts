@@ -23,12 +23,25 @@ const writer = (target: string | undefined, cwd: string) => (content: string) =>
   writeFileSync(file, content);
 };
 
-const parse = (spec: string) => {
+interface BuiltinSpec {
+  kind: 'builtin';
+  name: string;
+  target: string | undefined;
+}
+
+const parse = (spec: string): BuiltinSpec => {
   const separator = spec.indexOf(':');
   return separator === -1
-    ? { name: spec, target: undefined }
-    : { name: spec.slice(0, separator), target: spec.slice(separator + 1) || undefined };
+    ? { kind: 'builtin', name: spec, target: undefined }
+    : {
+        kind: 'builtin',
+        name: spec.slice(0, separator),
+        target: spec.slice(separator + 1) || undefined,
+      };
 };
+
+const isBuiltin = (spec: BuiltinSpec | Reporter): spec is BuiltinSpec =>
+  (spec as BuiltinSpec).kind === 'builtin';
 
 const withGithub = (specs: (string | Reporter)[], env: NodeJS.ProcessEnv) => {
   const list = specs.length ? specs : ['pretty'];
@@ -45,12 +58,18 @@ export const createReporters = (
   const parsed = withGithub(specs, env).map((spec) =>
     typeof spec === 'string' ? parse(spec) : spec,
   );
-  const stdoutTaken = parsed.some(
-    (spec) => 'target' in spec && ['json', 'junit'].includes(spec.name) && !spec.target,
+  const onStdout = parsed.filter(
+    (spec) => isBuiltin(spec) && ['json', 'junit'].includes(spec.name) && !spec.target,
   );
+  if (onStdout.length > 1) {
+    throw new UsageError(
+      `reporters ${onStdout.map(({ name }) => name).join(' and ')} both write to stdout; give one a file (e.g. junit:report.xml)`,
+    );
+  }
+  const stdoutTaken = onStdout.length > 0;
 
   return parsed.map((spec) => {
-    if (!('target' in spec)) return spec;
+    if (!isBuiltin(spec)) return spec;
     const { name, target } = spec;
     switch (name) {
       case 'pretty':

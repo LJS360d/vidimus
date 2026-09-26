@@ -14,7 +14,7 @@ npx vidimus
 ```
 
 It exits `1` when an audit fails or errors and `2` on a usage or config error, so either stops
-the pipeline. Warnings do not, unless you pass `--strict`.
+the pipeline. Warnings do not, unless you pass `--strict`. All codes: [CLI](./cli#exit-codes).
 
 ## GitHub Actions
 
@@ -94,10 +94,28 @@ jobs:
 ```
 
 The key follows the lockfile, so a puppeteer upgrade fetches the Chrome build it expects. This
-repository's own workflows do the same in `.github/actions/setup/action.yml`, with pnpm.
+repository's own workflows do the same in `.github/actions/setup/action.yml`, with pnpm and a
+key on the installed puppeteer version.
 
 The zero-dependency audits (`i18n`, `csp`, `seo`, `security`, `budget`, `assets`) need no
 browser; a job that only runs those can skip this step and the browser peers entirely.
+
+### Screenshot baseline
+
+`shots` compares against a baseline that has to exist on the runner. Either commit it by
+setting `shots.baselineDir` to a directory outside `.vidimus/`, or record it on `main` and
+restore it on pull requests:
+
+```yaml
+      - uses: actions/cache@v4
+        with:
+          path: .vidimus/shots/baseline
+          key: shots-baseline-${{ github.sha }}
+          restore-keys: shots-baseline-
+      - run: npx vidimus shots ${{ github.ref == 'refs/heads/main' && '--update-baseline' || '' }}
+```
+
+See [shots](./audits/shots#sharing-the-baseline).
 
 ### Auditing the deployed site
 

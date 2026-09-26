@@ -4,14 +4,14 @@ import {
   type BuiltPage,
   linksWithRel,
   localFile,
-  readPages,
   resolveHref,
+  srcsetUrls,
   stripNonMarkup,
   tags,
 } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { matchesAny } from '../core/util.ts';
-import { imageSize } from './image-size.ts';
+import { imageSizeOf } from './image-size.ts';
 
 type Kind = 'html' | 'css' | 'js' | 'page';
 
@@ -44,12 +44,6 @@ const formatBytes = (bytes: number) =>
       ? `${Math.round(bytes / 1000)} kB`
       : `${Number((bytes / 1_000_000).toFixed(1))} MB`;
 
-const srcsetUrls = (srcset = '') =>
-  srcset
-    .split(/,\s+|,(?=\S)/)
-    .map((candidate) => candidate.trim().split(/\s+/)[0] ?? '')
-    .filter(Boolean);
-
 const memo = <T>(compute: (file: string) => T) => {
   const cache = new Map<string, T>();
   return (file: string) => {
@@ -81,22 +75,16 @@ export const budget: Audit = {
   name: 'budget',
   description: 'page weight, image size and format, image dimensions',
   requires: 'dist',
-  async run({ config, dist }) {
+  async run({ config, builtPages, dist }) {
     const options = config.budget;
-    const pages = readPages(dist, config.exclude).filter(
+    const pages = builtPages(config.exclude).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built pages' };
 
     const gzipped = memo((file) => gzipSync(readFileSync(file)).length);
     const raw = memo((file) => statSync(file).size);
-    const dimensionsOf = memo((file) => {
-      try {
-        return imageSize(readFileSync(file));
-      } catch {
-        return undefined;
-      }
-    });
+    const dimensionsOf = memo(imageSizeOf);
     const groups = new Map<string, Group>();
     const report = (key: string, finding: Finding, where: string) => {
       const group = groups.get(key) ?? { finding, where: new Set<string>() };

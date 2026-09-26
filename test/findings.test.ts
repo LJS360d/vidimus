@@ -43,6 +43,7 @@ describe('severity', () => {
     const { ok, results } = await probe([warning], { overrides: { strict: true } });
     assert.equal(ok, false);
     assert.equal(results[0]?.status, 'failed');
+    assert.equal(results[0]?.findings[0]?.severity, 'error');
   });
 
   it('drops audits turned off from the default and "all" selections', async () => {
@@ -123,5 +124,20 @@ describe('findings baseline', () => {
   it('rejects a malformed baseline file', async () => {
     const cwd = fixture({ 'vidimus.baseline.json': '{"findings": 1}' });
     await assert.rejects(probe([error], {}, cwd), { name: 'UsageError' });
+  });
+});
+
+describe('baseline paths', () => {
+  it('stores files outside root relative to it, so the baseline works on other machines', async () => {
+    const cwd = fixture({});
+    const outside = join(cwd, '..', 'elsewhere', 'a.html');
+    const file = join(cwd, 'vidimus.baseline.json');
+    await probe(
+      [{ message: 'x', file: outside }],
+      { overrides: { baseline: { update: true } } },
+      cwd,
+    );
+    const stored = JSON.parse(readFileSync(file, 'utf8')).findings[0].file;
+    assert.equal(stored, '../elsewhere/a.html');
   });
 });

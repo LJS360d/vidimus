@@ -187,10 +187,6 @@ Reporters receive a start event, each audit result as it finishes, and the full 
 end. Without `-r` or `reporters`, the `pretty` reporter prints to the terminal, plus the
 `github` reporter on GitHub Actions. See [Reporters](./reporters).
 
-| Exit code | Meaning |
-| --- | --- |
-| `0` | every audit passed, warned or was skipped |
-| `1` | at least one audit failed or errored |
-| `2` | bad usage or config, no build output, or an unexpected error |
-
-`--strict` (`strict: true`) turns warnings into failures.
+The run exits `0` when every audit passed, warned or was skipped, `1` when one failed or errored,
+and `2` on bad usage or config; details in [CLI](./cli#exit-codes). `--strict` (`strict: true`)
+turns warnings into failures.

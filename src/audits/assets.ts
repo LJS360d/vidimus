@@ -1,32 +1,22 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { linksWithRel, localFile, meta, readPages, resolveHref } from '../core/html.ts';
+import {
+  isFile,
+  isNoindex,
+  linksWithRel,
+  localFile,
+  meta,
+  originOf,
+  resolveHref,
+} from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
-import { imageSize } from './image-size.ts';
+import { imageSizeOf as measure } from './image-size.ts';
 
 interface Group {
   finding: Finding;
   where: Set<string>;
 }
-
-const isFile = (path: string) => statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
-
-const originOf = (url: string) => {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '';
-  }
-};
-
-const measure = (file: string) => {
-  try {
-    return imageSize(readFileSync(file));
-  } catch {
-    return undefined;
-  }
-};
 
 const largestDeclared = (sizes: unknown) =>
   typeof sizes !== 'string'
@@ -65,9 +55,9 @@ export const assets: Audit = {
   name: 'assets',
   description: 'favicon, web manifest, Open Graph image and 404 page',
   requires: 'dist',
-  async run({ config, dist }) {
+  async run({ config, builtPages, dist }) {
     const options = config.assets;
-    const pages = readPages(dist, config.exclude).filter(
+    const pages = builtPages(config.exclude).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built pages' };
@@ -196,7 +186,7 @@ export const assets: Audit = {
       const siteOrigin = originOf(config.siteUrl);
       const exampleOrigin = siteOrigin || 'https://example.com';
       for (const page of pages) {
-        if (/\bnoindex\b/i.test(meta(page.html, 'robots') ?? '')) continue;
+        if (isNoindex(page.html)) continue;
         for (const property of ['og:title', 'og:image', 'twitter:card']) {
           if (!meta(page.html, property)?.trim()) {
             report(
