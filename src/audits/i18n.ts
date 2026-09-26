@@ -52,7 +52,7 @@ export const i18n: Audit = {
       const fixes = {
         missing: `Add these keys to ${shown}.`,
         unknown: `Remove them or add them to the ${defaultLocale} file first.`,
-        empty: `Translate them or remove the keys to fall back to ${defaultLocale}.`,
+        empty: `Translate them in ${shown}, or copy the ${defaultLocale} text until a translation is ready.`,
       };
       for (const [label, keys] of Object.entries(problems)) {
         if (!keys.length) continue;

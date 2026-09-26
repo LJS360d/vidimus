@@ -153,7 +153,11 @@ export const privacy: Audit = {
   async run({ config, origin, pageUrls, launchBrowser }) {
     const { allow, exclude, sample, allLocales, cookies, wait, concurrency, timeout } =
       config.privacy;
-    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample, origin);
+    const urls = onePagePerTemplate(
+      pageUrls({ exclude, allLocales: allLocales || config.allLocales }),
+      sample,
+      origin,
+    );
     const firstParty = firstPartyHostsOf(origin, config.siteUrl);
     const hosts = new Map<string, Seen>();
     const cookieJar = new Map<string, { where: Set<string>; firstParty: boolean }>();

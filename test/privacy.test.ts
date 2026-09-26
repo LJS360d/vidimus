@@ -122,4 +122,28 @@ describe('privacy audit', () => {
     assert.match(cookie?.fix ?? '', /after consent/);
     for (const finding of result?.findings ?? []) assert.ok(finding.fix?.trim(), finding.message);
   });
+
+  it('follows the top-level allLocales', { skip: noBrowser }, async () => {
+    const page =
+      '<!doctype html><html lang="en"><head><title>t</title></head><body>hi</body></html>';
+    const cwd = fixture({ 'dist/index.html': page, 'dist/fr/index.html': page });
+    const summary = async (allLocales: boolean) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['privacy'],
+        reporters: [],
+        overrides: {
+          port: await freePort(),
+          locales: ['en', 'fr'],
+          defaultLocale: 'en',
+          allLocales,
+          privacy: { wait: 0 },
+        },
+      });
+      return results[0]?.summary ?? '';
+    };
+    assert.match(await summary(false), /^1 pages?\b/);
+    assert.match(await summary(true), /^2 pages\b/);
+  });
 });

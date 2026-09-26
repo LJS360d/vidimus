@@ -158,7 +158,11 @@ export const shots: Audit = {
     const motionDir = join(out, 'motion');
     const png = (dir: string, name: string) => join(dir, `${name}.png`);
 
-    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample, origin);
+    const urls = onePagePerTemplate(
+      pageUrls({ exclude, allLocales: allLocales || config.allLocales }),
+      sample,
+      origin,
+    );
     const sizes = viewports.map((entry) => viewport(entry));
     const shotList = sizes.flatMap((size) =>
       urls.map((url) => ({ size, url, name: `${slug(url, origin)}@${size.width}x${size.height}` })),
@@ -253,12 +257,6 @@ export const shots: Audit = {
       writeFileSync(join(out, 'diff.html'), gallery(changes));
       log(`side-by-side gallery at ${shown}/diff.html`);
     }
-    if (missingBaseline) {
-      log(
-        `${missingBaseline} screenshot(s) had no baseline — run with --update-baseline to record one`,
-      );
-    }
-
     const findings: Finding[] = changes
       .filter(({ ratio }) => ratio > maxDiff)
       .map(({ name, percent }) => ({
@@ -266,14 +264,33 @@ export const shots: Audit = {
         details: [`${shown}/diff/${name}.png`],
         fix: changedShotFix(`${shown}/diff.html`),
       }));
+    const beyond = findings.length;
+    if (missingBaseline) {
+      const none = missingBaseline === shotList.length;
+      findings.push({
+        message: none
+          ? `no baseline in ${shown}/baseline: nothing was compared`
+          : `${missingBaseline} screenshot(s) have no baseline`,
+        ...(!none && {
+          details: shotList
+            .map(({ name }) => name)
+            .filter((name) => !existsSync(png(baselineDir, name)))
+            .map((name) => `${name}.png`),
+          severity: 'warn' as const,
+        }),
+        fix: `Run vidimus shots --update-baseline and commit ${shown}/baseline, or add the new pages to shots.exclude.`,
+      });
+    }
 
     const scanned = `${urls.length} pages x ${sizes.length} viewports (${sizes
       .map(({ width, height }) => `${width}x${height}`)
       .join(', ')})`;
     return {
-      summary: findings.length
-        ? `${findings.length} screenshot(s) changed beyond the allowed diff`
-        : `${scanned}, ${changes.length} changed within tolerance`,
+      summary: `${scanned}, ${
+        beyond
+          ? `${beyond} screenshot(s) changed beyond the allowed diff`
+          : `${changes.length} changed within tolerance`
+      }${missingBaseline ? `, ${missingBaseline} without baseline` : ''}`,
       findings,
     };
   },

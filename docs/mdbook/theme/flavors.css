@@ -1,0 +1,30 @@
+.flavors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--table-border-color);
+  border-radius: 6px;
+  background: var(--table-alternate-bg);
+  color: var(--fg);
+  font-size: 0.875em;
+}
+
+.flavors a {
+  display: inline-block;
+  padding: 0.25rem 0;
+}
+
+.flavors a[aria-current="page"] {
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.dogfood {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--table-border-color);
+  font-size: 0.875em;
+}

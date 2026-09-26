@@ -3,7 +3,7 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'src/**', 'scripts/schema.ts', 'package.json', 'pnpm-lock.yaml', '.github/**']
+    paths: ['docs/**', 'src/**', 'scripts/schema.ts', 'scripts/docs.ts', 'mise.toml', 'package.json', 'pnpm-lock.yaml', '.github/**']
   workflow_dispatch:
 
 concurrency:
@@ -21,13 +21,14 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: 'true'
+          docs-tools: 'true'
       - run: pnpm run build
       - run: pnpm run docs:build
       - run: pnpm run docs:audit
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: docs/.vitepress/dist
+          path: docs/dist
 
   deploy:
     needs: build
@@ -50,6 +51,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: 'true'
+          docs-tools: 'true'
       - run: pnpm run build
       - run: pnpm run docs:build
       - name: Audit the deployed site

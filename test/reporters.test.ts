@@ -156,6 +156,12 @@ describe('createReporters', () => {
       createReporters(specs, { cwd: process.cwd(), env }).map(({ name }) => name);
     assert.deepEqual(names([]), ['pretty']);
     assert.deepEqual(names([], { GITHUB_ACTIONS: 'true' }), ['pretty', 'github']);
+    assert.deepEqual(names(['pretty', 'junit:r.xml'], { GITHUB_ACTIONS: 'true' }), [
+      'pretty',
+      'junit',
+      'github',
+    ]);
+    assert.deepEqual(names(['github', 'json'], { GITHUB_ACTIONS: 'true' }), ['github', 'json']);
     assert.deepEqual(names(['pretty', 'json:out.json', 'junit']), ['pretty', 'json', 'junit']);
     assert.throws(() => names(['nope']), { name: 'UsageError' });
   });

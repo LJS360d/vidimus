@@ -1,0 +1,19 @@
+[book]
+title = "vidimus"
+authors = ["LJS360d"]
+description = "Pre-publication checks for static websites, with a fix for every finding."
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/vidimus/mdbook/"
+git-repository-url = "https://github.com/LJS360d/vidimus"
+edit-url-template = "https://github.com/LJS360d/vidimus/edit/main/docs/{path}"
+additional-css = ["theme/flavors.css"]
+no-section-label = true
+
+[output.html.print]
+enable = false
+
+[output.html.search]
+enable = true

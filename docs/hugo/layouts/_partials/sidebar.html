@@ -1,0 +1,11 @@
+{{- $current := .Params.docslug -}}
+<nav class="sidebar" aria-label="Docs">
+  {{- range site.Data.nav }}
+  <h2>{{ .text }}</h2>
+  <ul>
+    {{- range .items }}
+    <li><a href="{{ .href }}"{{ if eq .link $current }} aria-current="page"{{ end }}>{{ .text }}</a></li>
+    {{- end }}
+  </ul>
+  {{- end }}
+</nav>

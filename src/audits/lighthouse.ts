@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Audit, AuditContext, Finding } from '../core/types.ts';
-import { displayPath, onePagePerTemplate, pathOf, slug } from '../core/util.ts';
+import {
+  displayPath,
+  onePagePerDirectory,
+  onePagePerTemplate,
+  pathOf,
+  slug,
+} from '../core/util.ts';
 
 interface CategoryRef {
   id: string;
@@ -19,12 +25,15 @@ type Lighthouse = (
   flags: Record<string, unknown>,
 ) => Promise<{ lhr: LighthouseResult; report: string | string[] } | undefined>;
 
-const selectUrls = ({ config, origin, pageUrls }: AuditContext) => {
+export const selectUrls = ({ config, origin, pageUrls }: AuditContext) => {
   const { exclude, sample, all, urls } = config.lighthouse;
   if (urls.length)
     return urls.map((path) => new URL(path.trim().replace(/^\/+/, ''), `${origin}/`).href);
   const candidates = pageUrls({ exclude, allLocales: true });
-  return all ? candidates : onePagePerTemplate(candidates, sample, origin);
+  if (all) return candidates;
+  return sample.length
+    ? onePagePerTemplate(candidates, sample, origin)
+    : onePagePerDirectory(candidates, origin);
 };
 
 const costliestAudits = (lhr: LighthouseResult, category: string) =>

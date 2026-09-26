@@ -47,6 +47,14 @@ describe('static server', () => {
     assert.equal((await get('/contact')).body, 'contact');
   });
 
+  it('redirects directories without a trailing slash, like static hosts do', async () => {
+    const res = await get('/about?x=1');
+    assert.equal(res.status, 301);
+    assert.equal(res.headers.location, '/about/?x=1');
+    assert.equal((await get('/index.html')).body, 'home');
+    assert.equal((await get('/about/index')).body, 'about');
+  });
+
   it('applies header rules and gzip', async () => {
     const res = await get('/_astro/app.js', { 'accept-encoding': 'gzip' });
     assert.equal(res.headers['cache-control'], 'immutable');

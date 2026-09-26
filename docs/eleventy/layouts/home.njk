@@ -1,0 +1,15 @@
+---
+layout: base.njk
+---
+<section class="hero">
+  <h1>vidimus</h1>
+  <p class="tagline">{{ tagline }}</p>
+  <p>{{ description }}</p>
+  <p class="actions">
+    <a class="button primary" href="{{ '/getting-started/' | url }}">Get started</a>
+    <a class="button" href="{{ '/audits/' | url }}">Audits</a>
+  </p>
+</section>
+<article class="doc home-body">
+  {{ content | safe }}
+</article>

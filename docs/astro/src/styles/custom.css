@@ -1,0 +1,34 @@
+:root {
+  --sl-color-accent-low: #131e4f;
+  --sl-color-accent: #3451b2;
+  --sl-color-accent-high: #b3c7ff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #c7d6ff;
+  --sl-color-accent: #3451b2;
+  --sl-color-accent-high: #1c2b5e;
+}
+
+.flavors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  align-items: center;
+  padding: 0.5rem var(--sl-content-pad-x, 1rem);
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+.flavors a {
+  display: inline-block;
+  padding: 0.25rem 0;
+  color: var(--sl-color-text-accent);
+}
+
+.flavors a[aria-current="page"] {
+  font-weight: 600;
+  color: var(--sl-color-white);
+  text-decoration: none;
+}

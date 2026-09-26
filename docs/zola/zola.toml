@@ -1,0 +1,16 @@
+base_url = "https://ljs360d.github.io/vidimus/zola"
+title = "vidimus"
+default_language = "en"
+compile_sass = false
+build_search_index = false
+generate_feeds = false
+generate_sitemap = false
+generate_robots_txt = false
+
+[markdown]
+smart_punctuation = false
+
+[extra]
+repo = "https://github.com/LJS360d/vidimus"
+og = "https://ljs360d.github.io/vidimus/og.png"
+root = "/vidimus/zola/"

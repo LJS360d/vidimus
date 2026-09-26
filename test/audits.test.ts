@@ -64,7 +64,7 @@ describe('i18n audit', () => {
       [
         'Add these keys to locales/it.json.',
         'Remove them or add them to the en file first.',
-        'Translate them or remove the keys to fall back to en.',
+        'Translate them in locales/it.json, or copy the en text until a translation is ready.',
       ],
     );
   });

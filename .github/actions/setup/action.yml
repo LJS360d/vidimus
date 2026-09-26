@@ -8,6 +8,9 @@ inputs:
   browser:
     description: install the Chrome build that puppeteer expects
     default: 'false'
+  docs-tools:
+    description: install the non-npm docs generators pinned in mise.toml (Hugo, Zola, mdBook)
+    default: 'false'
 
 runs:
   using: composite
@@ -29,3 +32,7 @@ runs:
     - if: inputs.browser == 'true'
       shell: bash
       run: pnpm exec puppeteer browsers install chrome
+    - if: inputs.docs-tools == 'true'
+      uses: jdx/mise-action@v2
+      with:
+        install_args: hugo zola mdbook

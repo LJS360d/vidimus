@@ -34,6 +34,7 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${cls ? `.${cls}` : ''}${text ? ` «${text}»` : ''}`;
   };
   const isPerceivable = (el: Element) => {
+    if (!el.getClientRects().length) return false;
     for (
       let node: Element | null = el;
       node && node !== document.documentElement;
@@ -71,9 +72,16 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
   ]
     .map((el) => ({ el, r: el.getBoundingClientRect() }))
     .filter(({ el, r }) => r.width > 0 && r.height > 0 && isPerceivable(el));
+  const isInline = (el: Element) =>
+    getComputedStyle(el).display === 'inline' &&
+    [...(el.parentElement?.childNodes ?? [])].some(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+    );
   const centre = ({ r }: { r: DOMRect }) => [r.x + r.width / 2, r.y + r.height / 2] as const;
   for (const target of targets) {
-    if (target.r.width >= minTarget && target.r.height >= minTarget) continue;
+    if (Math.round(target.r.width) >= minTarget && Math.round(target.r.height) >= minTarget)
+      continue;
+    if (isInline(target.el)) continue;
     const [x, y] = centre(target);
     const nearestNeighbourCentre = Math.min(
       ...targets
@@ -106,7 +114,7 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       detail: 'no viewport meta: the page renders at desktop width on phones',
       nodes: [],
     });
-  } else if (/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0)?\b/.test(meta)) {
+  } else if (/user-scalable\s*=\s*no|maximum-scale\s*=\s*1(\.0*)?(?![\d.])/.test(meta)) {
     findings.push({ rule: 'viewport', detail: `pinch zoom is disabled: "${meta}"`, nodes: [] });
   }
 
@@ -137,15 +145,24 @@ export const r12s: Audit = {
     const urls = pageUrls({ exclude, allLocales: true });
     const browser = await launchBrowser();
     const failures: (LayoutDefect & { url: string; width: number })[] = [];
+    const unloaded = new Map<string, { widths: number[]; error: string }>();
 
     try {
       const tasks = viewports.flatMap((width) => urls.map((url) => ({ width, url })));
       await inParallelTabs(browser, concurrency, tasks, async (page, { width, url }) => {
         await page.setViewport(viewport(width));
-        await page.goto(url, { waitUntil: 'load', timeout });
-        for (const defect of await measureAfterFontsAndRedirects(page, minTarget, minFont)) {
-          failures.push({ url, width, ...defect });
+        let defects: LayoutDefect[];
+        try {
+          await page.goto(url, { waitUntil: 'load', timeout });
+          defects = await measureAfterFontsAndRedirects(page, minTarget, minFont);
+        } catch (error) {
+          const path = pathOf(url, origin);
+          const entry = unloaded.get(path) ?? { widths: [], error: (error as Error).message };
+          entry.widths.push(width);
+          unloaded.set(path, entry);
+          return;
         }
+        for (const defect of defects) failures.push({ url, width, ...defect });
       });
     } finally {
       await browser.close();
@@ -174,11 +191,21 @@ export const r12s: Audit = {
       where: [...defect.paths],
       fix: defectFix(defect, minTarget, minFont),
     }));
+    for (const [path, { widths, error }] of [...unloaded].sort(([a], [b]) => a.localeCompare(b))) {
+      findings.push({
+        message: `failed to load ${path}`,
+        details: [`@${widths.sort((a, b) => a - b).join('/')}px: ${error}`],
+        where: [path],
+        fix: `Check that ${path} loads in a browser within r12s.timeout (${timeout} ms), or add it to r12s.exclude.`,
+      });
+    }
     const scanned = `${urls.length} pages x ${viewports.length} viewports (${viewports.join(', ')}px)`;
     return {
-      summary: findings.length
-        ? `${findings.length} distinct defects across ${scanned}`
-        : `${scanned}, no defects`,
+      summary: `${
+        byDefect.size
+          ? `${byDefect.size} distinct defects across ${scanned}`
+          : `${scanned}, no defects`
+      }${unloaded.size ? `, ${unloaded.size} page(s) failed to load` : ''}`,
       findings,
     };
   },

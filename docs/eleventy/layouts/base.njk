@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="content-security-policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  {%- set fullTitle = ("vidimus · " + title) if docslug == "" else (title + " · vidimus") %}
+  <title>{{ fullTitle }}</title>
+  <meta name="description" content="{{ description }}">
+  <meta name="generator" content="{{ eleventy.generator }}">
+  <link rel="canonical" href="{{ canonical }}">
+  <link rel="icon" href="{{ '/favicon.svg' | url }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ '/apple-touch-icon.png' | url }}">
+  <link rel="stylesheet" href="{{ '/main.css' | url }}">
+  <meta property="og:title" content="{{ fullTitle }}">
+  <meta property="og:description" content="{{ description }}">
+  <meta property="og:url" content="{{ canonical }}">
+  <meta property="og:image" content="https://ljs360d.github.io/vidimus/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="{{ '/' | url }}"><img src="{{ '/favicon.svg' | url }}" width="24" height="24" alt=""> vidimus</a>
+    <nav class="links" aria-label="Site">
+      <a href="{{ '/getting-started/' | url }}">Guide</a>
+      <a href="{{ '/audits/' | url }}">Audits</a>
+      <a href="https://www.npmjs.com/package/vidimus">npm</a>
+      <a href="{{ site.repo }}">GitHub</a>
+    </nav>
+  </header>
+  <nav class="flavors" aria-label="Docs flavor">
+    <span>Same docs, built with</span>
+    {%- for flavor in flavors %}
+    <a href="{{ flavor.href }}"{% if flavor.current %} aria-current="page"{% endif %}>{{ flavor.name }}</a>
+    {%- endfor %}
+  </nav>
+  <div class="layout{% if docslug == '' %} home{% endif %}">
+    {%- if docslug != '' %}
+    <nav class="sidebar" aria-label="Docs">
+      {%- for group in nav %}
+      <h2>{{ group.text }}</h2>
+      <ul>
+        {%- for item in group.items %}
+        <li><a href="{{ item.href }}"{% if item.link == docslug %} aria-current="page"{% endif %}>{{ item.text }}</a></li>
+        {%- endfor %}
+      </ul>
+      {%- endfor %}
+    </nav>
+    {%- endif %}
+    <main id="content">
+      {{ content | safe }}
+    </main>
+  </div>
+  <footer class="foot">
+    <p>MIT licensed. Rendered by Eleventy with Nunjucks layouts and markdown-it: no JavaScript, a strict meta CSP.</p>
+    <p>{{ site.dogfoodNote }} <a href="{{ '/flavors/' | url }}">Why</a>.</p>
+  </footer>
+</body>
+</html>

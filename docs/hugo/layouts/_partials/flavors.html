@@ -1,0 +1,6 @@
+<nav class="flavors" aria-label="Docs flavor">
+  <span>Same docs, built with</span>
+  {{- range .Params.flavors }}
+  <a href="{{ .href }}"{{ if .current }} aria-current="page"{{ end }}>{{ .name }}</a>
+  {{- end }}
+</nav>

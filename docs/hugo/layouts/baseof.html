@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="{{ site.Language.LanguageCode }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="content-security-policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  {{- $title := cond .IsHome (printf "vidimus · %s" .Title) (printf "%s · vidimus" .Title) }}
+  <title>{{ $title }}</title>
+  <meta name="description" content="{{ .Description }}">
+  <link rel="canonical" href="{{ .Params.canonical }}">
+  <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ "apple-touch-icon.png" | relURL }}">
+  <meta property="og:title" content="{{ $title }}">
+  <meta property="og:description" content="{{ .Description }}">
+  <meta property="og:url" content="{{ .Params.canonical }}">
+  <meta property="og:image" content="{{ site.Params.og }}">
+  <meta name="twitter:card" content="summary_large_image">
+  {{- $css := slice (resources.Get "css/main.css") (resources.Get "css/chroma.css") | resources.Concat "main.css" | minify | fingerprint }}
+  <link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="{{ site.Home.RelPermalink }}"><img src="{{ "favicon.svg" | relURL }}" width="24" height="24" alt=""> vidimus</a>
+    <nav class="links" aria-label="Site">
+      <a href="{{ site.Home.RelPermalink }}getting-started/">Guide</a>
+      <a href="{{ site.Home.RelPermalink }}audits/">Audits</a>
+      <a href="https://www.npmjs.com/package/vidimus">npm</a>
+      <a href="{{ site.Params.repo }}">GitHub</a>
+    </nav>
+  </header>
+  {{ partial "flavors.html" . }}
+  <div class="layout{{ if .IsHome }} home{{ end }}">
+    {{ if not .IsHome }}{{ partial "sidebar.html" . }}{{ end }}
+    <main id="content">
+      {{ block "main" . }}{{ end }}
+    </main>
+  </div>
+  <footer class="foot">
+    <p>MIT licensed. Rendered by Hugo {{ hugo.Version }} with a handwritten theme: no JavaScript, a strict meta CSP.</p>
+    <p>{{ site.Data.site.dogfoodNote }} <a href="{{ site.Home.RelPermalink }}flavors/">Why</a>.</p>
+  </footer>
+</body>
+</html>

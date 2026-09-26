@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="content-security-policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  {%- set doc = page | default(value=section) %}
+  {%- if doc.extra.docslug == "" %}{% set full_title = "vidimus · " ~ doc.title %}{% else %}{% set full_title = doc.title ~ " · vidimus" %}{% endif %}
+  <title>{{ full_title }}</title>
+  <meta name="description" content="{{ doc.description }}">
+  <link rel="canonical" href="{{ doc.extra.canonical }}">
+  <link rel="icon" href="{{ config.extra.root }}favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ config.extra.root }}apple-touch-icon.png">
+  <link rel="stylesheet" href="{{ config.extra.root }}main.css">
+  <meta property="og:title" content="{{ full_title }}">
+  <meta property="og:description" content="{{ doc.description }}">
+  <meta property="og:url" content="{{ doc.extra.canonical }}">
+  <meta property="og:image" content="{{ config.extra.og }}">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="{{ config.extra.root }}"><img src="{{ config.extra.root }}favicon.svg" width="24" height="24" alt=""> vidimus</a>
+    <nav class="links" aria-label="Site">
+      <a href="{{ config.extra.root }}getting-started/">Guide</a>
+      <a href="{{ config.extra.root }}audits/">Audits</a>
+      <a href="https://www.npmjs.com/package/vidimus">npm</a>
+      <a href="{{ config.extra.repo }}">GitHub</a>
+    </nav>
+  </header>
+  <nav class="flavors" aria-label="Docs flavor">
+    <span>Same docs, built with</span>
+    {%- for flavor in doc.extra.flavors %}
+    <a href="{{ flavor.href }}"{% if flavor.current %} aria-current="page"{% endif %}>{{ flavor.name }}</a>
+    {%- endfor %}
+  </nav>
+  <div class="layout{% if doc.extra.docslug == '' %} home{% endif %}">
+    {%- if doc.extra.docslug != '' %}
+    {%- set nav = load_data(path="nav.json") %}
+    <nav class="sidebar" aria-label="Docs">
+      {%- for group in nav %}
+      <h2>{{ group.text }}</h2>
+      <ul>
+        {%- for item in group.items %}
+        <li><a href="{{ item.href }}"{% if item.link == doc.extra.docslug %} aria-current="page"{% endif %}>{{ item.text }}</a></li>
+        {%- endfor %}
+      </ul>
+      {%- endfor %}
+    </nav>
+    {%- endif %}
+    <main id="content">
+      {% block main %}{% endblock %}
+    </main>
+  </div>
+  <footer class="foot">
+    <p>MIT licensed. Rendered by Zola with Tera templates: no JavaScript, a strict meta CSP.</p>
+    <p>{{ doc.extra.dogfood }} <a href="{{ config.extra.root }}flavors/">Why</a>.</p>
+  </footer>
+</body>
+</html>

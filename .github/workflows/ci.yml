@@ -29,6 +29,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: 'true'
+          docs-tools: 'true'
       - run: pnpm run smoke
       - run: pnpm run docs:build
       - run: pnpm run docs:audit

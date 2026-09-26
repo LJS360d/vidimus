@@ -1,0 +1,15 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+import { base, dogfoodNote } from '../../../flavors.ts';
+---
+
+<Default />
+<p class="dogfood">{dogfoodNote} <a href={`${base}astro/flavors/`}>Why</a>.</p>
+
+<style>
+  .dogfood {
+    margin-top: 1.5rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+</style>

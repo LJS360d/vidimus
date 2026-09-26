@@ -1,0 +1,14 @@
+{{ define "main" }}
+<section class="hero">
+  <h1>vidimus</h1>
+  <p class="tagline">{{ .Params.tagline }}</p>
+  <p>{{ .Description }}</p>
+  <p class="actions">
+    <a class="button primary" href="{{ site.Home.RelPermalink }}getting-started/">Get started</a>
+    <a class="button" href="{{ site.Home.RelPermalink }}audits/">Audits</a>
+  </p>
+</section>
+<article class="doc home-body">
+  {{ .Content }}
+</article>
+{{ end }}

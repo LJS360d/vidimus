@@ -81,6 +81,16 @@ export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[], 
   });
 };
 
+export const onePagePerDirectory = (urls: string[], root = '') => {
+  const seen = new Set<string>();
+  return urls.filter((url) => {
+    const directory = pathOf(url, root).replace(/[^/]*\/?$/, '');
+    if (seen.has(directory)) return false;
+    seen.add(directory);
+    return true;
+  });
+};
+
 export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

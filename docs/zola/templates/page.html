@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block main %}
+<article class="doc">
+  {{ page.content | safe }}
+  <p class="edit"><a href="{{ page.extra.edit }}">Edit this page on GitHub</a></p>
+</article>
+{% endblock %}

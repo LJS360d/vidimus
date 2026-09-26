@@ -1,0 +1,208 @@
+---
+title: Reporters
+description: The pretty, json, github and junit reporters, where each one writes, the JSON report shape and custom reporter objects.
+---
+
+# Reporters
+
+A reporter receives the results of a run and writes them somewhere. Choose them with `-r` on
+the command line or `reporters` in the config:
+
+```sh
+npx vidimus -r pretty -r junit:reports/vidimus.xml -r json:reports/vidimus.json
+```
+
+```ts
+export default defineConfig({
+  reporters: ['pretty', 'junit:reports/vidimus.xml'],
+});
+```
+
+Without either, the reporter is `pretty`. Giving `-r` or `reporters` replaces it. On GitHub
+Actions (`GITHUB_ACTIONS=true`) `github` is added to whatever list you give, so the
+annotations stay when you add a JUnit file:
+
+```sh
+npx vidimus -r pretty -r junit:reports/vidimus.xml    # pretty, junit and, on Actions, github
+```
+
+To run without annotations on Actions, unset the variable for that step:
+`GITHUB_ACTIONS= npx vidimus`.
+
+An unknown name is an error: `unknown reporter "xml". Known: pretty, json, github, junit`.
+
+## Targets
+
+A reporter is `name` or `name:file`. The file path is relative to the working directory, its
+directories are created, and an existing file is overwritten.
+
+| Reporter | Writes to | `:file` |
+| --- | --- | --- |
+| `pretty` | stdout, or stderr when `json` or `junit` writes to stdout | only `pretty:stderr` is honoured |
+| `json` | stdout | writes the report to the file instead |
+| `junit` | stdout | writes the report to the file instead |
+| `github` | stdout, or stderr when `json` or `junit` writes to stdout; and `$GITHUB_STEP_SUMMARY` | ignored |
+
+`json` or `junit` without a file writes to stdout, and `pretty` moves to stderr. That keeps
+stdout parsable:
+
+```sh
+npx vidimus -r pretty -r json > report.json
+```
+
+The `github` reporter moves to stderr in the same case, where the Actions runner still reads
+its annotations, so `-r json > report.json` stays valid JSON on Actions too.
+
+## `pretty`
+
+The terminal output. Before the audits it prints
+`vidimus: serving dist on http://localhost:4322` when it serves the build, or
+`vidimus: auditing <origin>` with `--origin`. Each audit is printed when it finishes: a heading, the audit's log lines, each
+finding, and a summary line.
+
+```
+─── seo ────────────────────────────────────────────────────────
+
+✖ noindex in the production build
+    on: /en/search/ /fr/search/ /it/search/ +1 more
+    → Remove the robots noindex meta tag, or add the path to seo.allowNoindex if it is intentional.
+
+✖ seo: 42 pages, 1 problem(s) (0.2s)
+```
+
+A finding shows its message, its detail lines, `in:` with its file relative to the working
+directory, `on:` with up to three pages, and `→` with the fix. The last line of the run counts
+the audits that passed, not counting skipped ones, and names those that warned or failed.
+Colours come from Node's `styleText`, which drops them when the stream is not a terminal or
+`NO_COLOR` is set.
+
+## `json`
+
+The whole run report, written once at the end, pretty-printed:
+
+```json
+{
+  "ok": false,
+  "origin": "http://localhost:4322",
+  "startedAt": "2026-09-26T10:00:00.000Z",
+  "durationMs": 10412,
+  "results": [
+    {
+      "name": "links",
+      "status": "failed",
+      "summary": "1 broken target(s) out of 812 links checked",
+      "findings": [
+        {
+          "message": "404 http://localhost:4322/old-page/",
+          "where": ["/blog/", "/about/"],
+          "fix": "Fix or remove the link on the pages listed, or add a pattern to links.skip if the target blocks bots."
+        }
+      ],
+      "suppressed": 0,
+      "log": [],
+      "durationMs": 9403.52
+    }
+  ]
+}
+```
+
+| Field | |
+| --- | --- |
+| `ok` | `false` when any audit failed or errored; the exit code is `1` then |
+| `origin` | the audit origin, `''` when no selected audit needed a server |
+| `startedAt` | ISO 8601 timestamp |
+| `durationMs` | duration of the whole run |
+| `results[]` | one entry per audit, in selection order, `exclusive` audits last |
+
+Each result:
+
+| Field | |
+| --- | --- |
+| `name` | audit name |
+| `status` | `passed`, `warned`, `failed`, `skipped` or `errored` |
+| `summary` | one line; for an errored audit, the error message |
+| `findings` | what is left after ignore rules and the baseline |
+| `suppressed` | findings hidden by ignore rules or the baseline |
+| `log` | lines the audit logged, plus the stack trace of an unexpected error |
+| `durationMs` | duration of the audit, fractional |
+
+Each finding has `message`, and when set: `where` (URL paths, without the base path), `file`
+(usually an absolute path), `details` (extra lines), `fix` and `severity` (`warn` or `error`).
+A finding without `severity` is an error. With `severity: { <audit>: 'warn' }` in the config,
+every finding of that audit carries `"severity": "warn"`.
+
+## `github`
+
+For GitHub Actions. Each finding becomes a workflow command, which GitHub shows as an
+annotation on the run and, when it has a file, on that file:
+
+```text
+::error file=dist/pricing/index.html,title=vidimus budget::html 312 kB gzipped > 100 kB budget%0A...
+::warning title=vidimus seo::no <h1>%0Aon: /en/ /fr/%0Afix: Add one <h1> heading ...
+```
+
+- warnings become `::warning`, everything else `::error`
+- the title is `vidimus <audit>`
+- the body is the message, the detail lines, `on:` with up to ten pages, and `fix:`
+- `file` is the finding's file relative to the working directory, when it has one
+- an errored audit becomes one `::error` with its summary
+
+At the end it appends a table (audit, status, summary) under a `### vidimus` heading to the
+file named by `GITHUB_STEP_SUMMARY`, which GitHub shows on the run's summary page. Without that
+variable the table is skipped.
+
+## `junit`
+
+JUnit XML, for CI systems that show test reports. The mapping:
+
+| JUnit | vidimus |
+| --- | --- |
+| `<testsuites name="vidimus">` | the run, with totals and duration in seconds |
+| `<testsuite name="…">` | one audit |
+| `<testcase classname="vidimus.<audit>" name="<message>">` | one finding, with `file` when the finding has one |
+| `<failure message="…">` | an error-level finding; the body has details, `on:` pages and `fix:` |
+| `<system-out>warning: …</system-out>` | a warning; it does not count as a failure |
+
+An audit without findings has a single test case named after its summary: empty when it passed
+or warned, with `<skipped>`, `<error>` or `<failure>` otherwise.
+
+## Custom reporters
+
+`reporters` in the config also accepts objects, next to names:
+
+```ts
+import { defineConfig, type Reporter } from 'vidimus';
+
+const notify: Reporter = {
+  name: 'notify',
+  async onEnd(report) {
+    if (report.ok) return;
+    const failed = report.results.filter(({ status }) => status === 'failed' || status === 'errored');
+    await fetch(process.env.WEBHOOK_URL ?? '', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: `vidimus: ${failed.map(({ name }) => name).join(', ')} failed` }),
+    });
+  },
+};
+
+export default defineConfig({
+  reporters: ['pretty', notify],
+});
+```
+
+Every hook is optional and may be async; hooks are awaited one reporter after the other.
+
+| Hook | Called | Receives |
+| --- | --- | --- |
+| `onStart(info)` | once, before the first audit | `{ audits, origin, serving }` |
+| `onAuditEnd(result)` | as each audit finishes, in finishing order | an `AuditResult`, as in `results[]` above |
+| `onEnd(report)` | once, after every audit | the `RunReport`, as in the JSON above |
+
+In `onStart`, `audits` are the selected names, `origin` is `''` when no audit needs a server,
+and `serving` is `distDir` when the built-in server is used and `undefined` otherwise.
+
+Reporter objects can only be given in a config file or to [`run()`](./plugins#programmatic-use),
+not on the command line, and `-r` replaces the config's list, objects included. An error thrown
+by a hook ends the run with exit code `2`. The exit code is decided by the audits, not by
+reporters.

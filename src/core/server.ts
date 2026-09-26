@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname } from 'node:path';
+import { basename, extname } from 'node:path';
 import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
 import { localFile } from './html.ts';
@@ -39,10 +39,16 @@ export interface StaticServer {
 export const serve = (dist: string, port: number, options: VidimusConfig['server'], siteUrl = '') =>
   new Promise<StaticServer>((resolve, reject) => {
     const server = createServer((req, res) => {
-      const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const { pathname } = url;
       const file = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
       if (!file) {
         res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
+        return;
+      }
+      const directory = basename(file) === 'index.html' && !/(^|\/)index(\.html)?$/.test(pathname);
+      if (directory && !pathname.endsWith('/')) {
+        res.writeHead(301, { location: `${pathname}/${url.search}` }).end();
         return;
       }
       const type = TYPES[extname(file)] ?? 'application/octet-stream';

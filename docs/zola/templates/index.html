@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block main %}
+<section class="hero">
+  <h1>vidimus</h1>
+  <p class="tagline">{{ section.extra.tagline }}</p>
+  <p>{{ section.description }}</p>
+  <p class="actions">
+    <a class="button primary" href="{{ config.extra.root }}getting-started/">Get started</a>
+    <a class="button" href="{{ config.extra.root }}audits/">Audits</a>
+  </p>
+</section>
+<article class="doc home-body">
+  {{ section.content | safe }}
+</article>
+{% endblock %}

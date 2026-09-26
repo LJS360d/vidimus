@@ -110,6 +110,7 @@ export const seo: Audit = {
     const byPath = new Map(pages.map((page) => [page.path, page.file]));
     const noindex = new Set<BuiltPage>();
     const redirects = new Set<BuiltPage>();
+    const canonicalized = new Set<BuiltPage>();
     const alternates = new Map<string, Set<string>>();
     const titles = new Map<string, string[]>();
     const descriptions = new Map<string, string[]>();
@@ -172,12 +173,23 @@ export const seo: Audit = {
         continue;
       }
 
-      if (title) titles.set(title, [...(titles.get(title) ?? []), path]);
-      if (description)
-        descriptions.set(description, [...(descriptions.get(description) ?? []), path]);
+      const canonicals = linksWithRel(html, 'canonical');
+      const canonicalTarget =
+        canonicals.length === 1
+          ? resolveHref(canonicals[0]?.attrs.href ?? '', path, config.siteUrl)
+          : null;
+      const canonicalFile =
+        canonicalTarget?.absolute && canonicalTarget.url.origin === siteOrigin
+          ? localFile(dist, stripBase(canonicalTarget.url.pathname, config.siteUrl))
+          : null;
+      if (canonicalFile && canonicalFile !== page.file) canonicalized.add(page);
+      else {
+        if (title) titles.set(title, [...(titles.get(title) ?? []), path]);
+        if (description)
+          descriptions.set(description, [...(descriptions.get(description) ?? []), path]);
+      }
 
       if (options.canonical) {
-        const canonicals = linksWithRel(html, 'canonical');
         if (!canonicals.length)
           report(
             'no canonical link',
@@ -192,7 +204,7 @@ export const seo: Audit = {
             path,
           );
         const href = canonicals[0]?.attrs.href ?? '';
-        const target = canonicals.length === 1 ? resolveHref(href, path, config.siteUrl) : null;
+        const target = canonicalTarget;
         if (canonicals.length === 1 && !target?.absolute) {
           report(
             'canonical URL is not absolute',
@@ -209,11 +221,7 @@ export const seo: Audit = {
             undefined,
             `${path}: ${href}`,
           );
-        } else if (
-          target &&
-          siteOrigin &&
-          !localFile(dist, stripBase(target.url.pathname, config.siteUrl))
-        ) {
+        } else if (target && siteOrigin && !canonicalFile) {
           report(
             'canonical is not a built page',
             'Point the canonical href at a page that exists in the build, usually the page itself.',
@@ -318,7 +326,9 @@ export const seo: Audit = {
       }
     }
 
-    const indexable = pages.filter((page) => !noindex.has(page) && !redirects.has(page));
+    const indexable = pages.filter(
+      (page) => !noindex.has(page) && !redirects.has(page) && !canonicalized.has(page),
+    );
     const robotsFile = join(dist, 'robots.txt');
     const robots = existsSync(robotsFile)
       ? robotsRules(readFileSync(robotsFile, 'utf8'))
@@ -414,6 +424,16 @@ export const seo: Audit = {
           }
           listed.add(file);
           const page = byFile.get(file);
+          if (page && canonicalized.has(page)) {
+            report(
+              'non-canonical page in the sitemap',
+              'List only canonical URLs in the sitemap: remove pages whose canonical link points at another page.',
+              page.path,
+              'warn',
+              undefined,
+              sitemapFile,
+            );
+          }
           if (page && noindex.has(page)) {
             report(
               'noindex page in the sitemap',

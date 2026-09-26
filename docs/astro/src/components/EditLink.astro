@@ -1,0 +1,25 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+import { repo } from '../../../flavors.ts';
+import { sourceOf } from './slug.ts';
+
+const { entry } = Astro.locals.starlightRoute;
+const file = entry.id === 'index' ? 'astro/src/content/docs/index.md' : sourceOf(entry.filePath);
+---
+
+<a href={`${repo}/edit/main/docs/${file}`} class="sl-flex print:hidden">
+  <Icon name="pencil" size="1.2em" />
+  {Astro.locals.t('page.editLink')}
+</a>
+
+<style>
+  a {
+    gap: 0.5rem;
+    align-items: center;
+    text-decoration: none;
+    color: var(--sl-color-gray-3);
+  }
+  a:hover {
+    color: var(--sl-color-white);
+  }
+</style>

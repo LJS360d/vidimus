@@ -38,7 +38,7 @@ npm run build && npx vidimus
 npm i -D puppeteer pa11y linkinator
 ```
 
-What each audit checks and its options: [ljs360d.github.io/vidimus/audits](https://ljs360d.github.io/vidimus/audits).
+What each audit checks and its options: [ljs360d.github.io/vidimus/audits](https://ljs360d.github.io/vidimus/audits/).
 
 ## Configure
 
@@ -63,8 +63,14 @@ later runs fail only on new ones.
 ## Docs
 
 **[ljs360d.github.io/vidimus](https://ljs360d.github.io/vidimus/)**: [getting started](https://ljs360d.github.io/vidimus/getting-started),
-[audits](https://ljs360d.github.io/vidimus/audits), [configuration](https://ljs360d.github.io/vidimus/configuration), [CLI and CI](https://ljs360d.github.io/vidimus/cli),
-[custom audits](https://ljs360d.github.io/vidimus/plugins). Contributing: [CONTRIBUTING.md](https://github.com/LJS360d/vidimus/blob/main/CONTRIBUTING.md).
+[how it works](https://ljs360d.github.io/vidimus/how-it-works), [audits](https://ljs360d.github.io/vidimus/audits/),
+[configuration](https://ljs360d.github.io/vidimus/configuration), [CLI](https://ljs360d.github.io/vidimus/cli),
+[CI](https://ljs360d.github.io/vidimus/ci), [frameworks](https://ljs360d.github.io/vidimus/frameworks),
+[custom audits and API](https://ljs360d.github.io/vidimus/plugins). Contributing: [CONTRIBUTING.md](https://github.com/LJS360d/vidimus/blob/main/CONTRIBUTING.md).
+
+The docs are deliberately built six times from the same markdown, by VitePress, Starlight, Hugo,
+Eleventy, Zola and mdBook, deployed side by side and audited by vidimus as one site, to dogfood
+it against six generators' real output: [why](https://ljs360d.github.io/vidimus/flavors).
 
 ## License
 

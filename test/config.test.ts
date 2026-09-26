@@ -114,6 +114,17 @@ describe('loadConfig', () => {
     assert.equal(config.html.rules['no-inline-style'], 'off');
   });
 
+  it('rejects ignore rules that would silently drop everything or never compile', async () => {
+    const load = (ignore: unknown) =>
+      loadConfig({ cwd: fixture({ 'vidimus.config.json': JSON.stringify({ ignore }) }), env: {} });
+    await assert.rejects(load([{ adit: 'seo' }]), /ignore\[0\]: unknown key "adit"/);
+    await assert.rejects(load([{ audit: 'seo' }, {}]), /ignore\[1\]: an empty rule/);
+    await assert.rejects(load([{ message: 42 }]), /ignore\[0\]\.message: must be a string/);
+    await assert.rejects(load([{ where: '(' }]), /ignore\[0\]\.where: Invalid regular expression/);
+    const { config } = await load([{ audit: 'seo', where: '^/draft/' }]);
+    assert.deepEqual(config.ignore, [{ audit: 'seo', where: '^/draft/' }]);
+  });
+
   it('rejects unknown keys in config files and accepts $schema', async () => {
     const typo = fixture({ 'vidimus.config.json': JSON.stringify({ r12s: { viewport: [320] } }) });
     await assert.rejects(loadConfig({ cwd: typo, env: {} }), /unknown config key "r12s.viewport"/);

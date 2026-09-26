@@ -30,17 +30,21 @@ const parse = (spec: string) => {
     : { name: spec.slice(0, separator), target: spec.slice(separator + 1) || undefined };
 };
 
-const defaultReporters = (env: NodeJS.ProcessEnv) => [
-  'pretty',
-  ...(env.GITHUB_ACTIONS === 'true' ? ['github'] : []),
-];
+const withGithub = (specs: (string | Reporter)[], env: NodeJS.ProcessEnv) => {
+  const list = specs.length ? specs : ['pretty'];
+  const named = list.some(
+    (spec) => (typeof spec === 'string' ? parse(spec).name : spec.name) === 'github',
+  );
+  return env.GITHUB_ACTIONS === 'true' && !named ? [...list, 'github'] : list;
+};
 
 export const createReporters = (
   specs: (string | Reporter)[],
   { cwd, env }: ReporterEnv,
 ): Reporter[] => {
-  const list = specs.length ? specs : defaultReporters(env);
-  const parsed = list.map((spec) => (typeof spec === 'string' ? parse(spec) : spec));
+  const parsed = withGithub(specs, env).map((spec) =>
+    typeof spec === 'string' ? parse(spec) : spec,
+  );
   const stdoutTaken = parsed.some(
     (spec) => 'target' in spec && ['json', 'junit'].includes(spec.name) && !spec.target,
   );
@@ -52,7 +56,7 @@ export const createReporters = (
       case 'pretty':
         return pretty(stdoutTaken || target === 'stderr' ? process.stderr : process.stdout);
       case 'github':
-        return github(process.stdout, env);
+        return github(stdoutTaken ? process.stderr : process.stdout, env);
       case 'json':
         return {
           name,

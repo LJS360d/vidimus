@@ -1,0 +1,19 @@
+---
+import Default from '@astrojs/starlight/components/Banner.astro';
+import { flavorLinks } from '../../../flavors.ts';
+import { slugOfEntry } from './slug.ts';
+
+const links = flavorLinks('astro', slugOfEntry(Astro.locals.starlightRoute.entry.filePath));
+---
+
+<Default />
+<nav class="flavors" aria-label="Docs flavor" data-pagefind-ignore>
+  <span>Same docs, built with</span>
+  {
+    links.map(({ name, href, current }) => (
+      <a href={href} aria-current={current ? 'page' : undefined}>
+        {name}
+      </a>
+    ))
+  }
+</nav>

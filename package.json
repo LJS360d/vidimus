@@ -67,8 +67,9 @@
     "bump": "changeset version",
     "release": "pnpm run smoke && changeset publish && git push --tags",
     "docs:dev": "vitepress dev docs",
-    "docs:build": "pnpm run schema && vitepress build docs",
-    "docs:audit": "node dist/cli.js -c docs/vidimus.config.json"
+    "docs:build": "pnpm run schema && node scripts/docs.ts build",
+    "docs:audit": "node dist/cli.js -c docs/vidimus.config.ts",
+    "docs:sync": "node scripts/docs.ts sync"
   },
   "dependencies": {
     "commander": "^15.0.0"
@@ -102,10 +103,13 @@
     }
   },
   "devDependencies": {
+    "@11ty/eleventy": "^3.1.6",
     "@arethetypeswrong/cli": "^0.18.5",
+    "@astrojs/starlight": "^0.42.4",
     "@biomejs/biome": "^2.5.14",
     "@changesets/cli": "^3.0.3",
     "@types/node": "^22.20.4",
+    "astro": "^7.3.5",
     "html-validate": "^11.16.0",
     "knip": "^6.38.0",
     "lighthouse": "^13.5.0",
@@ -116,6 +120,7 @@
     "sharp": "^0.35.4",
     "ts-json-schema-generator": "^2.9.0",
     "typescript": "^6.0.3",
-    "vitepress": "2.0.0-alpha.20"
+    "vitepress": "2.0.0-alpha.20",
+    "vue": "^3.5.43"
   }
 }

@@ -1,7 +1,21 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/index.ts", "src/cli.ts", "scripts/*.ts", "test/**/*.test.ts"],
-  "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
-  "ignoreDependencies": ["html-validate", "lighthouse", "pa11y"],
-  "ignoreUnresolved": ["peer-types\\.ts$"]
+  "entry": [
+    "src/index.ts",
+    "src/cli.ts",
+    "scripts/*.ts",
+    "test/**/*.test.ts",
+    "docs/vidimus.config.ts"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "docs/**/*.{ts,astro}"],
+  "ignoreDependencies": ["html-validate", "lighthouse", "pa11y", "@11ty/eleventy"],
+  "ignoreUnresolved": ["peer-types\\.ts$"],
+  "astro": {
+    "config": ["docs/astro/astro.config.ts"],
+    "entry": ["docs/astro/src/content.config.ts", "docs/astro/src/components/*.astro"]
+  },
+  "vitepress": {
+    "config": ["docs/.vitepress/config.ts"],
+    "entry": ["docs/.vitepress/theme/index.ts"]
+  }
 }

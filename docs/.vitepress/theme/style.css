@@ -3,3 +3,48 @@
   --vp-button-brand-hover-bg: #3a5ccc;
   --vp-button-brand-active-bg: #2e4799;
 }
+
+:root {
+  --vp-layout-top-height: 37px;
+}
+
+.flavors {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--vp-z-index-layout-top);
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  height: var(--vp-layout-top-height);
+  padding: 0 1rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: var(--vp-c-bg-soft);
+  border-bottom: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+}
+
+.flavors a {
+  padding: 4px 0;
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.flavors a[aria-current="page"] {
+  color: var(--vp-c-text-1);
+  font-weight: 700;
+}
+
+.dogfood {
+  margin: 2rem 0 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+}

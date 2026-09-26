@@ -296,6 +296,28 @@ describe('seo audit', () => {
     );
     assert.equal(find(result, /duplicate/), undefined);
   });
+
+  it('treats pages canonical to another page as duplicates by design', async () => {
+    const copy = {
+      title: 'Page /about/ of the site',
+      description: `${DESCRIPTION} /about/`,
+      canonical: `${SITE}/about/`,
+    };
+    const unlisted = await audit(
+      site({ 'dist/mirror/about/index.html': page({ path: '/mirror/about/', ...copy }) }),
+    );
+    assert.deepEqual(unlisted.findings, []);
+
+    const listed = await audit(
+      site({
+        'dist/mirror/about/index.html': page({ path: '/mirror/about/', ...copy }),
+        'dist/sitemap.xml': sitemap('/', '/about/', '/mirror/about/'),
+      }),
+    );
+    assert.deepEqual(find(listed, /non-canonical page in the sitemap/)?.where, ['/mirror/about/']);
+    assert.equal(find(listed, /duplicate/), undefined);
+  });
+
   it('gives every finding a fix', async () => {
     const alt = (lang: string, href: string) =>
       `<link rel="alternate" hreflang="${lang}" href="${href}">`;

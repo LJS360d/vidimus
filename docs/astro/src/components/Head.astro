@@ -1,0 +1,15 @@
+---
+import { canonicalUrl } from '../../../flavors.ts';
+import { slugOfEntry } from './slug.ts';
+
+const { head, entry } = Astro.locals.starlightRoute;
+const canonical = canonicalUrl(slugOfEntry(entry.filePath));
+---
+
+{
+  head
+    .filter(({ attrs }) => attrs?.rel !== 'canonical' && attrs?.property !== 'og:url')
+    .map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)
+}
+<link rel="canonical" href={canonical} />
+<meta property="og:url" content={canonical} />

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { UsageError } from '../core/errors.ts';
+import { isPlainObject } from '../core/util.ts';
 import { defaults } from './defaults.ts';
 import { checkKeys, merge, setPath } from './merge.ts';
 import type { ConfigInput, UserConfig, VidimusConfig } from './types.ts';
@@ -96,6 +97,33 @@ const fromSet = (config: VidimusConfig, assignments: string[]) =>
     );
   }, config);
 
+const IGNORE_KEYS = ['audit', 'message', 'where'];
+
+const checkIgnoreRules = (rules: unknown) => {
+  if (!Array.isArray(rules)) throw new UsageError('ignore: must be a list of rules');
+  rules.forEach((rule, index) => {
+    const at = `ignore[${index}]`;
+    if (!isPlainObject(rule)) throw new UsageError(`${at}: must be an object`);
+    const keys = Object.keys(rule);
+    const unknown = keys.find((key) => !IGNORE_KEYS.includes(key));
+    if (unknown)
+      throw new UsageError(`${at}: unknown key "${unknown}". Known: ${IGNORE_KEYS.join(', ')}`);
+    if (!keys.length)
+      throw new UsageError(
+        `${at}: an empty rule would drop every finding; set audit, message or where`,
+      );
+    for (const key of keys) {
+      const pattern = rule[key];
+      if (typeof pattern !== 'string') throw new UsageError(`${at}.${key}: must be a string`);
+      try {
+        new RegExp(pattern);
+      } catch (error) {
+        throw new UsageError(`${at}.${key}: ${(error as Error).message}`);
+      }
+    }
+  });
+};
+
 const resolveRoot = (root: string | undefined, base: string) =>
   root === undefined ? undefined : isAbsolute(root) ? root : resolve(base, root);
 
@@ -132,6 +160,7 @@ export const loadConfig = async ({
   config = fromSet(config, set);
   config = merge(config, { ...overrides, root: resolveRoot(overrides.root, cwd) });
   config = { ...config, root: resolveRoot(config.root, cwd) ?? cwd };
+  checkIgnoreRules(config.ignore);
 
   return { config, source };
 };

@@ -1,0 +1,45 @@
+[
+  {
+    "text": "Guide",
+    "items": [
+      { "text": "Getting started", "link": "getting-started" },
+      { "text": "How it works", "link": "how-it-works" },
+      { "text": "Frameworks", "link": "frameworks" },
+      { "text": "Adopting on an existing site", "link": "adopting" },
+      { "text": "CI", "link": "ci" },
+      { "text": "Troubleshooting", "link": "troubleshooting" }
+    ]
+  },
+  {
+    "text": "Audits",
+    "items": [
+      { "text": "Overview", "link": "audits/" },
+      { "text": "i18n", "link": "audits/i18n" },
+      { "text": "csp", "link": "audits/csp" },
+      { "text": "a11y", "link": "audits/a11y" },
+      { "text": "links", "link": "audits/links" },
+      { "text": "r12s", "link": "audits/r12s" },
+      { "text": "seo", "link": "audits/seo" },
+      { "text": "security", "link": "audits/security" },
+      { "text": "html", "link": "audits/html" },
+      { "text": "budget", "link": "audits/budget" },
+      { "text": "assets", "link": "audits/assets" },
+      { "text": "privacy", "link": "audits/privacy" },
+      { "text": "shots", "link": "audits/shots" },
+      { "text": "lighthouse", "link": "audits/lighthouse" }
+    ]
+  },
+  {
+    "text": "Reference",
+    "items": [
+      { "text": "Configuration", "link": "configuration" },
+      { "text": "CLI", "link": "cli" },
+      { "text": "Reporters", "link": "reporters" },
+      { "text": "Custom audits and API", "link": "plugins" }
+    ]
+  },
+  {
+    "text": "About these docs",
+    "items": [{ "text": "Six flavors", "link": "flavors" }]
+  }
+]
