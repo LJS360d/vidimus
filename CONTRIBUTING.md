@@ -6,6 +6,7 @@ pnpm run check        # lint, types, knip, tests with coverage, build, publint, 
 pnpm run smoke        # pack, install in a scratch project without peers, run the CLI and tsc
 pnpm changeset        # describe your change for the changelog
 pnpm run docs:dev     # docs site at localhost:5173/vidimus/
+pnpm run build && pnpm run docs:build && pnpm run docs:audit   # audit the docs site with vidimus
 ```
 
 Tool versions are pinned in `mise.toml`. Code has no comments by convention; biome formats it.

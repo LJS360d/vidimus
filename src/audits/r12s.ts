@@ -132,7 +132,7 @@ const measureAfterFontsAndRedirects = async (
 export const r12s: Audit = {
   name: 'r12s',
   description: 'no horizontal overflow, small tap targets, small text or locked zoom',
-  async run({ config, pageUrls, launchBrowser }) {
+  async run({ config, origin, pageUrls, launchBrowser }) {
     const { viewports, concurrency, exclude, timeout, minTarget, minFont } = config.r12s;
     const urls = pageUrls({ exclude, allLocales: true });
     const browser = await launchBrowser();
@@ -163,7 +163,7 @@ export const r12s: Audit = {
     for (const failure of failures) {
       const key = [failure.rule, failure.detail, ...failure.nodes].join(' | ');
       const defect = byDefect.get(key) ?? { ...failure, paths: new Set(), widths: new Set() };
-      defect.paths.add(pathOf(failure.url));
+      defect.paths.add(pathOf(failure.url, origin));
       defect.widths.add(failure.width);
       byDefect.set(key, defect);
     }

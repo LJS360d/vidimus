@@ -53,7 +53,7 @@ export const links: Audit = {
     const byTarget = new Map<string, { status: number | undefined; sources: Set<string> }>();
     for (const result of broken) {
       const target = byTarget.get(result.url) ?? { status: result.status, sources: new Set() };
-      target.sources.add(result.parent ? pathOf(result.parent) : '(root)');
+      target.sources.add(result.parent ? pathOf(result.parent, origin) : '(root)');
       byTarget.set(result.url, target);
     }
 

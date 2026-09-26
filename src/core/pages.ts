@@ -24,5 +24,5 @@ export const createPageUrls = (config: VidimusConfig, dist: string, origin: stri
     findBuiltPages()
       .filter((page) => allLocales || !isTranslation(page))
       .map(toUrl)
-      .filter((url) => !matchesAny(exclude, pathOf(url)));
+      .filter((url) => !matchesAny(exclude, pathOf(url, origin)));
 };

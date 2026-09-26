@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { resolveHref, stripBase } from '../src/core/html.ts';
-import { run } from '../src/index.ts';
+import { resolveHref } from '../src/core/html.ts';
+import { pathOf, stripBase } from '../src/core/util.ts';
+import { type Audit, run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
 const SITE = 'https://user.github.io/project';
@@ -38,5 +39,35 @@ describe('sites under a base path', () => {
       results[0]?.findings.map(({ message }) => message),
       [],
     );
+  });
+
+  it('opens pages under the base path when serving the build', async () => {
+    const cwd = fixture({
+      'dist/index.html': '<title>home</title>',
+      'dist/guide/index.html': '<title>guide</title>',
+    });
+    const seen: string[] = [];
+    const probe: Audit = {
+      name: 'probe',
+      description: 'fetches every page',
+      async run({ origin, pageUrls }) {
+        for (const url of pageUrls()) {
+          const response = await fetch(url);
+          seen.push(`${response.status} ${url} ${pathOf(url, origin)}`);
+        }
+        return { summary: 'ok' };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [],
+      overrides: { siteUrl: SITE, port: 4391, plugins: [probe] },
+    });
+    assert.deepEqual(seen, [
+      '200 http://localhost:4391/project/guide/ /guide/',
+      '200 http://localhost:4391/project/ /',
+    ]);
   });
 });

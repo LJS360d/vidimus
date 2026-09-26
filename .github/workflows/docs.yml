@@ -3,7 +3,7 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'src/config/**', 'package.json', 'pnpm-lock.yaml', '.github/workflows/docs.yml']
+    paths: ['docs/**', 'src/**', 'scripts/schema.ts', 'package.json', 'pnpm-lock.yaml', '.github/**']
   workflow_dispatch:
 
 concurrency:
@@ -16,16 +16,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          browser: 'true'
       - run: pnpm run build
       - run: pnpm run docs:build
       - run: pnpm run docs:audit
@@ -46,3 +41,19 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          browser: 'true'
+      - run: pnpm run build
+      - run: pnpm run docs:build
+      - name: Audit the deployed site
+        run: >-
+          pnpm run docs:audit security links privacy
+          --origin https://ljs360d.github.io/vidimus
+          --set severity.security=warn

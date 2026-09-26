@@ -3,7 +3,8 @@ import { createServer } from 'node:http';
 import { extname } from 'node:path';
 import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
-import { localFile, stripBase } from './html.ts';
+import { localFile } from './html.ts';
+import { stripBase } from './util.ts';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

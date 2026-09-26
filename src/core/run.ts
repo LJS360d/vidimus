@@ -11,6 +11,7 @@ import { createPageUrls } from './pages.ts';
 import { importPeer, launchBrowser } from './peer.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, RunReport } from './types.ts';
+import { basePathOf } from './util.ts';
 
 export interface RunOptions extends LoadConfigOptions {
   audits?: string[];
@@ -56,7 +57,9 @@ export const runAudits = async (
     throw new UsageError(`no build output at ${dist}. Run the build first.`);
   }
 
-  const origin = (config.origin || `http://localhost:${config.port}`).replace(/\/$/, '');
+  const origin = (
+    config.origin || `http://localhost:${config.port}${basePathOf(config.siteUrl)}`
+  ).replace(/\/$/, '');
   const server =
     needsServer && !config.origin
       ? await serve(dist, config.port, config.server, config.siteUrl)

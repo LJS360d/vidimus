@@ -153,7 +153,7 @@ export const privacy: Audit = {
   async run({ config, origin, pageUrls, launchBrowser }) {
     const { allow, exclude, sample, allLocales, cookies, wait, concurrency, timeout } =
       config.privacy;
-    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample);
+    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample, origin);
     const firstParty = firstPartyHostsOf(origin, config.siteUrl);
     const hosts = new Map<string, Seen>();
     const cookieJar = new Map<string, { where: Set<string>; firstParty: boolean }>();
@@ -162,7 +162,7 @@ export const privacy: Audit = {
 
     try {
       await inParallel(concurrency, urls, async (url) => {
-        const path = pathOf(url);
+        const path = pathOf(url, origin);
         const context = await browser.createBrowserContext();
         try {
           const page = await context.newPage();

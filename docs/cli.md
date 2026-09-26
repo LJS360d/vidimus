@@ -21,7 +21,7 @@ npx vidimus init [--format ts|js|json]
 | `-c, --config <file>` / `--no-config` | pick a config file / ignore config files |
 | `--set <key=value>` | override any config value, repeatable (`--set lighthouse.thresholds.seo=0.8`) |
 | `--root`, `--dist`, `--out-dir` | project root, build output, report output |
-| `--origin <url>` | audit a running server instead of serving the build |
+| `--origin <url>` | audit a running server instead of serving the build, including any base path (`http://localhost:4173/project`) |
 | `--site-url <url>` | production origin; absolute self-links are rewritten onto the audit origin |
 | `--port <n>` | port of the built-in static server |
 | `--all-locales` | include translated pages too |

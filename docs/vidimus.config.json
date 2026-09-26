@@ -2,6 +2,31 @@
   "$schema": "../schema.json",
   "distDir": ".vitepress/dist",
   "siteUrl": "https://ljs360d.github.io/vidimus",
-  "audits": ["seo", "security", "html", "budget", "assets", "csp"],
-  "html": { "rules": { "attribute-misuse": "off" } }
+  "audits": [
+    "seo",
+    "security",
+    "html",
+    "budget",
+    "assets",
+    "csp",
+    "links",
+    "a11y",
+    "r12s",
+    "privacy",
+    "lighthouse"
+  ],
+  "html": {
+    "rules": {
+      "attribute-misuse": "off"
+    }
+  },
+  "links": {
+    "skip": ["^mailto:", "^tel:", "^https://github\\.com/LJS360d/vidimus/edit/"]
+  },
+  "lighthouse": {
+    "exclude": ["^/404(\\.html|/)?$"],
+    "thresholds": {
+      "accessibility": 0.98
+    }
+  }
 }

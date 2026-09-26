@@ -21,9 +21,10 @@ type Lighthouse = (
 
 const selectUrls = ({ config, origin, pageUrls }: AuditContext) => {
   const { exclude, sample, all, urls } = config.lighthouse;
-  if (urls.length) return urls.map((path) => new URL(path.trim(), `${origin}/`).href);
+  if (urls.length)
+    return urls.map((path) => new URL(path.trim().replace(/^\/+/, ''), `${origin}/`).href);
   const candidates = pageUrls({ exclude, allLocales: true });
-  return all ? candidates : onePagePerTemplate(candidates, sample);
+  return all ? candidates : onePagePerTemplate(candidates, sample, origin);
 };
 
 const costliestAudits = (lhr: LighthouseResult, category: string) =>
@@ -45,7 +46,7 @@ export const lighthouse: Audit = {
   description: 'Lighthouse category scores meet their thresholds',
   exclusive: true,
   async run(context) {
-    const { config, root, resolve, importPeer, launchBrowser, log } = context;
+    const { config, root, origin, resolve, importPeer, launchBrowser, log } = context;
     const { thresholds } = config.lighthouse;
     const { default: runLighthouse } = await importPeer<{ default: Lighthouse }>('lighthouse');
     const out = resolve(config.outDir, config.lighthouse.outDir);
@@ -61,8 +62,8 @@ export const lighthouse: Audit = {
 
     try {
       for (const url of urls) {
-        const path = pathOf(url);
-        const name = slug(url);
+        const path = pathOf(url, origin);
+        const name = slug(url, origin);
         const result = await runLighthouse(url, {
           port,
           output: 'html',

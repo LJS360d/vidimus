@@ -40,7 +40,7 @@ type Pa11y = (url: string, options: Record<string, unknown>) => Promise<{ issues
 export const a11y: Audit = {
   name: 'a11y',
   description: 'pa11y (HTML_CodeSniffer) finds no WCAG violations',
-  async run({ config, pageUrls, importPeer, launchBrowser, log }) {
+  async run({ config, origin, pageUrls, importPeer, launchBrowser, log }) {
     const { standard, timeout, concurrency, hideElements, ignore, exclude } = config.a11y;
     await importPeer('puppeteer');
     const { default: pa11y } = await importPeer<{ default: Pa11y }>('pa11y');
@@ -69,11 +69,11 @@ export const a11y: Audit = {
               where: [],
               fix: issueFix(issue.code),
             };
-            finding.where.push(pathOf(url));
+            finding.where.push(pathOf(url, origin));
             byIssue.set(key, finding);
           }
         } catch (error) {
-          failedToLoad.push(`${pathOf(url)}: ${(error as Error).message}`);
+          failedToLoad.push(`${pathOf(url, origin)}: ${(error as Error).message}`);
         } finally {
           await page.close();
         }

@@ -1,7 +1,7 @@
 import { globSync, readFileSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { Pattern } from '../config/types.ts';
-import { matchesAny } from './util.ts';
+import { matchesAny, stripBase } from './util.ts';
 
 export interface Tag {
   name: string;
@@ -123,21 +123,6 @@ const originOf = (url: string) => {
   } catch {
     return '';
   }
-};
-
-const basePathOf = (siteUrl: string) => {
-  try {
-    return new URL(siteUrl).pathname.replace(/\/+$/, '');
-  } catch {
-    return '';
-  }
-};
-
-export const stripBase = (pathname: string, siteUrl: string) => {
-  const base = basePathOf(siteUrl);
-  if (!base) return pathname;
-  if (pathname === base) return '/';
-  return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
 };
 
 export const resolveHref = (href: string, pagePath: string, siteUrl = '') => {

@@ -4,10 +4,25 @@ import type { Browser, Page } from './peer-types.ts';
 
 export const escapeRegExp = (text: string) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
 
-export const pathOf = (url: string) => new URL(url).pathname;
+export const basePathOf = (siteUrl: string) => {
+  try {
+    return new URL(siteUrl).pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+};
 
-export const slug = (url: string) =>
-  pathOf(url)
+export const stripBase = (pathname: string, siteUrl: string) => {
+  const base = basePathOf(siteUrl);
+  if (!base) return pathname;
+  if (pathname === base) return '/';
+  return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
+};
+
+export const pathOf = (url: string, root = '') => stripBase(new URL(url).pathname, root);
+
+export const slug = (url: string, root = '') =>
+  pathOf(url, root)
     .replace(/^\/|\/$/g, '')
     .replaceAll('/', '_') || 'index';
 
@@ -53,10 +68,12 @@ export const inParallelTabs = <T>(
   );
 };
 
-export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[]) => {
+export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[], root = '') => {
   const seen = new Set<Pattern>();
   return urls.filter((url) => {
-    const template = templatePatterns.find((pattern) => new RegExp(pattern).test(pathOf(url)));
+    const template = templatePatterns.find((pattern) =>
+      new RegExp(pattern).test(pathOf(url, root)),
+    );
     if (!template) return true;
     if (seen.has(template)) return false;
     seen.add(template);

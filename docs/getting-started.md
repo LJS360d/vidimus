@@ -52,7 +52,9 @@ export default defineConfig({
 ```
 
 Set `siteUrl` to your production origin: canonical, sitemap and Open Graph checks compare
-against it, and absolute links to your own site are checked against the build.
+against it, and absolute links to your own site are checked against the build. A `siteUrl`
+with a path (`https://user.github.io/project`) is a base path: the build is served, and its
+pages are opened, under it.
 
 ## Existing sites
 

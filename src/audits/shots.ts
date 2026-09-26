@@ -146,7 +146,7 @@ export const changedShotFix = (gallery: string) =>
 export const shots: Audit = {
   name: 'shots',
   description: 'screenshots match the recorded baseline within tolerance',
-  async run({ config, root, resolve, pageUrls, launchBrowser, importPeer, log }) {
+  async run({ config, root, origin, resolve, pageUrls, launchBrowser, importPeer, log }) {
     const { viewports, tolerance, maxDiff, sample, exclude, allLocales, concurrency, motion } =
       config.shots;
     const updateBaseline = config.shots.updateBaseline;
@@ -158,10 +158,10 @@ export const shots: Audit = {
     const motionDir = join(out, 'motion');
     const png = (dir: string, name: string) => join(dir, `${name}.png`);
 
-    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample);
+    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales }), sample, origin);
     const sizes = viewports.map((entry) => viewport(entry));
     const shotList = sizes.flatMap((size) =>
-      urls.map((url) => ({ size, url, name: `${slug(url)}@${size.width}x${size.height}` })),
+      urls.map((url) => ({ size, url, name: `${slug(url, origin)}@${size.width}x${size.height}` })),
     );
 
     for (const dir of [currentDir, diffDir, motionDir])

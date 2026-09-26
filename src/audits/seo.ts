@@ -8,12 +8,11 @@ import {
   meta,
   readPages,
   resolveHref,
-  stripBase,
   tags,
   textOf,
 } from '../core/html.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
-import { matchesAny } from '../core/util.ts';
+import { matchesAny, stripBase } from '../core/util.ts';
 
 const SITEMAPS = ['sitemap.xml', 'sitemap-index.xml', 'sitemap_index.xml'];
 const ROBOTS_META = new Set(['robots', 'googlebot']);
