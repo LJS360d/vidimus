@@ -20,6 +20,10 @@ describe('csp audit', () => {
     assert.equal(ok, false);
     assert.equal(results[0]?.findings.length, 1);
     assert.match(results[0]?.findings[0]?.message ?? '', /inline <style>/);
+    assert.equal(
+      results[0]?.findings[0]?.fix,
+      `Add '${hash('body{color:red}')}' to style-src in the meta CSP, or move the code to a file.`,
+    );
   });
 
   it('passes when every block is hashed', async () => {
@@ -55,6 +59,14 @@ describe('i18n audit', () => {
       'it: 1 empty key(s)',
     ]);
     assert.deepEqual(results[0]?.findings[0]?.details, ['c']);
+    assert.deepEqual(
+      results[0]?.findings.map(({ fix }) => fix),
+      [
+        'Add these keys to locales/it.json.',
+        'Remove them or add them to the en file first.',
+        'Translate them or remove the keys to fall back to en.',
+      ],
+    );
   });
 
   it('is skipped when not configured', async () => {

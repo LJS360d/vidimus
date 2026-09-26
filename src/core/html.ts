@@ -125,6 +125,21 @@ const originOf = (url: string) => {
   }
 };
 
+const basePathOf = (siteUrl: string) => {
+  try {
+    return new URL(siteUrl).pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+};
+
+export const stripBase = (pathname: string, siteUrl: string) => {
+  const base = basePathOf(siteUrl);
+  if (!base) return pathname;
+  if (pathname === base) return '/';
+  return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
+};
+
 export const resolveHref = (href: string, pagePath: string, siteUrl = '') => {
   const trimmed = href.trim();
   if (!trimmed || /^(#|data:|javascript:|mailto:|tel:|blob:)/i.test(trimmed)) return null;
@@ -142,6 +157,6 @@ export const resolveHref = (href: string, pagePath: string, siteUrl = '') => {
     href: trimmed,
     internal,
     absolute: /^[a-z][a-z\d+.-]*:|^\/\//i.test(trimmed),
-    path: internal ? url.pathname : null,
+    path: internal ? stripBase(url.pathname, siteUrl) : null,
   };
 };

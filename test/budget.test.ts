@@ -183,4 +183,21 @@ describe('budget audit', () => {
     const result = await audit({ 'dist/index.html': '<img src="/x.png">' }, { exclude: ['^/$'] });
     assert.equal(result.status, 'skipped');
   });
+
+  it('gives every finding a fix', async () => {
+    const result = await audit(
+      {
+        'dist/index.html': `<link rel="stylesheet" href="/a.css"><script src="/a.js"></script>
+<img src="/a.png"><p>${noise(3000)}</p>`,
+        'dist/a.css': `/*${noise(3000)}*/`,
+        'dist/a.js': `//${noise(3000)}`,
+      },
+      { html: 1000, css: 1000, js: 1000, image: 1000, page: 1000, legacyImage: 1000 },
+      { 'dist/a.png': pngBuffer(64, 32, 5000) },
+    );
+    assert.equal(result.findings.length, 7);
+    for (const { fix } of result.findings) assert.ok(fix?.trim());
+    const dimensions = result.findings.find(({ message }) => message.includes('no width'));
+    assert.match(dimensions?.fix ?? '', /width="64" height="32"/);
+  });
 });

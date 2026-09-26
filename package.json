@@ -48,7 +48,6 @@
   },
   "files": [
     "dist",
-    "src",
     "schema.json"
   ],
   "scripts": {
@@ -61,13 +60,15 @@
     "lint:pkg": "publint --strict && attw --pack . --profile esm-only",
     "knip": "knip",
     "schema": "node scripts/schema.ts",
-    "schema:check": "node scripts/schema.ts --check",
     "smoke": "pnpm run build && node scripts/smoke.ts",
-    "check": "pnpm run lint && pnpm run typecheck && pnpm run schema:check && pnpm run knip && pnpm run test:coverage && pnpm run build && pnpm run lint:pkg",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run knip && pnpm run test:coverage && pnpm run build && pnpm run lint:pkg",
     "changeset": "changeset",
     "prepublishOnly": "pnpm run check",
     "bump": "changeset version",
-    "release": "pnpm run smoke && changeset publish && git push --tags"
+    "release": "pnpm run smoke && changeset publish && git push --tags",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "pnpm run schema && vitepress build docs",
+    "docs:audit": "node dist/cli.js -c docs/vidimus.config.json"
   },
   "dependencies": {
     "commander": "^15.0.0"
@@ -114,6 +115,7 @@
     "puppeteer": "^25.11.0",
     "sharp": "^0.35.4",
     "ts-json-schema-generator": "^2.9.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitepress": "2.0.0-alpha.20"
   }
 }

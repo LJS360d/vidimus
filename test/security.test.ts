@@ -180,6 +180,33 @@ describe('security audit', () => {
     assert.ok(result.log.some((line) => line.includes('header checks skipped')));
   });
 
+  it('gives every finding a concrete fix', async () => {
+    const result = await audit({
+      'dist/index.html':
+        page(`<meta http-equiv="content-security-policy" content="script-src 'unsafe-inline' 'unsafe-eval'">
+<img src="http://cdn.test/a.png">
+<script src="https://cdn.test/lib.js"></script>`),
+      'dist/_headers': `/*
+  Strict-Transport-Security: max-age=300
+  Referrer-Policy: unsafe-url
+`,
+      'vidimus.config.json': JSON.stringify({
+        security: { require: { 'x-custom': '^yes$' } },
+      }),
+    });
+    assert.equal(result.findings.length, 10);
+    for (const { message, fix } of result.findings) assert.ok(fix?.trim(), message);
+    const fixOf = (text: string) =>
+      result.findings.find(({ message }) => message.includes(text))?.fix ?? '';
+    assert.match(fixOf('missing x-content-type'), /"X-Content-Type-Options: nosniff"/);
+    assert.match(fixOf('missing x-content-type'), /_headers.*security\.require/);
+    assert.match(fixOf('strict-transport'), /max-age=31536000/);
+    assert.match(fixOf('x-custom'), /\^yes\$/);
+    assert.match(fixOf('clickjacking'), /frame-ancestors 'self'/);
+    assert.match(fixOf('mixed content'), /https:\/\//);
+    assert.match(fixOf('integrity'), /crossorigin="anonymous"/);
+  });
+
   it('is skipped when there are no pages', async () => {
     const result = await audit({ 'dist/app.js': '' });
     assert.equal(result.status, 'skipped');
@@ -229,5 +256,7 @@ describe('security audit against a live origin', () => {
     assert.deepEqual(result.findings[1]?.details, ['nginx/1.25.3']);
     assert.equal(result.findings[0]?.where?.length, 2);
     assert.ok(methods.includes('GET'));
+    assert.match(result.findings[0]?.fix ?? '', /X-Powered-By/);
+    assert.match(result.findings[1]?.fix ?? '', /server_tokens off/);
   });
 });

@@ -140,6 +140,9 @@ const writeGif = async (importPeer: AuditContext['importPeer'], frames: Frame[],
 const asDataUrl = (file: string) =>
   `data:image/png;base64,${readFileSync(file).toString('base64')}`;
 
+export const changedShotFix = (gallery: string) =>
+  `Open ${gallery} to review; if the change is intended, run vidimus shots --update-baseline.`;
+
 export const shots: Audit = {
   name: 'shots',
   description: 'screenshots match the recorded baseline within tolerance',
@@ -261,6 +264,7 @@ export const shots: Audit = {
       .map(({ name, percent }) => ({
         message: `${name}: ${percent}% changed > ${(maxDiff * 100).toFixed(2)}% allowed`,
         details: [`${shown}/diff/${name}.png`],
+        fix: changedShotFix(`${shown}/diff.html`),
       }));
 
     const scanned = `${urls.length} pages x ${sizes.length} viewports (${sizes

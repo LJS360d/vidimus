@@ -36,6 +36,7 @@ export const pretty = (stream: NodeJS.WriteStream = process.stdout): Reporter =>
         for (const detail of finding.details ?? []) out(`    ${detail}`);
         if (finding.file) out(paint('dim', `    in: ${relative(process.cwd(), finding.file)}`));
         if (finding.where?.length) out(paint('dim', `    on: ${firstFew(finding.where)}`));
+        if (finding.fix) out(paint('cyan', `    → ${finding.fix}`));
       }
       const [color, symbol] = STATUS[result.status];
       const known = result.suppressed ? `, ${result.suppressed} ignored or accepted` : '';

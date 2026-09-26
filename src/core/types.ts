@@ -11,6 +11,7 @@ export interface Finding {
   details?: string[];
   file?: string;
   severity?: Severity;
+  fix?: string;
 }
 
 export interface AuditOutcome {

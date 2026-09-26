@@ -18,7 +18,11 @@ const attrs = (values: Record<string, string | number>) =>
 const seconds = (ms: number) => (ms / 1000).toFixed(3);
 
 const findingCase = (suite: string, finding: Finding) => {
-  const body = [...(finding.details ?? []), ...(finding.where ?? []).map((where) => `on: ${where}`)]
+  const body = [
+    ...(finding.details ?? []),
+    ...(finding.where ?? []).map((where) => `on: ${where}`),
+    ...(finding.fix ? [`fix: ${finding.fix}`] : []),
+  ]
     .map(escapeXml)
     .join('\n');
   const outcome =

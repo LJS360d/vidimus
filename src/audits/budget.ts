@@ -11,6 +11,7 @@ import {
 } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { matchesAny } from '../core/util.ts';
+import { imageSize } from './image-size.ts';
 
 type Kind = 'html' | 'css' | 'js' | 'page';
 
@@ -28,6 +29,13 @@ interface Group {
 const LEGACY = /\.(png|jpe?g|gif)$/i;
 const MODERN = /^image\/(avif|webp)$/i;
 const MODERN_FILE = /\.(avif|webp)(\?|#|$)/i;
+
+const BUDGET_FIXES: Record<Kind, string> = {
+  html: 'Move inline scripts, styles and SVG sprites into cached files or paginate long content, or raise budget.html.',
+  css: 'Remove unused CSS (e.g. with PurgeCSS), split per-page styles out of the largest files above, or raise budget.css.',
+  js: 'Split or lazy-load the largest scripts listed above, drop unused dependencies, or raise budget.js.',
+  page: 'Shrink the largest files listed above (images first), lazy-load below-the-fold media, or raise budget.page.',
+};
 
 const formatBytes = (bytes: number) =>
   bytes < 1000
@@ -82,6 +90,13 @@ export const budget: Audit = {
 
     const gzipped = memo((file) => gzipSync(readFileSync(file)).length);
     const raw = memo((file) => statSync(file).size);
+    const dimensionsOf = memo((file) => {
+      try {
+        return imageSize(readFileSync(file));
+      } catch {
+        return undefined;
+      }
+    });
     const groups = new Map<string, Group>();
     const report = (key: string, finding: Finding, where: string) => {
       const group = groups.get(key) ?? { finding, where: new Set<string>() };
@@ -89,7 +104,7 @@ export const budget: Audit = {
       groups.set(key, group);
     };
 
-    const local = (ref: string, page: BuiltPage, measure: (file: string) => number) => {
+    const local = <T>(ref: string, page: BuiltPage, measure: (file: string) => T) => {
       const resolved = resolveHref(ref, page.path, config.siteUrl);
       if (!resolved?.path) return undefined;
       const file = localFile(dist, resolved.path);
@@ -147,6 +162,7 @@ export const budget: Audit = {
             message: `${kind} ${formatBytes(size)} ${measured} > ${formatBytes(limit)} budget`,
             details: topFiles(assets),
             file: page.file,
+            fix: BUDGET_FIXES[kind],
           },
           page.path,
         );
@@ -159,6 +175,7 @@ export const budget: Audit = {
           {
             message: `image ${image.url} ${formatBytes(image.size)} > ${formatBytes(options.image)} budget`,
             file: image.file,
+            fix: 'Resize/compress it (e.g. with sharp or squoosh) and serve AVIF/WebP, or raise budget.image.',
           },
           page.path,
         );
@@ -180,6 +197,7 @@ export const budget: Audit = {
                 message: `image ${image.url} is ${formatBytes(image.size)}: serve AVIF or WebP`,
                 file: image.file,
                 severity: 'warn',
+                fix: 'Add a <picture> with a <source type="image/avif"> or <source type="image/webp"> before this <img>.',
               },
               page.path,
             );
@@ -193,11 +211,15 @@ export const budget: Audit = {
           !(attrs.width && attrs.height) &&
           !/aspect-ratio\s*:/i.test(attrs.style ?? '')
         ) {
+          const intrinsic = src ? local(src, page, dimensionsOf) : undefined;
+          const size = intrinsic?.size;
+          const example = size ? `, e.g. width="${size.width}" height="${size.height}"` : '';
           report(
             `dimensions ${src}`,
             {
               message: `<img src="${src}"> has no width and height (layout shift)`,
               severity: 'warn',
+              fix: `Add width and height attributes matching the image's intrinsic size${example} (CSS can still resize it).`,
             },
             page.path,
           );

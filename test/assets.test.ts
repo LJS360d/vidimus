@@ -152,7 +152,7 @@ describe('assets audit', () => {
     assert.deepEqual(result.messages, [
       'warn: missing <meta property="og:title">',
       'warn: missing <meta property="og:image">',
-      'warn: missing <meta property="twitter:card">',
+      'warn: missing <meta name="twitter:card">',
       'warn: og:image /og.png is 600x315, smaller than 1200x630',
     ]);
     assert.deepEqual(result.findings[0]?.where, ['/about/']);
@@ -171,5 +171,29 @@ describe('assets audit', () => {
     const result = await audit(site({ 'dist/404.html': undefined }));
     assert.equal(result.status, 'warned');
     assert.deepEqual(result.messages, ['warn: no 404 page (404.html or 404/index.html)']);
+  });
+
+  it('gives every finding a fix', async () => {
+    const page =
+      '<!doctype html><link rel="icon" href="/gone.svg"><link rel="manifest" href="/m.json"><meta property="og:image" content="/small.png"><meta property="og:url" content="https://other.example/">';
+    const cwd = site(
+      {
+        'dist/index.html': page,
+        'dist/about/index.html': page,
+        'dist/404.html': undefined,
+        'dist/m.json': JSON.stringify({ icons: [{ src: '/nope.png' }] }),
+      },
+      { 'dist/small.png': png(100, 100) },
+    );
+    const result = await audit(cwd);
+    assert.ok(result.findings.length >= 10);
+    for (const { fix } of result.findings) assert.ok(fix?.trim());
+    const relative = result.findings.find(({ message }) => message.includes('not an absolute'));
+    assert.match(relative?.fix ?? '', /content="https:\/\/example\.com\/small\.png"/);
+    const bare = await audit(
+      site({ 'dist/index.html': '<!doctype html>', 'dist/about/index.html': '<!doctype html>' }),
+    );
+    assert.ok(bare.findings.length >= 2);
+    for (const { fix } of bare.findings) assert.ok(fix?.trim());
   });
 });

@@ -32,6 +32,7 @@ export const csp: Audit = {
           message: `inline <${kind}> has no CSP hash '${hash}'`,
           details: [`${body.trim().slice(0, 80)}…`],
           file,
+          fix: `Add '${hash}' to ${kind === 'style' ? 'style-src' : 'script-src'} in the meta CSP, or move the code to a file.`,
         });
       }
     }

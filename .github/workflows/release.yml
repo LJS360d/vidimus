@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@^11.5.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm run smoke
@@ -44,11 +44,26 @@ jobs:
           fi
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
-          npm_config_ignore_scripts: 'true'
+        id: publish
         run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "vidimus@$version" version > /dev/null 2>&1; then
+            echo "vidimus@$version is already on npm"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           pnpm run build
-          pnpm exec changeset publish
-          git push origin --tags
+          npm publish --access public --ignore-scripts
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and GitHub release
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.publish.outputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          awk -v heading="## $VERSION" '$0 == heading { found = 1; next } /^## / && found { exit } found' CHANGELOG.md > notes.md
+          gh release create "v$VERSION" --title "v$VERSION" --notes-file notes.md --verify-tag

@@ -53,12 +53,39 @@ const withRules = (base: ConfigData, rules: Record<string, unknown>): ConfigData
 const location = (path: string, message: HtmlValidateMessage) =>
   `${path}:${message.line}:${message.column}${message.selector ? ` ${message.selector}` : ''}`;
 
+const RULE_FIXES: Record<string, string> = {
+  'no-dup-id': 'Give each element a unique id (rename or remove the duplicate)',
+  'close-order':
+    'Close elements in the reverse order they were opened, e.g. <div><span></span></div>',
+  'element-permitted-content':
+    'Move the element into a parent that allows it (e.g. no <div> inside <p> or <a> inside <a>)',
+  'element-permitted-order':
+    'Reorder the children as the parent requires (e.g. <caption> first in <table>)',
+  'attribute-allowed-values': 'Change the attribute to one of the values the rule allows',
+  'no-deprecated-attr': 'Replace the deprecated attribute with CSS or its modern equivalent',
+  'element-required-attributes': 'Add the attribute named in the message to the element',
+  'void-style': 'Write void elements in the configured style, e.g. <br> instead of <br/>',
+  'no-implicit-close': 'Close the element explicitly before its parent or next sibling',
+  'no-raw-characters': 'Escape the character as an entity, e.g. &amp; for & and &lt; for <',
+  'wcag/h37': 'Add an alt attribute to the <img> (alt="" if it is purely decorative)',
+};
+
+const fixFor = ({ ruleId, ruleUrl }: HtmlValidateMessage) => {
+  const off = `set html.rules["${ruleId}"] to "off" if it is intended.`;
+  const specific = RULE_FIXES[ruleId];
+  if (specific) return `${specific}, or ${off}`;
+  return ruleUrl
+    ? `Fix the markup as described at ${ruleUrl}, or ${off}`
+    : `Fix the markup as the message describes, or ${off}`;
+};
+
 const toFinding = ({ message, pages, examples }: Group): Finding => {
   const where = [...new Set(pages.map(({ path }) => path))];
   return {
     message: `${message.ruleId}: ${message.message}`,
     where,
     details: [...examples, ...(message.ruleUrl ? [message.ruleUrl] : [])],
+    fix: fixFor(message),
     ...(where.length === 1 && pages[0] ? { file: pages[0].file } : {}),
     ...(message.severity === 1 ? { severity: 'warn' as const } : {}),
   };

@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { extname } from 'node:path';
 import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
-import { localFile } from './html.ts';
+import { localFile, stripBase } from './html.ts';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -35,11 +35,11 @@ export interface StaticServer {
   close: () => Promise<void>;
 }
 
-export const serve = (dist: string, port: number, options: VidimusConfig['server']) =>
+export const serve = (dist: string, port: number, options: VidimusConfig['server'], siteUrl = '') =>
   new Promise<StaticServer>((resolve, reject) => {
     const server = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
-      const file = localFile(dist, pathname);
+      const file = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
       if (!file) {
         res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
         return;

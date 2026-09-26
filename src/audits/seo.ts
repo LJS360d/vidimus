@@ -8,6 +8,7 @@ import {
   meta,
   readPages,
   resolveHref,
+  stripBase,
   tags,
   textOf,
 } from '../core/html.ts';
@@ -25,9 +26,9 @@ const originOf = (url: string) => {
   }
 };
 
-const pathnameOf = (url: string) => {
+const pathnameOf = (url: string, siteUrl: string) => {
   try {
-    return new URL(url).pathname;
+    return stripBase(new URL(url).pathname, siteUrl);
   } catch {
     return null;
   }
@@ -91,13 +92,14 @@ export const seo: Audit = {
     const grouped = new Map<string, Finding>();
     const report = (
       message: string,
+      fix: string,
       where: string | null,
       severity?: Severity,
       detail?: string,
       file?: string,
     ) => {
       const key = `${severity ?? 'error'}\0${message}`;
-      const finding = grouped.get(key) ?? { message, where: [], details: [] };
+      const finding = grouped.get(key) ?? { message, fix, where: [], details: [] };
       if (severity) finding.severity = severity;
       if (file) finding.file = file;
       if (where && !finding.where?.includes(where)) finding.where?.push(where);
@@ -120,27 +122,54 @@ export const seo: Audit = {
         redirects.add(page);
         continue;
       }
-      if (!tags(html, 'html')[0]?.attrs.lang?.trim()) report('missing <html lang>', path);
+      if (!tags(html, 'html')[0]?.attrs.lang?.trim())
+        report(
+          'missing <html lang>',
+          'Add a lang attribute to <html>, e.g. <html lang="en">.',
+          path,
+        );
 
       const title = textOf(html, 'title') ?? '';
-      if (!title) report('missing <title>', path);
+      if (!title)
+        report('missing <title>', 'Add a unique, descriptive <title> element inside <head>.', path);
       else if (outside(title.length, options.titleLength)) {
         const { min, max } = options.titleLength;
-        report(`title outside ${min}-${max} characters`, path, 'warn', `${path}: ${title.length}`);
+        report(
+          `title outside ${min}-${max} characters`,
+          `Rewrite the <title> to ${min}-${max} characters, or adjust seo.titleLength.`,
+          path,
+          'warn',
+          `${path}: ${title.length}`,
+        );
       }
 
       const description = (meta(html, 'description') ?? '').trim();
-      if (!description) report('missing meta description', path);
+      if (!description)
+        report(
+          'missing meta description',
+          'Add <meta name="description" content="…"> to <head> summarising the page.',
+          path,
+        );
       else if (outside(description.length, options.descriptionLength)) {
         const { min, max } = options.descriptionLength;
         const detail = `${path}: ${description.length}`;
-        report(`meta description outside ${min}-${max} characters`, path, 'warn', detail);
+        report(
+          `meta description outside ${min}-${max} characters`,
+          `Rewrite the meta description content to ${min}-${max} characters, or adjust seo.descriptionLength.`,
+          path,
+          'warn',
+          detail,
+        );
       }
 
       if (isNoindex(html)) {
         noindex.add(page);
         if (!matchesAny(options.allowNoindex, path))
-          report('noindex in the production build', path);
+          report(
+            'noindex in the production build',
+            'Remove the robots noindex meta tag, or add the path to seo.allowNoindex if it is intentional.',
+            path,
+          );
         continue;
       }
 
@@ -150,16 +179,49 @@ export const seo: Audit = {
 
       if (options.canonical) {
         const canonicals = linksWithRel(html, 'canonical');
-        if (!canonicals.length) report('no canonical link', path, 'warn');
-        if (canonicals.length > 1) report('more than one canonical link', path);
+        if (!canonicals.length)
+          report(
+            'no canonical link',
+            'Add <link rel="canonical" href="…"> with the absolute URL of the page to <head>.',
+            path,
+            'warn',
+          );
+        if (canonicals.length > 1)
+          report(
+            'more than one canonical link',
+            'Keep a single <link rel="canonical"> in <head> and remove the others.',
+            path,
+          );
         const href = canonicals[0]?.attrs.href ?? '';
         const target = canonicals.length === 1 ? resolveHref(href, path, config.siteUrl) : null;
         if (canonicals.length === 1 && !target?.absolute) {
-          report('canonical URL is not absolute', path, undefined, `${path}: ${href}`);
+          report(
+            'canonical URL is not absolute',
+            'Use an absolute URL in the canonical href, e.g. https://example.com/page/, built from siteUrl.',
+            path,
+            undefined,
+            `${path}: ${href}`,
+          );
         } else if (target && siteOrigin && target.url.origin !== siteOrigin) {
-          report(`canonical points outside ${siteOrigin}`, path, undefined, `${path}: ${href}`);
-        } else if (target && siteOrigin && !localFile(dist, target.url.pathname)) {
-          report('canonical is not a built page', path, undefined, `${path}: ${href}`);
+          report(
+            `canonical points outside ${siteOrigin}`,
+            `Point the canonical href at ${siteOrigin}, or fix siteUrl if the site's origin is wrong.`,
+            path,
+            undefined,
+            `${path}: ${href}`,
+          );
+        } else if (
+          target &&
+          siteOrigin &&
+          !localFile(dist, stripBase(target.url.pathname, config.siteUrl))
+        ) {
+          report(
+            'canonical is not a built page',
+            'Point the canonical href at a page that exists in the build, usually the page itself.',
+            path,
+            undefined,
+            `${path}: ${href}`,
+          );
         }
       }
 
@@ -168,26 +230,55 @@ export const seo: Audit = {
       for (const link of linksWithRel(html, 'alternate')) {
         const lang = link.attrs.hreflang?.trim().toLowerCase();
         if (!lang) continue;
-        if (seen.has(lang)) report(`duplicate hreflang "${lang}"`, path);
+        if (seen.has(lang))
+          report(
+            `duplicate hreflang "${lang}"`,
+            `Keep one <link rel="alternate" hreflang="${lang}"> per page and remove the duplicates.`,
+            path,
+          );
         seen.add(lang);
         const href = link.attrs.href ?? '';
         const target = resolveHref(href, path, config.siteUrl);
         if (!target?.absolute) {
-          report('hreflang URL is not absolute', path, undefined, `${path}: ${href}`);
+          report(
+            'hreflang URL is not absolute',
+            'Use an absolute URL in every <link rel="alternate" hreflang> href, e.g. https://example.com/it/.',
+            path,
+            undefined,
+            `${path}: ${href}`,
+          );
           continue;
         }
         if (!target.internal || !target.path) continue;
         const file = localFile(dist, target.path);
         if (!file)
-          report('hreflang target is not a built page', path, undefined, `${path}: ${href}`);
+          report(
+            'hreflang target is not a built page',
+            'Point the hreflang href at a page that exists in the build, or remove the alternate link.',
+            path,
+            undefined,
+            `${path}: ${href}`,
+          );
         else targets.add(file);
       }
       alternates.set(page.file, targets);
 
       if (options.h1) {
         const h1s = tags(html, 'h1').length;
-        if (!h1s) report('no <h1>', path, 'warn');
-        if (h1s > 1) report('more than one <h1>', path, 'warn');
+        if (!h1s)
+          report(
+            'no <h1>',
+            'Add one <h1> heading describing the page, or turn seo.h1 off.',
+            path,
+            'warn',
+          );
+        if (h1s > 1)
+          report(
+            'more than one <h1>',
+            'Keep a single <h1> per page and demote the others to <h2> or lower.',
+            path,
+            'warn',
+          );
       }
     }
 
@@ -197,7 +288,13 @@ export const seo: Audit = {
         const back = alternates.get(target);
         const to = byFile.get(target);
         if (!from || !to || target === file || !back || back.has(file)) continue;
-        report('hreflang not reciprocated', from.path, undefined, `${from.path} → ${to.path}`);
+        report(
+          'hreflang not reciprocated',
+          'Add a matching <link rel="alternate" hreflang> back to the linking page on each target page.',
+          from.path,
+          undefined,
+          `${from.path} → ${to.path}`,
+        );
       }
     }
 
@@ -217,6 +314,7 @@ export const seo: Audit = {
           message: `duplicate ${label} "${value}"`,
           where,
           severity: 'warn',
+          fix: `Give each page a unique ${label}, or link translations with reciprocal hreflang alternates.`,
         });
       }
     }
@@ -228,11 +326,18 @@ export const seo: Audit = {
       : undefined;
 
     if (options.robots) {
-      if (!robots) report('no robots.txt', null, 'warn');
+      if (!robots)
+        report(
+          'no robots.txt',
+          'Add a robots.txt to the build output with a User-agent and Sitemap line, or turn seo.robots off.',
+          null,
+          'warn',
+        );
       else {
         if (robots.blocksAll) {
           report(
             'robots.txt disallows everything for User-agent: *',
+            'Remove "Disallow: /" from the User-agent: * group in robots.txt so crawlers can index the site.',
             null,
             undefined,
             undefined,
@@ -240,13 +345,20 @@ export const seo: Audit = {
           );
         }
         if (!robots.sitemaps.length)
-          report('robots.txt has no Sitemap line', null, 'warn', undefined, robotsFile);
+          report(
+            'robots.txt has no Sitemap line',
+            'Add a line like "Sitemap: https://example.com/sitemap.xml" to robots.txt.',
+            null,
+            'warn',
+            undefined,
+            robotsFile,
+          );
       }
     }
 
     if (options.sitemap) {
       const fromRobots = (robots?.sitemaps ?? [])
-        .map((url) => pathnameOf(url))
+        .map((url) => pathnameOf(url, config.siteUrl))
         .filter((path): path is string => path !== null);
       const roots = [...SITEMAPS.map((name) => `/${name}`), ...fromRobots]
         .map((path) => localFile(dist, path))
@@ -259,7 +371,7 @@ export const seo: Audit = {
         visited.add(sitemapFile);
         const xml = readFileSync(sitemapFile, 'utf8');
         for (const loc of locs(xml, 'sitemap')) {
-          const path = pathnameOf(loc);
+          const path = pathnameOf(loc, config.siteUrl);
           const child = path ? localFile(dist, path) : null;
           if (child) queue.push(child);
         }
@@ -268,17 +380,32 @@ export const seo: Audit = {
           try {
             url = new URL(loc);
           } catch {
-            report('sitemap URL is not absolute', loc, undefined, undefined, sitemapFile);
+            report(
+              'sitemap URL is not absolute',
+              'Make every sitemap <loc> an absolute URL, e.g. by setting the site URL in the sitemap generator.',
+              loc,
+              undefined,
+              undefined,
+              sitemapFile,
+            );
             continue;
           }
           if (!sameOrigin(url)) {
-            report(`sitemap URL outside ${siteOrigin}`, loc, undefined, undefined, sitemapFile);
+            report(
+              `sitemap URL outside ${siteOrigin}`,
+              `Configure the sitemap generator to emit ${siteOrigin} URLs, or fix siteUrl if the origin is wrong.`,
+              loc,
+              undefined,
+              undefined,
+              sitemapFile,
+            );
             continue;
           }
-          const file = localFile(dist, url.pathname);
+          const file = localFile(dist, stripBase(url.pathname, config.siteUrl));
           if (!file) {
             report(
               'sitemap lists a URL that is not a built page',
+              'Remove stale URLs from the sitemap, or regenerate it from the current build.',
               url.pathname,
               undefined,
               undefined,
@@ -289,15 +416,33 @@ export const seo: Audit = {
           listed.add(file);
           const page = byFile.get(file);
           if (page && noindex.has(page)) {
-            report('noindex page in the sitemap', page.path, undefined, undefined, sitemapFile);
+            report(
+              'noindex page in the sitemap',
+              "Remove noindex pages from the sitemap generator's output, or drop the noindex if the page should be indexed.",
+              page.path,
+              undefined,
+              undefined,
+              sitemapFile,
+            );
           }
         }
       }
-      if (!visited.size) report('no sitemap.xml', null, 'warn');
+      if (!visited.size)
+        report(
+          'no sitemap.xml',
+          'Generate a sitemap.xml in the build output and reference it from robots.txt, or turn seo.sitemap off.',
+          null,
+          'warn',
+        );
       else {
         for (const page of indexable) {
           if (!listed.has(page.file))
-            report('indexable page missing from the sitemap', page.path, 'warn');
+            report(
+              'indexable page missing from the sitemap',
+              'Include the page in the sitemap, add a robots noindex meta tag if it should not be indexed, or add it to seo.exclude.',
+              page.path,
+              'warn',
+            );
         }
       }
     }
@@ -313,7 +458,12 @@ export const seo: Audit = {
       }
       for (const page of indexable) {
         if (page.path !== '/' && !linked.has(page.file)) {
-          report('orphan page: no other page links to it', page.path, 'warn');
+          report(
+            'orphan page: no other page links to it',
+            'Link to the page from navigation or another page, add it to seo.exclude if it is intentionally unlinked, or turn seo.orphans off.',
+            page.path,
+            'warn',
+          );
         }
       }
     }

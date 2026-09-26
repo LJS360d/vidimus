@@ -3,3 +3,6 @@ dist
 .vidimus
 *.tsbuildinfo
 legacy
+schema.json
+docs/.vitepress/dist
+docs/.vitepress/cache

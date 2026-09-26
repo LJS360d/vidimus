@@ -157,6 +157,26 @@ const crossOriginWithoutIntegrity = (page: BuiltPage, siteUrl: string) => {
 
 const VERSION = /\d+\.\d+|\/\s*\d/;
 
+const RECOMMENDED: Record<string, string> = {
+  'strict-transport-security': 'Strict-Transport-Security: max-age=31536000; includeSubDomains',
+  'x-content-type-options': 'X-Content-Type-Options: nosniff',
+  'referrer-policy': 'Referrer-Policy: strict-origin-when-cross-origin',
+  'permissions-policy': 'Permissions-Policy: camera=(), microphone=(), geolocation=()',
+};
+
+const UNSAFE_FIXES: Record<string, string> = {
+  "'unsafe-inline'":
+    "Drop 'unsafe-inline' from script-src and allow inline scripts by 'sha256-…' hash or nonce, or move them to files.",
+  "'unsafe-eval'":
+    "Drop 'unsafe-eval' from script-src and replace the eval()/new Function() code or the library that needs it.",
+};
+
+interface ReportOptions {
+  severity?: Severity;
+  details?: string[];
+  fix: string;
+}
+
 export const security: Audit = {
   name: 'security',
   description: 'security headers, clickjacking, unsafe CSP, mixed content and SRI',
@@ -169,13 +189,14 @@ export const security: Audit = {
     if (!pages.length) return { status: 'skipped', summary: 'no pages to check' };
 
     const grouped = new Map<string, Finding>();
-    const report = (message: string, where: string, severity?: Severity, details?: string[]) => {
+    const report = (message: string, where: string, { severity, details, fix }: ReportOptions) => {
       const key = [message, ...(details ?? [])].join('\n');
       const finding = grouped.get(key) ?? {
         message,
         where: [],
         ...(details ? { details } : {}),
         ...(severity ? { severity } : {}),
+        fix,
       };
       if (!finding.where?.includes(where)) finding.where?.push(where);
       grouped.set(key, finding);
@@ -192,9 +213,10 @@ export const security: Audit = {
         try {
           headers.set(page.path, await fetchHeaders(origin + page.path));
         } catch (error) {
-          report('could not fetch headers', page.path, undefined, [
-            error instanceof Error ? error.message : String(error),
-          ]);
+          report('could not fetch headers', page.path, {
+            details: [error instanceof Error ? error.message : String(error)],
+            fix: `Make sure ${origin} is up and serves this page, or drop --origin to read ${options.file} from the build.`,
+          });
         }
       });
     } else if (existsSync(headersFile)) {
@@ -207,6 +229,8 @@ export const security: Audit = {
       );
     }
 
+    const headerHome = origin ? "your host's header config" : `/* in ${options.file}`;
+
     for (const page of pages) {
       const where = page.path;
       const received = headers.get(where);
@@ -216,9 +240,21 @@ export const security: Audit = {
           if (pattern === false) continue;
           const key = name.toLowerCase();
           const value = received[key];
-          if (value === undefined) report(`missing ${key} header`, where);
-          else if (pattern && !new RegExp(pattern, 'i').test(value)) {
-            report(`${key} header does not match ${pattern}`, where, undefined, [value]);
+          const skip = `set security.require["${key}"] to false to skip`;
+          const recommended = RECOMMENDED[key];
+          if (value === undefined) {
+            report(`missing ${key} header`, where, {
+              fix: recommended
+                ? `Add "${recommended}" to ${headerHome}, or ${skip}.`
+                : `Add a ${key} header matching ${pattern || 'any value'} to ${headerHome}, or ${skip}.`,
+            });
+          } else if (pattern && !new RegExp(pattern, 'i').test(value)) {
+            report(`${key} header does not match ${pattern}`, where, {
+              details: [value],
+              fix: recommended
+                ? `Change it to "${recommended}" in ${headerHome}, or relax security.require["${key}"].`
+                : `Change it to a value matching ${pattern} in ${headerHome}, or relax security.require["${key}"].`,
+            });
           }
         }
 
@@ -228,16 +264,32 @@ export const security: Audit = {
           );
           const xfo = /^\s*(deny|sameorigin)\s*$/i.test(received['x-frame-options'] ?? '');
           if (!framed && !xfo) {
-            report('no clickjacking protection: add CSP frame-ancestors or X-Frame-Options', where);
+            report(
+              'no clickjacking protection: add CSP frame-ancestors or X-Frame-Options',
+              where,
+              {
+                fix: `Send "Content-Security-Policy: frame-ancestors 'self'" (or X-Frame-Options: DENY) as a header; a <meta> CSP can't set frame-ancestors.`,
+              },
+            );
           }
         }
 
         if (origin) {
           const poweredBy = received['x-powered-by'];
-          if (poweredBy) report('x-powered-by header leaks the stack', where, 'warn', [poweredBy]);
+          if (poweredBy) {
+            report('x-powered-by header leaks the stack', where, {
+              severity: 'warn',
+              details: [poweredBy],
+              fix: 'Remove the X-Powered-By header in your server or framework config (e.g. app.disable("x-powered-by") in Express).',
+            });
+          }
           const server = received.server;
           if (server && VERSION.test(server)) {
-            report('server header leaks a version', where, 'warn', [server]);
+            report('server header leaks a version', where, {
+              severity: 'warn',
+              details: [server],
+              fix: 'Hide the version in the Server header (e.g. "server_tokens off;" in nginx, "ServerTokens Prod" in Apache).',
+            });
           }
         }
       }
@@ -248,18 +300,26 @@ export const security: Audit = {
           ...metaPolicies(page.html),
         ];
         const unsafe = new Set(policies.flatMap((policy) => unsafeSources(parsePolicy(policy))));
-        for (const keyword of unsafe) report(`CSP allows ${keyword} scripts`, where, 'warn');
+        for (const keyword of unsafe) {
+          report(`CSP allows ${keyword} scripts`, where, {
+            severity: 'warn',
+            fix: UNSAFE_FIXES[keyword] ?? `Drop ${keyword} from script-src.`,
+          });
+        }
       }
 
       if (options.mixedContent) {
         for (const url of new Set(insecureResources(page.html))) {
-          report(`mixed content: ${url}`, where);
+          report(`mixed content: ${url}`, where, { fix: 'Load it over https:// or self-host it.' });
         }
       }
 
       if (options.sri) {
         for (const { kind, url } of crossOriginWithoutIntegrity(page, config.siteUrl)) {
-          report(`cross-origin <${kind}> without integrity: ${url}`, where, 'warn');
+          report(`cross-origin <${kind}> without integrity: ${url}`, where, {
+            severity: 'warn',
+            fix: 'Add integrity="sha384-…" and crossorigin="anonymous", or self-host the file.',
+          });
         }
       }
     }

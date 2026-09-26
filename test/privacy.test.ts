@@ -8,6 +8,7 @@ import {
   firstPartyHostsOf,
   isFirstPartyCookie,
   knownService,
+  requestFix,
 } from '../src/audits/privacy.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
@@ -72,6 +73,13 @@ describe('privacy helpers', () => {
     assert.equal(knownService('cdn.example.org'), undefined);
   });
 
+  it('suggests a service-specific fix for known hosts and a generic one otherwise', () => {
+    assert.match(requestFix('fonts.gstatic.com'), /fontsource/);
+    assert.match(requestFix('www.youtube.com'), /youtube-nocookie\.com/);
+    assert.equal(requestFix('cdn.jsdelivr.net'), 'Bundle or self-host the file.');
+    assert.match(requestFix('cdn.example.org'), /privacy\.allow/);
+  });
+
   it('matches cookie domains against first-party hosts', () => {
     assert.equal(isFirstPartyCookie('localhost', hosts), true);
     assert.equal(isFirstPartyCookie('.example.com', hosts), true);
@@ -110,5 +118,8 @@ describe('privacy audit', () => {
     assert.deepEqual(request?.details, [`http://127.0.0.2:${thirdPartyPort}/x.css`]);
     assert.equal(cookie?.message, 'cookie a set on load (localhost)');
     assert.equal(cookie?.severity, 'warn');
+    assert.match(request?.fix ?? '', /privacy\.allow/);
+    assert.match(cookie?.fix ?? '', /after consent/);
+    for (const finding of result?.findings ?? []) assert.ok(finding.fix?.trim(), finding.message);
   });
 });

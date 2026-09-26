@@ -8,6 +8,16 @@ interface LinkResult {
   parent?: string;
 }
 
+export const brokenLinkFix = (status: number | undefined) => {
+  if (status === 404 || status === 410) {
+    return 'Fix or remove the link on the pages listed, or add a pattern to links.skip if the target blocks bots.';
+  }
+  if (status && status < 500) {
+    return 'Check the link in a browser; if it works there the target blocks bots, so add a pattern to links.skip.';
+  }
+  return 'Check the target is up, raise links.timeout or enable links.retry, or add a pattern to links.skip if it is flaky.';
+};
+
 export const links: Audit = {
   name: 'links',
   description: 'no broken internal links, assets or external targets',
@@ -50,6 +60,7 @@ export const links: Audit = {
     const findings: Finding[] = [...byTarget].map(([url, { status, sources }]) => ({
       message: `${status || 'ERR'} ${url}`,
       where: [...sources],
+      fix: brokenLinkFix(status),
     }));
     return {
       summary: findings.length

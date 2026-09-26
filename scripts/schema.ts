@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { createGenerator } from 'ts-json-schema-generator';
 
 type Schema = Record<string, unknown>;
@@ -49,14 +49,4 @@ const schema = {
   ),
 };
 
-const FILE = 'schema.json';
-const content = `${JSON.stringify(schema, null, 2)}\n`;
-
-if (process.argv.includes('--check')) {
-  if (readFileSync(FILE, 'utf8') !== content) {
-    console.error(`${FILE} is out of date. Run: pnpm run schema`);
-    process.exitCode = 1;
-  }
-} else {
-  writeFileSync(FILE, content);
-}
+writeFileSync(process.argv[2] ?? 'schema.json', `${JSON.stringify(schema, null, 2)}\n`);

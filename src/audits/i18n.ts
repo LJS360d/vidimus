@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import type { Audit, Finding } from '../core/types.ts';
-import { isPlainObject } from '../core/util.ts';
+import { displayPath, isPlainObject } from '../core/util.ts';
 
 const LIST_CAP = 5;
 
@@ -18,7 +18,7 @@ export const i18n: Audit = {
   name: 'i18n',
   description: 'every locale defines exactly the keys of the default locale',
   requires: 'source',
-  async run({ config, resolve, log }) {
+  async run({ config, root, resolve, log }) {
     const { locales, defaultLocale } = config;
     const template = config.i18n.files;
     if (!template || locales.length < 2 || !defaultLocale) {
@@ -48,12 +48,19 @@ export const i18n: Audit = {
         unknown: Object.keys(dict).filter((key) => !Object.hasOwn(base, key)),
         empty: baseKeys.filter((key) => key in dict && isBlank(dict[key]) && !isBlank(base[key])),
       };
+      const shown = displayPath(root, fileOf(locale));
+      const fixes = {
+        missing: `Add these keys to ${shown}.`,
+        unknown: `Remove them or add them to the ${defaultLocale} file first.`,
+        empty: `Translate them or remove the keys to fall back to ${defaultLocale}.`,
+      };
       for (const [label, keys] of Object.entries(problems)) {
         if (!keys.length) continue;
         findings.push({
           message: `${locale}: ${keys.length} ${label} key(s)`,
           details: keys,
           file: fileOf(locale),
+          fix: fixes[label as keyof typeof fixes],
         });
       }
     }

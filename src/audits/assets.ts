@@ -43,6 +43,16 @@ const largestDeclared = (sizes: unknown) =>
           }),
       );
 
+const ICON_EXAMPLE = '{"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}';
+
+const SOCIAL_FIXES: Record<string, (origin: string) => string> = {
+  'og:title': () => 'Add <meta property="og:title" content="<page title>"> to the <head>.',
+  'og:image': (origin) =>
+    `Add <meta property="og:image" content="${origin}/og.png"> pointing at a 1200x630 image.`,
+  'twitter:card': () =>
+    'Add <meta name="twitter:card" content="summary_large_image"> to the <head>.',
+};
+
 const readJson = (file: string) => {
   try {
     return JSON.parse(readFileSync(file, 'utf8')) as unknown;
@@ -81,14 +91,27 @@ export const assets: Audit = {
         for (const { attrs } of [...icons, ...touch]) {
           const resolved = resolveHref(attrs.href ?? '', page.path, config.siteUrl);
           if (!resolved?.path || localFile(dist, resolved.path)) continue;
-          report({ message: `icon ${resolved.path} not found` }, page.path);
+          report(
+            {
+              message: `icon ${resolved.path} not found`,
+              fix: `Add ${resolved.path} to the build or fix the href of the <link rel="${attrs.rel}"> that points to it.`,
+            },
+            page.path,
+          );
         }
       }
       if (!declared && !isFile(join(dist, 'favicon.ico'))) {
-        report({ message: 'no favicon: add <link rel="icon"> or /favicon.ico' });
+        report({
+          message: 'no favicon: add <link rel="icon"> or /favicon.ico',
+          fix: 'Add <link rel="icon" href="/favicon.svg"> to every page or put a favicon.ico in the build root.',
+        });
       }
       if (!appleTouch) {
-        report({ message: 'no <link rel="apple-touch-icon"> on any page', severity: 'warn' });
+        report({
+          message: 'no <link rel="apple-touch-icon"> on any page',
+          severity: 'warn',
+          fix: 'Add a 180x180 PNG and <link rel="apple-touch-icon" href="/apple-touch-icon.png">.',
+        });
       }
     }
 
@@ -102,25 +125,40 @@ export const assets: Audit = {
         }
       }
       for (const [path, linkedFrom] of manifests) {
-        const problem = (message: string, file?: string, severity?: 'warn') => {
-          for (const where of linkedFrom) report({ message, file, severity }, where);
+        const problem = (message: string, fix: string, file?: string, severity?: 'warn') => {
+          for (const where of linkedFrom) report({ message, fix, file, severity }, where);
         };
         const file = localFile(dist, path);
         if (!file) {
-          problem(`manifest ${path} not found`);
+          problem(
+            `manifest ${path} not found`,
+            `Add ${path} to the build or fix the href of <link rel="manifest">.`,
+          );
           continue;
         }
         const manifest = readJson(file);
         if (!isPlainObject(manifest)) {
-          problem(`manifest ${path} is not valid JSON`, file);
+          problem(
+            `manifest ${path} is not valid JSON`,
+            `Fix the JSON syntax in ${path} (check it with jq or JSON.parse).`,
+            file,
+          );
           continue;
         }
         if (!manifest.name && !manifest.short_name) {
-          problem(`manifest ${path} has no name or short_name`, file);
+          problem(
+            `manifest ${path} has no name or short_name`,
+            `Add "name": "<site name>" (and optionally "short_name") to ${path}.`,
+            file,
+          );
         }
         const icons = Array.isArray(manifest.icons) ? manifest.icons.filter(isPlainObject) : [];
         if (icons.length === 0) {
-          problem(`manifest ${path} has no icons`, file);
+          problem(
+            `manifest ${path} has no icons`,
+            `Add an "icons" array to ${path}, e.g. [${ICON_EXAMPLE}].`,
+            file,
+          );
           continue;
         }
         let largest = 0;
@@ -129,7 +167,11 @@ export const assets: Audit = {
           const resolved = resolveHref(src, path, config.siteUrl);
           const iconFile = resolved?.path ? localFile(dist, resolved.path) : null;
           if (resolved?.path && !iconFile) {
-            problem(`manifest icon ${resolved.path} not found`, file);
+            problem(
+              `manifest icon ${resolved.path} not found`,
+              `Add ${resolved.path} to the build or fix its "src" in ${path}.`,
+              file,
+            );
             continue;
           }
           const measured = iconFile ? measure(iconFile) : undefined;
@@ -140,19 +182,29 @@ export const assets: Audit = {
           );
         }
         if (largest < 512)
-          problem(`manifest ${path} has no icon of at least 512x512`, file, 'warn');
+          problem(
+            `manifest ${path} has no icon of at least 512x512`,
+            `Add a 512x512 PNG to "icons" in ${path}, e.g. ${ICON_EXAMPLE}.`,
+            file,
+            'warn',
+          );
       }
     }
 
     if (options.openGraph) {
       const { width: minWidth, height: minHeight } = options.ogImage;
       const siteOrigin = originOf(config.siteUrl);
+      const exampleOrigin = siteOrigin || 'https://example.com';
       for (const page of pages) {
         if (/\bnoindex\b/i.test(meta(page.html, 'robots') ?? '')) continue;
         for (const property of ['og:title', 'og:image', 'twitter:card']) {
           if (!meta(page.html, property)?.trim()) {
             report(
-              { message: `missing <meta property="${property}">`, severity: 'warn' },
+              {
+                message: `missing <meta ${property.startsWith('og:') ? 'property' : 'name'}="${property}">`,
+                severity: 'warn',
+                fix: SOCIAL_FIXES[property]?.(exampleOrigin),
+              },
               page.path,
             );
           }
@@ -161,12 +213,24 @@ export const assets: Audit = {
         const image = meta(page.html, 'og:image')?.trim();
         const resolved = image ? resolveHref(image, page.path, config.siteUrl) : null;
         if (image && resolved && !resolved.absolute) {
-          report({ message: `og:image "${image}" is not an absolute URL` }, page.path);
+          report(
+            {
+              message: `og:image "${image}" is not an absolute URL`,
+              fix: `Use an absolute URL, e.g. <meta property="og:image" content="${exampleOrigin}${resolved.url.pathname}">.`,
+            },
+            page.path,
+          );
         }
         if (resolved?.path) {
           const file = localFile(dist, resolved.path);
           if (!file) {
-            report({ message: `og:image ${resolved.path} not found` }, page.path);
+            report(
+              {
+                message: `og:image ${resolved.path} not found`,
+                fix: `Add ${resolved.path} to the build or point og:image at an existing image.`,
+              },
+              page.path,
+            );
           } else {
             const size = measure(file);
             if (size && (size.width < minWidth || size.height < minHeight)) {
@@ -175,6 +239,7 @@ export const assets: Audit = {
                   message: `og:image ${resolved.path} is ${size.width}x${size.height}, smaller than ${minWidth}x${minHeight}`,
                   file,
                   severity: 'warn',
+                  fix: `Replace it with an image of at least ${minWidth}x${minHeight} (1200x630 is the common Open Graph size).`,
                 },
                 page.path,
               );
@@ -186,7 +251,10 @@ export const assets: Audit = {
         const urlOrigin = url ? originOf(url) : '';
         if (url && siteOrigin && urlOrigin !== siteOrigin) {
           report(
-            { message: `og:url origin ${urlOrigin || url} differs from siteUrl ${siteOrigin}` },
+            {
+              message: `og:url origin ${urlOrigin || url} differs from siteUrl ${siteOrigin}`,
+              fix: `Set og:url to the page's URL on ${siteOrigin}, or update siteUrl if the site moved.`,
+            },
             page.path,
           );
         }
@@ -198,7 +266,11 @@ export const assets: Audit = {
       !isFile(join(dist, '404.html')) &&
       !isFile(join(dist, '404', 'index.html'))
     ) {
-      report({ message: 'no 404 page (404.html or 404/index.html)', severity: 'warn' });
+      report({
+        message: 'no 404 page (404.html or 404/index.html)',
+        severity: 'warn',
+        fix: 'Add a 404.html to the build (most hosts serve it for missing pages).',
+      });
     }
 
     const findings = [...groups.values()].map(({ finding, where }) => ({

@@ -34,6 +34,12 @@ const costliestAudits = (lhr: LighthouseResult, category: string) =>
     .slice(0, 3)
     .map(({ audit }) => audit?.title ?? '');
 
+export const scoreFix = (report: string, category: string) =>
+  `Open ${report} and fix the audits listed first, or lower lighthouse.thresholds.${category} if the target is too strict.`;
+
+export const loadFailureFix = (path: string, listed: boolean) =>
+  `Check that ${path} loads in a browser without errors, or ${listed ? 'remove it from lighthouse.urls' : 'add it to lighthouse.exclude'}.`;
+
 export const lighthouse: Audit = {
   name: 'lighthouse',
   description: 'Lighthouse category scores meet their thresholds',
@@ -68,6 +74,7 @@ export const lighthouse: Audit = {
           findings.push({
             message: `failed to load ${path}`,
             details: error ? [`${error.code} - ${error.message}`] : [],
+            fix: loadFailureFix(path, config.lighthouse.urls.length > 0),
           });
           continue;
         }
@@ -97,6 +104,7 @@ export const lighthouse: Audit = {
             message: `${path} ${category} ${score} (want ${min})`,
             details: costliestAudits(lhr, category),
             where: [path],
+            fix: scoreFix(`${shown}/${name}.html`, category),
           });
         }
       }

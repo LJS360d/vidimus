@@ -1,0 +1,7 @@
+{
+  "$schema": "../schema.json",
+  "distDir": ".vitepress/dist",
+  "siteUrl": "https://ljs360d.github.io/vidimus",
+  "audits": ["seo", "security", "html", "budget", "assets", "csp"],
+  "html": { "rules": { "attribute-misuse": "off" } }
+}

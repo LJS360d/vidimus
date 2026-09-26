@@ -58,7 +58,9 @@ export const runAudits = async (
 
   const origin = (config.origin || `http://localhost:${config.port}`).replace(/\/$/, '');
   const server =
-    needsServer && !config.origin ? await serve(dist, config.port, config.server) : undefined;
+    needsServer && !config.origin
+      ? await serve(dist, config.port, config.server, config.siteUrl)
+      : undefined;
   const pageUrls = createPageUrls(config, dist, origin);
   const baselineFile = config.baseline.file ? resolve(config.root, config.baseline.file) : '';
   const baseline = baselineFile

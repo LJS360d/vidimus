@@ -114,7 +114,14 @@ describe('pretty reporter', () => {
       name: 'seo',
       status: 'warned',
       summary: 'long title',
-      findings: [{ message: 'title too long', severity: 'warn', file: '/x/index.html' }],
+      findings: [
+        {
+          message: 'title too long',
+          severity: 'warn',
+          file: '/x/index.html',
+          fix: 'shorten the <title>',
+        },
+      ],
       suppressed: 2,
       log: ['checked 3 pages'],
       durationMs: 5,
@@ -124,6 +131,7 @@ describe('pretty reporter', () => {
     assert.match(output, /serving dist on http:\/\/localhost:1/);
     assert.match(output, /✖ 404 <https:\/\/x\.test\/\?a=1&b=2>/);
     assert.match(output, /⚠ title too long/);
+    assert.match(output, /→ shorten the <title>/);
     assert.match(output, /2 ignored or accepted/);
     assert.match(output, /failed: links, a11y/);
   });

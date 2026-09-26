@@ -10,8 +10,13 @@ const escapeData = (text: string) =>
 const escapeProperty = (text: string) =>
   escapeData(text).replaceAll(':', '%3A').replaceAll(',', '%2C');
 
-const describe = ({ message, details = [], where = [] }: Finding) =>
-  [message, ...details, ...(where.length ? [`on: ${firstFew(where, 10)}`] : [])].join('\n');
+const describe = ({ message, details = [], where = [], fix }: Finding) =>
+  [
+    message,
+    ...details,
+    ...(where.length ? [`on: ${firstFew(where, 10)}`] : []),
+    ...(fix ? [`fix: ${fix}`] : []),
+  ].join('\n');
 
 export const annotation = (
   title: string,

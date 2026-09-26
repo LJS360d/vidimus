@@ -106,4 +106,14 @@ describe('html audit', () => {
     const result = await audit({ 'dist/asset.txt': 'x' });
     assert.equal(result.status, 'skipped');
   });
+
+  it('gives every finding a fix', async () => {
+    const result = await audit({
+      'dist/index.html': page('<div><span>text</div>\n    <p id="a"><div id="a"></div></p><br/>'),
+    });
+    assert.ok(result.findings.length > 2);
+    for (const { fix } of result.findings) assert.ok(fix?.trim());
+    const dup = result.findings.find(({ message }) => message.startsWith('no-dup-id:'));
+    assert.match(dup?.fix ?? '', /unique id.*html\.rules\["no-dup-id"\] to "off"/);
+  });
 });

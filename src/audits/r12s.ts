@@ -8,6 +8,25 @@ interface LayoutDefect {
   nodes: string[];
 }
 
+export const defectFix = (
+  { rule, detail }: Pick<LayoutDefect, 'rule' | 'detail'>,
+  minTarget: number,
+  minFont: number,
+) => {
+  if (rule === 'overflow') {
+    return 'Constrain the widest element listed so it fits the viewport, e.g. with max-width:100% or overflow-wrap:anywhere.';
+  }
+  if (rule === 'target-size') {
+    return `Make the element listed at least ${minTarget}x${minTarget}px, or add spacing so neighbouring target centres are ${minTarget}px apart.`;
+  }
+  if (rule === 'font-size')
+    return `Set the font-size of the element listed to at least ${minFont}px.`;
+  if (detail.startsWith('no viewport')) {
+    return 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to the <head>.';
+  }
+  return 'Remove user-scalable=no and maximum-scale from the viewport meta so users can pinch-zoom.';
+};
+
 const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefect[] => {
   const describe = (el: Element) => {
     const cls = (el.getAttribute('class') || '').trim().split(/\s+/).slice(0, 3).join('.');
@@ -153,6 +172,7 @@ export const r12s: Audit = {
       message: `${defect.rule} @${[...defect.widths].join('/')}px - ${defect.detail}`,
       details: defect.nodes,
       where: [...defect.paths],
+      fix: defectFix(defect, minTarget, minFont),
     }));
     const scanned = `${urls.length} pages x ${viewports.length} viewports (${viewports.join(', ')}px)`;
     return {

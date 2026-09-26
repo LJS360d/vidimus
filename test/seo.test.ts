@@ -296,4 +296,62 @@ describe('seo audit', () => {
     );
     assert.equal(find(result, /duplicate/), undefined);
   });
+  it('gives every finding a fix', async () => {
+    const alt = (lang: string, href: string) =>
+      `<link rel="alternate" hreflang="${lang}" href="${href}">`;
+    const broken = await audit(
+      site({
+        'dist/index.html': page({
+          path: '/',
+          lang: null,
+          title: 'Same title here',
+          body: '',
+          links: ['/about/', '/a/', '/b/', '/c/', '/d/', '/e/', '/it/', '/draft/'],
+          head:
+            alt('en', `${SITE}/`) +
+            alt('it', `${SITE}/it/`) +
+            alt('it', '/it/') +
+            alt('fr', `${SITE}/fr/`),
+        }),
+        'dist/about/index.html': page({
+          path: '/about/',
+          title: 'Same title here',
+          description: 'Too short',
+          body: '<h1>a</h1><h1>b</h1>',
+          links: ['/'],
+        }),
+        'dist/a/index.html': page({
+          path: '/a/',
+          title: null,
+          description: null,
+          canonical: '/a/',
+        }),
+        'dist/b/index.html': page({ path: '/b/', title: 'x', canonical: 'https://other.com/b/' }),
+        'dist/c/index.html': page({
+          path: '/c/',
+          description: DESCRIPTION,
+          canonical: `${SITE}/gone/`,
+        }),
+        'dist/d/index.html': page({ path: '/d/', canonical: [`${SITE}/d/`, `${SITE}/`] }),
+        'dist/e/index.html': page({ path: '/e/', description: DESCRIPTION, canonical: null }),
+        'dist/it/index.html': page({ path: '/it/', lang: 'it', head: alt('it', `${SITE}/it/`) }),
+        'dist/draft/index.html': page({
+          path: '/draft/',
+          head: '<meta name="robots" content="noindex">',
+        }),
+        'dist/lonely.html': page({ path: '/lonely.html' }),
+        'dist/sitemap.xml': sitemap('/', '/a/', '/b/', '/draft/', '/gone/').replace(
+          '</urlset>',
+          '<url><loc>/relative/</loc></url><url><loc>https://other.com/</loc></url></urlset>',
+        ),
+        'dist/robots.txt': 'User-agent: *\nDisallow: /\n',
+      }),
+    );
+    const missing = await audit(without(site(), 'dist/robots.txt', 'dist/sitemap.xml'));
+    const findings = [...broken.findings, ...missing.findings];
+    assert.ok(findings.length >= 29, `only ${findings.length} findings`);
+    for (const finding of findings) {
+      assert.ok(finding.fix?.trim(), `no fix for "${finding.message}"`);
+    }
+  });
 });

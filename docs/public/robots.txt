@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ljs360d.github.io/vidimus/sitemap.xml
