@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm run smoke
+
+      - name: Apply pending changesets
+        run: |
+          if find .changeset -name '*.md' ! -name README.md | grep -q .; then
+            pnpm run bump
+            version=$(node -p "require('./package.json').version")
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m "chore(release): v$version [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+          npm_config_ignore_scripts: 'true'
+        run: |
+          pnpm run build
+          pnpm exec changeset publish
+          git push origin --tags

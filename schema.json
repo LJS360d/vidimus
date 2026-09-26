@@ -1,0 +1,627 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "vidimus config",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "distDir": {
+      "type": "string"
+    },
+    "outDir": {
+      "type": "string"
+    },
+    "port": {
+      "type": "number"
+    },
+    "origin": {
+      "type": "string"
+    },
+    "siteUrl": {
+      "type": "string"
+    },
+    "exclude": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Pattern"
+      }
+    },
+    "locales": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "defaultLocale": {
+      "type": "string"
+    },
+    "allLocales": {
+      "type": "boolean"
+    },
+    "audits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "severity": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/AuditSeverity"
+      }
+    },
+    "strict": {
+      "type": "boolean"
+    },
+    "ignore": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/IgnoreRule"
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "update": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "reporters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "browser": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "executablePath": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "server": {
+      "type": "object",
+      "properties": {
+        "gzip": {
+          "type": "boolean"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/HeaderRule"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "i18n": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "csp": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "r12s": {
+      "type": "object",
+      "properties": {
+        "viewports": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "minTarget": {
+          "type": "number"
+        },
+        "minFont": {
+          "type": "number"
+        },
+        "concurrency": {
+          "type": "number"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "a11y": {
+      "type": "object",
+      "properties": {
+        "standard": {
+          "type": "string",
+          "enum": [
+            "WCAG2A",
+            "WCAG2AA",
+            "WCAG2AAA"
+          ]
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "concurrency": {
+          "type": "number"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "hideElements": {
+          "type": "string"
+        },
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "shots": {
+      "type": "object",
+      "properties": {
+        "outDir": {
+          "type": "string"
+        },
+        "viewports": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/definitions/ViewportSize"
+              }
+            ]
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "sample": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "allLocales": {
+          "type": "boolean"
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MotionOptions"
+            },
+            {
+              "type": "boolean",
+              "const": false
+            }
+          ]
+        },
+        "concurrency": {
+          "type": "number"
+        },
+        "tolerance": {
+          "type": "number"
+        },
+        "maxDiff": {
+          "type": "number"
+        },
+        "settleTimeout": {
+          "type": "number"
+        },
+        "protocolTimeout": {
+          "type": "number"
+        },
+        "updateBaseline": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lighthouse": {
+      "type": "object",
+      "properties": {
+        "outDir": {
+          "type": "string"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "sample": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "all": {
+          "type": "boolean"
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "links": {
+      "type": "object",
+      "properties": {
+        "skip": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "concurrency": {
+          "type": "number"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "checkExternal": {
+          "type": "boolean"
+        },
+        "retry": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "seo": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "allowNoindex": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "titleLength": {
+          "$ref": "#/definitions/Range"
+        },
+        "descriptionLength": {
+          "$ref": "#/definitions/Range"
+        },
+        "canonical": {
+          "type": "boolean"
+        },
+        "h1": {
+          "type": "boolean"
+        },
+        "sitemap": {
+          "type": "boolean"
+        },
+        "robots": {
+          "type": "boolean"
+        },
+        "orphans": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "require": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/Pattern"
+              },
+              {
+                "type": "boolean",
+                "const": false
+              }
+            ]
+          }
+        },
+        "clickjacking": {
+          "type": "boolean"
+        },
+        "unsafeInline": {
+          "type": "boolean"
+        },
+        "mixedContent": {
+          "type": "boolean"
+        },
+        "sri": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "sample": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "allLocales": {
+          "type": "boolean"
+        },
+        "cookies": {
+          "type": "boolean"
+        },
+        "wait": {
+          "type": "number"
+        },
+        "concurrency": {
+          "type": "number"
+        },
+        "timeout": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "html": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "extends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rules": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "html": {
+          "type": "number"
+        },
+        "css": {
+          "type": "number"
+        },
+        "js": {
+          "type": "number"
+        },
+        "image": {
+          "type": "number"
+        },
+        "page": {
+          "type": "number"
+        },
+        "legacyImage": {
+          "type": "number"
+        },
+        "dimensions": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Pattern"
+          }
+        },
+        "favicon": {
+          "type": "boolean"
+        },
+        "manifest": {
+          "type": "boolean"
+        },
+        "openGraph": {
+          "type": "boolean"
+        },
+        "ogImage": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "notFound": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Pattern": {
+      "type": "string"
+    },
+    "AuditSeverity": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warn",
+        "off"
+      ]
+    },
+    "IgnoreRule": {
+      "type": "object",
+      "properties": {
+        "audit": {
+          "type": "string"
+        },
+        "message": {
+          "$ref": "#/definitions/Pattern"
+        },
+        "where": {
+          "$ref": "#/definitions/Pattern"
+        }
+      },
+      "additionalProperties": false
+    },
+    "HeaderRule": {
+      "type": "object",
+      "properties": {
+        "match": {
+          "$ref": "#/definitions/Pattern"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "match",
+        "headers"
+      ],
+      "additionalProperties": false
+    },
+    "ViewportSize": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "width"
+      ],
+      "additionalProperties": false
+    },
+    "MotionOptions": {
+      "type": "object",
+      "properties": {
+        "interval": {
+          "type": "number"
+        },
+        "stableFrames": {
+          "type": "number"
+        },
+        "maxFrames": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Range": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

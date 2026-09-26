@@ -1,0 +1,119 @@
+{
+  "name": "vidimus",
+  "version": "0.0.0",
+  "description": "Pre-publication checks for public static websites: accessibility, links, responsiveness, SEO, security headers, privacy, HTML validity, page weight, CSP, i18n, visual regression and Lighthouse.",
+  "type": "module",
+  "license": "MIT",
+  "author": "LJS360d",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LJS360d/vidimus.git"
+  },
+  "homepage": "https://github.com/LJS360d/vidimus#readme",
+  "bugs": {
+    "url": "https://github.com/LJS360d/vidimus/issues"
+  },
+  "keywords": [
+    "audit",
+    "accessibility",
+    "a11y",
+    "broken-links",
+    "seo",
+    "security-headers",
+    "privacy",
+    "gdpr",
+    "html-validation",
+    "performance-budget",
+    "lighthouse",
+    "visual-regression",
+    "csp",
+    "i18n",
+    "static-site",
+    "ci"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "packageManager": "pnpm@12.5.1",
+  "bin": {
+    "vidimus": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema.json": "./schema.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "schema.json"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.d.ts\" --test-coverage-lines=75 --test-coverage-branches=75 --test-coverage-functions=80 \"test/**/*.test.ts\"",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "lint:pkg": "publint --strict && attw --pack . --profile esm-only",
+    "knip": "knip",
+    "schema": "node scripts/schema.ts",
+    "schema:check": "node scripts/schema.ts --check",
+    "smoke": "pnpm run build && node scripts/smoke.ts",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run schema:check && pnpm run knip && pnpm run test:coverage && pnpm run build && pnpm run lint:pkg",
+    "changeset": "changeset",
+    "prepublishOnly": "pnpm run check",
+    "bump": "changeset version",
+    "release": "pnpm run smoke && changeset publish && git push --tags"
+  },
+  "dependencies": {
+    "commander": "^15.0.0"
+  },
+  "peerDependencies": {
+    "html-validate": ">=9",
+    "lighthouse": ">=12",
+    "linkinator": ">=7",
+    "pa11y": ">=9",
+    "puppeteer": ">=24",
+    "sharp": ">=0.33"
+  },
+  "peerDependenciesMeta": {
+    "html-validate": {
+      "optional": true
+    },
+    "lighthouse": {
+      "optional": true
+    },
+    "linkinator": {
+      "optional": true
+    },
+    "pa11y": {
+      "optional": true
+    },
+    "puppeteer": {
+      "optional": true
+    },
+    "sharp": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.14",
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^22.20.4",
+    "html-validate": "^11.16.0",
+    "knip": "^6.38.0",
+    "lighthouse": "^13.5.0",
+    "linkinator": "^8.1.0",
+    "pa11y": "^10.0.0",
+    "publint": "^0.3.24",
+    "puppeteer": "^25.11.0",
+    "sharp": "^0.35.4",
+    "ts-json-schema-generator": "^2.9.0",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules
+dist
+.vidimus
+*.tsbuildinfo
+legacy
