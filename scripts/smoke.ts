@@ -119,6 +119,8 @@ export const report = () => run({ audits: ['csp'] });
     zeroDep.status !== 2 && !/is not installed/.test(zeroDep.stdout + zeroDep.stderr),
     zeroDep.stdout + zeroDep.stderr,
   );
+  const outIgnore = readFileSync(join(project, '.vidimus', '.gitignore'), 'utf8');
+  expect('a run ignores the output directory it creates', outIgnore === '*\n', outIgnore);
 
   const needsPeer = vidimus('a11y');
   expect(
@@ -132,16 +134,12 @@ export const report = () => run({ audits: ['csp'] });
   expect('init writes a TS config', init.status === 0, init.stderr);
   const gitignore = () => readFileSync(join(project, '.gitignore'), 'utf8');
   expect(
-    'init adds .vidimus to an existing .gitignore',
-    gitignore() === 'node_modules\n.vidimus\n',
+    'init leaves the project .gitignore unchanged',
+    gitignore() === 'node_modules',
     gitignore(),
   );
   const again = vidimus('init', '--format', 'ts', '--force');
-  expect(
-    'init --force leaves a .gitignore that lists .vidimus unchanged',
-    again.status === 0 && gitignore() === 'node_modules\n.vidimus\n',
-    again.stderr + gitignore(),
-  );
+  expect('init --force overwrites the config', again.status === 0, again.stderr);
   const second = vidimus('init', '--format', 'json');
   expect(
     'init refuses a second config file in another format',
