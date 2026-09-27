@@ -140,6 +140,8 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `server.gzip` | `true` | gzip text responses of the built-in server |
 | `server.headers` | `[]` | `{ match, headers }` rules for the built-in server |
+| `server.fallback` | `''` | build file served for page requests that match no file, for single-page apps |
+| `server.fallbackStatus` | `200` | status sent with `server.fallback`: `200` or `404` |
 
 The keys of each audit are documented on its page, starting from the [audits overview](./audits/).
 

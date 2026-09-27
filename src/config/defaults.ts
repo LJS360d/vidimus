@@ -33,6 +33,8 @@ export const defaults = (cwd: string): VidimusConfig => ({
   server: {
     gzip: true,
     headers: [],
+    fallback: '',
+    fallbackStatus: 200,
   },
   i18n: {
     files: '',

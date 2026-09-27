@@ -60,6 +60,8 @@ export interface VidimusConfig {
   server: {
     gzip: boolean;
     headers: HeaderRule[];
+    fallback: string;
+    fallbackStatus: 200 | 404;
   };
   i18n: {
     files: string;

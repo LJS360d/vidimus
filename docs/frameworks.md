@@ -23,6 +23,10 @@ use `server.headers` for headers the browser audits should see.
 When the site lives under a path, the generator has to build with that prefix and `siteUrl`
 has to include it. See [How it works](./how-it-works#base-paths).
 
+A single-page app with client-side routing (React Router, Angular Router, Vue Router) builds
+one `index.html` and relies on the host to answer deep URLs with it. Set `server.fallback` so
+the built-in server does the same; see [How it works](./how-it-works#serving-the-build).
+
 | Generator | Build | `distDir` | Base path setting | Static folder |
 | --- | --- | --- | --- | --- |
 | Astro | `astro build` | `dist` | `site`, `base` | `public/` |
@@ -198,7 +202,8 @@ export default defineConfig({
 - `trailingSlash = 'always'` writes `about/index.html`, the default `'never'` writes
   `about.html`.
 - A `fallback` page for SPA mode is an empty shell without content; add its file to the
-  top-level `exclude`, unless it is `404.html`.
+  top-level `exclude`, unless it is `404.html`. Point `server.fallback` at it so routes that
+  are not prerendered load it, as they do on the host.
 - `vite preview` serves the build on port 4173.
 
 ## Jekyll

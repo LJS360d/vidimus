@@ -31,9 +31,25 @@ const TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.pdf': 'application/pdf',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.ktx2': 'image/ktx2',
+  '.hdr': 'image/vnd.radiance',
+  '.exr': 'image/x-exr',
+  '.map': 'application/json; charset=utf-8',
 };
 
-const COMPRESSIBLE = /text|json|xml|svg|manifest/;
+const COMPRESSIBLE = /text|json|xml|svg|manifest|wasm/;
+
+const wantsPage = (req: IncomingMessage, pathname: string) =>
+  !extname(pathname) || /text\/html/.test(String(req.headers.accept ?? ''));
 
 export interface StaticServer {
   port: number;
@@ -49,12 +65,15 @@ const handle = (
 ) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const { pathname } = url;
-  const file = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
+  const found = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
+  const fallback = !found && !!options.fallback && wantsPage(req, pathname);
+  const file = fallback ? localFile(dist, `/${options.fallback}`) : found;
   if (!file) {
     res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
     return;
   }
-  const directory = basename(file) === 'index.html' && !/(^|\/)index(\.html)?$/.test(pathname);
+  const directory =
+    !fallback && basename(file) === 'index.html' && !/(^|\/)index(\.html)?$/.test(pathname);
   if (directory && !pathname.endsWith('/')) {
     res.writeHead(301, { location: `${pathname}/${url.search}` }).end();
     return;
@@ -67,7 +86,7 @@ const handle = (
   const ruleHeaders = options.headers
     .filter(({ match }) => regex(match).test(pathname))
     .map(({ headers }) => headers);
-  res.writeHead(200, {
+  res.writeHead(fallback ? options.fallbackStatus : 200, {
     'content-type': type,
     ...Object.assign({}, ...ruleHeaders),
     ...(gzip && { 'content-encoding': 'gzip', vary: 'accept-encoding' }),

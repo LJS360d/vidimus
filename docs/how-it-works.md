@@ -77,10 +77,22 @@ The server:
 
 - maps `/about/` to `about/index.html`, and `/about` to `about`, `about/index.html` or
   `about.html`, whichever exists
-- answers anything else with a plain `404 Not found`; it does not serve your `404.html`
+- answers anything else with a plain `404 Not found`, unless `server.fallback` is set
 - sets `content-type` from the file extension and gzips text, JSON, XML, SVG and manifests when
   the client accepts it (`server.gzip`)
 - adds the headers of every `server.headers` rule whose `match` regex matches the request path
+
+`server.fallback` names a build file, relative to `distDir`, that answers page requests no
+file matches: paths without an extension, or requests that accept `text/html`. Missing assets
+such as `/assets/app.js` still get a `404`. Set it to match your host:
+
+| Host | `server.fallback` | `server.fallbackStatus` |
+| --- | --- | --- |
+| Netlify, Vercel, Cloudflare Pages rewrite to `index.html` | `'index.html'` | `200` |
+| GitHub Pages | `'404.html'` | `404` |
+
+A `404` status is what `links` and the Lighthouse SEO check see, so keep it when the host sends
+it.
 
 `server.headers` is the only source of response headers. The server does not read `_headers`;
 that file is read by the [`security` audit](./audits/security).

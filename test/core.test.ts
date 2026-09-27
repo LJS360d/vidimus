@@ -147,7 +147,12 @@ const get = (port: number, path: string) =>
 describe('static server robustness', () => {
   it('answers bad paths instead of crashing', async () => {
     const root = fixture({ 'dist/index.html': 'home' });
-    const server = await serve(join(root, 'dist'), 0, { gzip: false, headers: [] });
+    const server = await serve(join(root, 'dist'), 0, {
+      gzip: false,
+      headers: [],
+      fallback: '',
+      fallbackStatus: 200,
+    });
     try {
       assert.ok(server.port > 0);
       assert.equal((await get(server.port, '/%00')).status, 404);
@@ -165,7 +170,12 @@ describe('static server robustness', () => {
     const { port } = blocker.address() as AddressInfo;
     try {
       await assert.rejects(
-        serve(join(root, 'dist'), port, { gzip: false, headers: [] }),
+        serve(join(root, 'dist'), port, {
+          gzip: false,
+          headers: [],
+          fallback: '',
+          fallbackStatus: 200,
+        }),
         (error) => error instanceof UsageError && /in use/.test(error.message),
       );
     } finally {
