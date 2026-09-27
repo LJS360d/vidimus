@@ -114,9 +114,12 @@ npx vidimus init --force         # overwrite an existing file
 
 The file is written to the working directory with `distDir: 'dist'`, an empty `siteUrl` and an
 empty `exclude`. Fill in `siteUrl` before the first run. `init` refuses to create a second
-config file when one in another format already exists. If the working directory has a
-`.gitignore` that does not list `.vidimus` yet, `init` appends it, so reports and screenshot
-baselines stay out of git; see [shots](./audits/shots#sharing-the-baseline) to commit a baseline.
+config file when one in another format already exists.
+
+When a run first creates the output directory (`outDir`, `.vidimus` by default), it writes a
+`.gitignore` containing `*` into it, so reports and screenshot baselines stay out of git with
+no change to your own `.gitignore`; see [shots](./audits/shots#sharing-the-baseline) to commit a
+baseline.
 
 ## Output
 

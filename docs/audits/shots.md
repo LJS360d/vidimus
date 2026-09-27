@@ -66,7 +66,7 @@ Screenshots with no baseline, such as new pages, are listed as `no baseline` and
 
 ### Sharing the baseline
 
-By default the baseline lives inside `.vidimus/`, which `vidimus init` adds to `.gitignore`, so it stays on the machine that recorded it. To compare in CI, either:
+By default the baseline lives inside `.vidimus/`, which ignores itself with its own `.gitignore`, so it stays on the machine that recorded it. To compare in CI, either:
 
 - restore `.vidimus/shots/baseline/` from a cache or artifact of an earlier run (see [CI](../ci)), or
 - commit it: point `shots.baselineDir` at a directory outside `.vidimus/`, such as `'shots-baseline'` (relative to `root`), and commit that directory after `--update-baseline`.

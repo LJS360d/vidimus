@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { builtinAudits } from '../audits/registry.ts';
 import { type LoadConfigOptions, loadConfig } from '../config/load.ts';
@@ -46,6 +46,12 @@ export const selectAudits = (
 
 const requirement = (audit: Audit) => audit.requires ?? 'server';
 
+const createOutDir = (dir: string) => {
+  if (existsSync(dir)) return;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, '.gitignore'), '*\n');
+};
+
 export const runAudits = async (
   config: VidimusConfig,
   audits: Audit[],
@@ -58,6 +64,7 @@ export const runAudits = async (
   if (needsDist && !existsSync(dist)) {
     throw new UsageError(`no build output at ${dist}. Run the build first.`);
   }
+  createOutDir(resolve(config.root, config.outDir));
 
   const baselineFile = config.baseline.file ? resolve(config.root, config.baseline.file) : '';
   const baseline = baselineFile

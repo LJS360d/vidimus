@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -196,6 +197,15 @@ describe('runAudits', () => {
     });
     assert.equal(ok, true);
     assert.match(seen[0] ?? '', /^http:\/\/localhost:[1-9]\d*$/);
+  });
+
+  it('ignores a newly created output directory in git, and leaves an existing one alone', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home', 'kept/report.json': '{}' });
+    const options = { cwd, env: {}, audits: ['probe'], reporters: [] };
+    await run({ ...options, overrides: { port: 0, plugins: [probe('probe')] } });
+    assert.equal(readFileSync(join(cwd, '.vidimus', '.gitignore'), 'utf8'), '*\n');
+    await run({ ...options, overrides: { port: 0, outDir: 'kept', plugins: [probe('probe')] } });
+    assert.equal(existsSync(join(cwd, 'kept', '.gitignore')), false);
   });
 
   it('closes the server when a reporter fails to start', async () => {
