@@ -23,7 +23,7 @@
     "@angular/compiler-cli",
     "tslib"
   ],
-  "ignoreUnresolved": ["peer-types\\.ts$"],
+  "ignoreUnresolved": ["peer-types\\.ts$", "^\\./pages$"],
   "astro": {
     "config": ["docs/astro/astro.config.ts"],
     "entry": ["docs/astro/src/content.config.ts", "docs/astro/src/components/*.astro"]
