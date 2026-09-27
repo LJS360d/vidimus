@@ -1,5 +1,11 @@
 # vidimus
 
+## 0.4.1
+
+### Patch Changes
+
+- 9051d74: The output directory (`.vidimus` by default) now gets its own `.gitignore` containing `*` when a run first creates it, instead of `vidimus init` appending `.vidimus` to the project `.gitignore`.
+
 ## 0.4.0
 
 ### Minor Changes
