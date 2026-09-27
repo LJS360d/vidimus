@@ -88,7 +88,7 @@ jobs:
         with:
           path: ~/.cache/puppeteer
           key: puppeteer-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npx puppeteer browsers install chrome
+      - run: npx puppeteer browsers install chrome && npx puppeteer browsers install chrome-headless-shell
       - run: npm run build
       - run: npx vidimus
 ```

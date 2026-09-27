@@ -32,10 +32,12 @@ installing its peer. `npx vidimus csp seo budget` runs without any peer installe
 With the peers installed, an audit can still error when Chrome cannot launch; its summary is
 puppeteer's error message.
 
-- **Could not find Chrome**: puppeteer's browser download was skipped
+- **Could not find Chrome** (or `chrome-headless-shell`, which `shots` uses): puppeteer's
+  browser download was skipped
   (`PUPPETEER_SKIP_DOWNLOAD`, `--ignore-scripts`, a package manager that blocks install
   scripts) or the cache path differs.
-  Run `npx puppeteer browsers install chrome`, or set `browser.executablePath` to a Chrome or
+  Run `npx puppeteer browsers install chrome` (and `chrome-headless-shell` for `shots`), or set
+  `browser.executablePath` to a Chrome or
   Chromium already on the machine.
 - **Missing shared libraries** (`error while loading shared libraries: libnss3.so` and
   similar): the system lacks Chrome's dependencies, common in slim container images. Install a
