@@ -122,7 +122,7 @@ const common = (engine: Engine, page: Page) => ({
 });
 
 // Pages with a `script` in their frontmatter load it as a module; VitePress does it in its config.
-// VitePress adds the base to /showcase/ URLs in raw HTML itself; the other flavors get it here.
+// VitePress adds the base to /showcase/ URLs in raw HTML in its config; the other flavors get it here.
 const withScript = (page: Page, markdown: string) => {
   const body = markdown.replace(/(["\s,])\/showcase\//g, `$1${base}showcase/`);
   return page.script

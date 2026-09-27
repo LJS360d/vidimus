@@ -55,6 +55,22 @@ export default defineConfig({
     pageData.frontmatter.script
       ? [['script', { type: 'module', src: `${base}${pageData.frontmatter.script}` }]]
       : [],
+  // VitePress adds the base to asset URLs in raw HTML, but not to <link href> or <track src>.
+  vite: {
+    plugins: [
+      {
+        name: 'showcase-base',
+        enforce: 'pre',
+        transform: (code, id) =>
+          id.endsWith('.md')
+            ? code.replace(
+                /(<(?:link|track)\b[^>]*?\b(?:href|src))="\/showcase\//g,
+                `$1="${base}showcase/`,
+              )
+            : undefined,
+      },
+    ],
+  },
   buildEnd: ({ outDir }) => {
     const schema = join(import.meta.dirname, '..', '..', 'schema.json');
     if (existsSync(schema)) copyFileSync(schema, join(outDir, 'schema.json'));
