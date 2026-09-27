@@ -68,7 +68,10 @@ describe('shots audit', () => {
 
 // A canvas redrawn every frame from the clock and Math.random, next to a cross-origin iframe whose
 // colour changes on every load.
-const dynamic = (embed: string) => `<!doctype html><html lang="en"><head><title>t</title></head>
+const dynamic = (
+  embed: string,
+  head = '',
+) => `<!doctype html><html lang="en"><head><title>t</title>${head}</head>
 <body style="margin:0">
 <canvas id="scene" width="200" height="100"></canvas>
 <iframe src="${embed}" width="200" height="100" style="border:0;display:block"></iframe>
@@ -132,6 +135,13 @@ describe('shots on dynamic content', { skip: noBrowser }, () => {
 
     const raw = await shots(cwd, { freeze: false, maskEmbeds: false });
     assert.equal(raw.status, 'failed');
+  });
+
+  it('masks embeds on pages whose CSP blocks injected styles', async () => {
+    const csp = `<meta http-equiv="content-security-policy" content="style-src 'self'; script-src 'unsafe-inline'; frame-src *">`;
+    const cwd = fixture({ 'dist/index.html': dynamic(embed, csp) });
+    assert.equal((await shots(cwd, { updateBaseline: true })).status, 'passed');
+    assert.equal((await shots(cwd)).status, 'passed');
   });
 
   it('names what keeps moving when motion never settles', async () => {

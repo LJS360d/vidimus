@@ -22,8 +22,8 @@ features:
     details: Warn instead of fail, ignore known findings, or accept today's findings and fail only on new ones.
   - title: Install only what you use
     details: Zero-dependency audits read the build directly; browser audits use the tools you add next to vidimus.
-  - title: Built six times, on purpose
-    details: These docs are rendered by VitePress, Starlight, Hugo, Eleventy, Zola and mdBook from the same markdown and audited by vidimus as one site, to dogfood it against real output.
+  - title: Built eight times, on purpose
+    details: These docs are rendered by VitePress, Starlight, Hugo, Eleventy, Zola, mdBook, React and Angular from the same markdown and audited by vidimus as one site, to dogfood it against real output.
     link: /flavors
     linkText: How and why
 ---

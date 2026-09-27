@@ -133,6 +133,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `routes.discover` | `'off'` | `'sitemap'` or `'crawl'`: find more pages, for client-rendered apps |
 | `routes.limit` | `200` | most new routes `'crawl'` adds |
 | `render.mode` | `'off'` | `'on'` or `'auto'`: `dist` audits read the DOM a browser renders, see [How it works](./how-it-works#client-rendered-sites) |
+| `render.include` | `[]` | URL path patterns of the pages to render; empty renders every page |
 | `render.waitFor` | `'load'` | when an opened page is ready: `'load'`, `'networkidle'`, milliseconds after load or a CSS selector |
 | `render.timeout` | `30000` | milliseconds per rendered or crawled page |
 | `render.concurrency` | half the cores, 2 to 8 | browser tabs rendering at once |
@@ -147,7 +148,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `server.gzip` | `true` | gzip text responses of the built-in server |
 | `server.headers` | `[]` | `{ match, headers }` rules for the built-in server |
-| `server.fallback` | `''` | build file served for page requests that match no file, for single-page apps |
+| `server.fallback` | `''` | build file served for page requests that match no file, for single-page apps, or `{ match, file }` rules per path |
 | `server.fallbackStatus` | `200` | status sent with `server.fallback`: `200` or `404` |
 
 The keys of each audit are documented on its page, starting from the [audits overview](./audits/).

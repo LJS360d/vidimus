@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="content-security-policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="content-security-policy" content="{{ csp or "default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" }}">
   {%- set fullTitle = ("vidimus · " + title) if docslug == "" else (title + " · vidimus") %}
   <title>{{ fullTitle }}</title>
   <meta name="description" content="{{ description }}">

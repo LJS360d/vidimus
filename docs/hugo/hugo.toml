@@ -9,6 +9,10 @@ enableGitInfo = false
   repo = 'https://github.com/LJS360d/vidimus'
   og = 'https://ljs360d.github.io/vidimus/og.png'
 
+# The showcase page embeds raw HTML.
+[markup.goldmark.renderer]
+  unsafe = true
+
 [markup.goldmark.parser]
   autoHeadingIDType = 'github'
 

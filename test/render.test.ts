@@ -101,6 +101,16 @@ describe('rendered DOM', { skip: noBrowser }, () => {
     assert.ok(!rendered.includes('no <h1>'));
   });
 
+  it('renders only the pages render.include matches', async () => {
+    const rendered = { mode: 'on', waitFor: '#root[data-ready]' };
+    const skipped = messages(
+      await audit('seo', { render: { ...rendered, include: ['^/other/'] } }),
+    );
+    assert.ok(skipped.includes('missing <title>'));
+    const matched = messages(await audit('seo', { render: { ...rendered, include: ['^/$'] } }));
+    assert.ok(!matched.includes('missing <title>'));
+  });
+
   it('turns rendering on in auto mode for a one-page build with a large bundle', async () => {
     const auto = { render: { mode: 'auto', waitFor: '#root[data-ready]' } };
     assert.ok(messages(await audit('seo', auto)).includes('missing <title>'));

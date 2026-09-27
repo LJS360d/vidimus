@@ -1,11 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { VidimusConfig } from '../config/types.ts';
 import type { Audit, AuditContext, Finding } from '../core/types.ts';
 import {
   displayPath,
   onePagePerDirectory,
   onePagePerTemplate,
   pathOf,
+  regex,
   slug,
 } from '../core/util.ts';
 
@@ -43,6 +45,17 @@ const costliestAudits = (lhr: LighthouseResult, category: string) =>
     .sort((a, b) => b.ref.weight - a.ref.weight)
     .slice(0, 3)
     .map(({ audit }) => audit?.title ?? '');
+
+// Later overrides win, so a specific pattern can follow a broad one.
+export const thresholdsFor = (
+  { thresholds, overrides }: Pick<VidimusConfig['lighthouse'], 'thresholds' | 'overrides'>,
+  path: string,
+): Record<string, number> =>
+  Object.assign(
+    {},
+    thresholds,
+    ...overrides.filter(({ match }) => regex(match).test(path)).map((rule) => rule.thresholds),
+  );
 
 export const scoreFix = (report: string, category: string) =>
   `Open ${report} and fix the audits listed first, or lower lighthouse.thresholds.${category} if the target is too strict.`;
@@ -112,8 +125,9 @@ export const lighthouse: Audit = {
             .join('  ')}`,
         );
 
+        const wanted = thresholdsFor(config.lighthouse, path);
         for (const category of categories) {
-          const min = Math.round((thresholds[category] ?? 0) * 100);
+          const min = Math.round((wanted[category] ?? 0) * 100);
           const score = row[category];
           if (min === 0 || typeof score !== 'number' || score >= min) continue;
           findings.push({

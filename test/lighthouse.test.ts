@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { selectUrls } from '../src/audits/lighthouse.ts';
+import { selectUrls, thresholdsFor } from '../src/audits/lighthouse.ts';
 import { defaults } from '../src/config/defaults.ts';
 import { merge } from '../src/config/merge.ts';
 import type { UserConfig } from '../src/config/types.ts';
@@ -33,5 +33,20 @@ describe('lighthouse page selection', () => {
       '/docs/y',
     ]);
     assert.deepEqual(select({ urls: ['/contact/'] }), ['/contact/']);
+  });
+});
+
+describe('lighthouse thresholds', () => {
+  it('applies every matching override in order, over the global thresholds', () => {
+    const config = {
+      thresholds: { performance: 0.9, seo: 1 },
+      overrides: [
+        { match: '^/app/', thresholds: { performance: 0.85 } },
+        { match: 'showcase', thresholds: { performance: 0.75 } },
+      ],
+    };
+    assert.deepEqual(thresholdsFor(config, '/docs/'), { performance: 0.9, seo: 1 });
+    assert.deepEqual(thresholdsFor(config, '/app/docs'), { performance: 0.85, seo: 1 });
+    assert.deepEqual(thresholdsFor(config, '/app/showcase'), { performance: 0.75, seo: 1 });
   });
 });

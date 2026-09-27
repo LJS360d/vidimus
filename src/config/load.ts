@@ -124,7 +124,7 @@ const checkIgnoreRules = (rules: unknown) => {
   });
 };
 
-const PATTERN_LISTS = ['exclude', 'sample', 'allow', 'allowNoindex', 'skip'];
+const PATTERN_LISTS = ['exclude', 'include', 'sample', 'allow', 'allowNoindex', 'skip'];
 
 const checkPattern = (at: string, pattern: unknown) => {
   if (typeof pattern !== 'string') throw new UsageError(`${at}: must be a string`);
@@ -149,6 +149,14 @@ const checkPatterns = (config: VidimusConfig) => {
   lists(config as unknown as Record<string, unknown>, []);
   for (const [index, { match }] of config.server.headers.entries()) {
     checkPattern(`server.headers[${index}].match`, match);
+  }
+  for (const [index, { match }] of config.lighthouse.overrides.entries()) {
+    checkPattern(`lighthouse.overrides[${index}].match`, match);
+  }
+  if (Array.isArray(config.server.fallback)) {
+    for (const [index, { match }] of config.server.fallback.entries()) {
+      checkPattern(`server.fallback[${index}].match`, match);
+    }
   }
   for (const [name, pattern] of Object.entries(config.security.require)) {
     if (pattern !== false) checkPattern(`security.require.${name}`, pattern);

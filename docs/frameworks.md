@@ -1,6 +1,6 @@
 ---
 title: Frameworks
-description: Build command, distDir, base path and _headers placement for Astro, VitePress, Hugo, Eleventy, Next.js, SvelteKit and Jekyll.
+description: distDir, base path and _headers per generator, from Astro to Jekyll, and the setup for client-rendered React, Angular, Vue and SvelteKit apps.
 ---
 
 # Frameworks
@@ -24,9 +24,8 @@ When the site lives under a path, the generator has to build with that prefix an
 has to include it. See [How it works](./how-it-works#base-paths).
 
 A single-page app with client-side routing (React Router, Angular Router, Vue Router) builds
-one `index.html` and relies on the host to answer deep URLs with it. Set `server.fallback` so
-the built-in server does the same, and list or discover the routes with `routes`; see
-[How it works](./how-it-works#client-rendered-routes).
+one `index.html` and relies on the host to answer deep URLs with it. See
+[Client-rendered apps](#client-rendered-apps) below.
 
 | Generator | Build | `distDir` | Base path setting | Static folder |
 | --- | --- | --- | --- | --- |
@@ -249,6 +248,102 @@ export default defineConfig({
 - Put `_headers` in that folder if your host reads it.
 - There is no build step, so the `no build output` error means `distDir` points to the wrong
   place.
+
+## Client-rendered apps
+
+A React, Angular, Vue or Solid app built without prerendering is one `index.html`, an empty
+`<div id="root">`, and scripts. Three settings make vidimus audit it like the site it becomes
+in the browser:
+
+- `server.fallback`: answer every page path with `index.html`, as the host does.
+- `routes`: the pages to audit, since the build has only one file. List them, read them from a
+  sitemap, or crawl the rendered links.
+- `render`: read the rendered DOM in the `dist` audits and in `links`, and wait for the app in
+  every browser audit.
+
+```ts
+export default defineConfig({
+  distDir: 'dist',
+  siteUrl: 'https://example.com',
+  server: { fallback: 'index.html' },
+  routes: { discover: 'crawl' },
+  render: { mode: 'on', waitFor: '#root > *' },
+  links: { notFound: { selector: '[data-page="not-found"]' } },
+});
+```
+
+`render.waitFor` is a CSS selector that exists once the app has rendered, `'networkidle'` for
+apps that fetch before they render, or a number of milliseconds. `links.notFound` identifies the
+app's own not-found view, which the fallback answers with `200`. See
+[How it works](./how-it-works#client-rendered-sites) for what each audit then reads.
+
+### React with Vite
+
+- `vite build` writes `dist/`; with a base path, build with `--base /project/` and set `siteUrl`
+  with the same path.
+- React Router's `createBrowserRouter` needs the fallback. `createHashRouter` does not, but its
+  routes all share one URL, so the server audits see only the first; `links.notFound` still opens
+  every `#/` link.
+- React 19 hoists `<title>`, `<meta>` and `<link>` rendered in a component into `<head>`, so
+  `seo` sees one title per route with `render` on.
+- `public/_headers` is copied into `dist/`.
+
+### Angular
+
+- `ng build` writes `dist/<project>/browser/`; set `outputPath` to `{ "base": "dist", "browser":
+  "" }` in `angular.json` to drop the `browser/` level, or point `distDir` at it.
+- `--base-href /project/` for a base path, with `siteUrl` to match.
+- Keep SSR and prerendering off if you want the pure client-rendered build; turn on
+  `outputMode: "static"` with prerendered routes to get HTML per route instead, and drop
+  `server.fallback` and `routes`.
+- Component styles are inserted as `<style>` elements at runtime. With a strict CSP they are
+  blocked, and `csp` with `render` on reports each of them. Keep styles in the global
+  stylesheet, or allow them with `autoCsp` and a nonce from a server. Also turn off
+  `inlineCritical`: it adds an inline `<style>` and an `onload` handler to `index.html`.
+- `Title` and `Meta` set the head per route; `seo` reads them with `render` on.
+
+### Vue with Vite
+
+- `vite build` writes `dist/`; `base` in `vite.config.ts` sets the base path.
+- Vue Router's `createWebHistory` needs the fallback; `createWebHashHistory` does not, with the
+  same limits as a hash router in React.
+- `@unhead/vue` sets titles and meta tags at runtime, visible with `render` on.
+
+### SvelteKit SPA mode
+
+- adapter-static with `fallback: '200.html'` (or `'index.html'`) and no prerendered routes.
+- Set `server.fallback` to the same file, and exclude it from the page list when it is not
+  `index.html`: `exclude: ['^200\\.html$']`.
+- With some routes prerendered and the rest client-rendered, the prerendered ones are files and
+  need no `routes` entry; list or crawl the others.
+
+### Hosts
+
+The fallback in vidimus stands in for the host's rewrite. Match what yours does:
+
+| Host | Rewrite | `server.fallbackStatus` |
+| --- | --- | --- |
+| Netlify | `/* /index.html 200` in `_redirects` | `200` |
+| Vercel | `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]` in `vercel.json` | `200` |
+| Cloudflare Pages | automatic when there is no `404.html` | `200` |
+| GitHub Pages | none: deep links get `404.html`, with a `404` status | `404`, with `server.fallback: '404.html'` |
+
+On GitHub Pages, deep links need a file: copy `index.html` to every route (`about.html`,
+`docs/index.html`) after the build, and each is served with a `200`. The other workaround, a
+`404.html` that redirects into the app, leaves a `404` status on every deep link for search
+engines and link checkers, and for vidimus with `fallbackStatus: 404`.
+
+### Prerender if you can
+
+vidimus renders your app before auditing it; many crawlers, link previews and feed readers do
+not, and see the empty shell. A green `seo` run on a client-rendered app says the titles and
+descriptions are right once JavaScript has run, not that search engines will read them.
+Prerendering at build time gives every route its own HTML file, which vidimus, and everyone
+else, reads without a browser: `vite-ssg` or Vike for Vite apps, Angular's
+`outputMode: "static"`, SvelteKit's `prerender = true`, React Router's `prerender` option.
+
+The React and Angular flavors of these docs are client-rendered on purpose, audited in the same
+run as the others; see [Eight flavors](./flavors).
 
 ## Other generators
 

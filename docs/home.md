@@ -23,9 +23,10 @@ ones. [Adopting on an existing site](./adopting).
 Zero-dependency audits read the build directly; browser audits use the tools you add next to
 vidimus. [Getting started](./getting-started).
 
-## Built six times, on purpose
+## Built eight times, on purpose
 
 These docs are rendered from the same markdown by VitePress, Starlight, Hugo, Eleventy, Zola
-and mdBook, deployed side by side under one origin, cross-linked page by page, and audited by
-vidimus as one site. The setup is more complicated than any docs site needs: it exists to
-dogfood vidimus against six generators' real output. [How and why](./flavors).
+and mdBook, and in the browser by a React and an Angular app, deployed side by side under one
+origin, cross-linked page by page, and audited by vidimus as one site. The setup is more
+complicated than any docs site needs: it exists to dogfood vidimus against eight builds' real
+output. [How and why](./flavors).

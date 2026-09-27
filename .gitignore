@@ -24,3 +24,8 @@ docs/zola/static/main.css
 docs/zola/public
 docs/mdbook/src
 docs/mdbook/book
+docs/public/showcase
+docs/react/src/pages.json
+docs/angular/src/pages.ts
+docs/angular/src/theme.css
+docs/angular/.angular

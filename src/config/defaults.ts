@@ -23,6 +23,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
   },
   render: {
     mode: 'off',
+    include: [],
     waitFor: 'load',
     timeout: 30000,
     concurrency: halfTheCores,
@@ -95,6 +96,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     all: false,
     urls: [],
     thresholds: { performance: 0.9, accessibility: 1, 'best-practices': 0.9, seo: 1 },
+    overrides: [],
   },
   links: {
     skip: ['^mailto:', '^tel:'],

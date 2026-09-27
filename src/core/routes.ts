@@ -5,7 +5,7 @@ import { UsageError } from './errors.ts';
 import { localFile, originOf, type PageReader } from './html.ts';
 import type { Renderer } from './render.ts';
 import { pathnameOf, readSitemaps } from './sitemap.ts';
-import { firstFew, matchesAny } from './util.ts';
+import { fallbackFor, firstFew, matchesAny } from './util.ts';
 
 const SPA_BUNDLE_BYTES = 100_000;
 
@@ -80,9 +80,10 @@ export const resolveRoutes = async (
     routes = await crawl(renderer, origin, seeds, config, keep);
   }
   const fileless = [...new Set(routes)].filter((route) => keep(route) && !localFile(dist, route));
-  if (fileless.length && !config.origin && !config.server.fallback) {
+  const unanswered = fileless.filter((route) => !fallbackFor(config.server.fallback, route));
+  if (unanswered.length && !config.origin) {
     throw new UsageError(
-      `routes ${firstFew(fileless)} have no file in ${config.distDir}; set server.fallback ` +
+      `routes ${firstFew(unanswered)} have no file in ${config.distDir}; set server.fallback ` +
         `(e.g. 'index.html') so the built-in server answers them, or drop them from routes`,
     );
   }

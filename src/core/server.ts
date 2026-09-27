@@ -7,7 +7,7 @@ import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
 import { UsageError } from './errors.ts';
 import { localFile } from './html.ts';
-import { regex, stripBase } from './util.ts';
+import { fallbackFor, regex, stripBase } from './util.ts';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -44,6 +44,7 @@ const TYPES: Record<string, string> = {
   '.hdr': 'image/vnd.radiance',
   '.exr': 'image/x-exr',
   '.map': 'application/json; charset=utf-8',
+  '.vtt': 'text/vtt; charset=utf-8',
 };
 
 const COMPRESSIBLE = /text|json|xml|svg|manifest|wasm/;
@@ -77,8 +78,12 @@ const handle = (
     return;
   }
   const found = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
-  const fallback = !found && !!options.fallback && wantsPage(req, pathname);
-  const file = fallback ? localFile(dist, `/${options.fallback}`) : found;
+  const fallbackFile =
+    found || !wantsPage(req, pathname)
+      ? ''
+      : fallbackFor(options.fallback, stripBase(pathname, siteUrl));
+  const fallback = !!fallbackFile;
+  const file = fallback ? localFile(dist, `/${fallbackFile}`) : found;
   if (!file) {
     res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
     return;

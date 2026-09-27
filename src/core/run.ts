@@ -14,7 +14,7 @@ import { createRenderer } from './render.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, PageSource, RunReport } from './types.ts';
-import { basePathOf } from './util.ts';
+import { basePathOf, matchesAny, pathOf } from './util.ts';
 
 export interface RunOptions extends LoadConfigOptions {
   audits?: string[];
@@ -89,11 +89,18 @@ export const runAudits = async (
   ).replace(/\/$/, '');
   let pageUrls = createPageUrls(config, dist, builtPages, origin);
 
+  const included = (path: string) =>
+    !config.render.include.length || matchesAny(config.render.include, path);
+  const renderPage = (url: string) =>
+    included(pathOf(url, origin))
+      ? renderer.render(url)
+      : Promise.reject(new Error(`${pathOf(url, origin)} is not in render.include`));
   const renderedPages = async (exclude: string[] = [], log: (line: string) => void) => {
     const pages = builtPages(exclude);
     if (!rendering) return pages;
     return Promise.all(
       pages.map(async (page): Promise<PageSource> => {
+        if (!included(page.path)) return page;
         try {
           const { html, requests } = await renderer.render(pageUrlOf(origin, page.rel));
           return { file: page.file, rel: page.rel, path: page.path, html, requests };
@@ -117,7 +124,7 @@ export const runAudits = async (
       pageUrls,
       builtPages,
       renderedPages: (exclude) => renderedPages(exclude, (line) => log.push(line)),
-      ...(rendering && { renderPage: renderer.render }),
+      ...(rendering && { renderPage }),
       log: (line = '') => log.push(...line.split('\n')),
       importPeer,
       launchBrowser: (options) => (options ? launchBrowser(config, options) : browser()),

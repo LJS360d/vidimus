@@ -9,6 +9,8 @@ export const flavors = [
   { id: 'eleventy', name: 'Eleventy', path: 'eleventy/', style: 'dir' },
   { id: 'zola', name: 'Zola', path: 'zola/', style: 'dir' },
   { id: 'mdbook', name: 'mdBook', path: 'mdbook/', style: 'html' },
+  { id: 'react', name: 'React', path: 'react/', style: 'clean' },
+  { id: 'angular', name: 'Angular', path: 'angular/', style: 'clean' },
 ] as const;
 
 export type FlavorId = (typeof flavors)[number]['id'];

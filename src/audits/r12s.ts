@@ -47,6 +47,9 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     ) {
       const style = getComputedStyle(node);
       if (style.visibility === 'hidden' || style.opacity === '0') return false;
+      // Screen-reader-only elements (sr-only, visually-hidden) are clipped away.
+      if (/^rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)$/.test(style.clip)) return false;
+      if (style.clipPath === 'inset(50%)') return false;
     }
     return true;
   };

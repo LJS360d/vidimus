@@ -103,6 +103,7 @@ A clean run ends with `✔ lighthouse: 4 pages meet every threshold, reports in 
 | Key | Default | Description |
 | --- | --- | --- |
 | `lighthouse.thresholds` | `{ performance: 0.9, accessibility: 1, 'best-practices': 0.9, seo: 1 }` | minimum score per category, 0 to 1 |
+| `lighthouse.overrides` | `[]` | `{ match, thresholds }` rules: other thresholds for the pages whose path matches, later rules win |
 | `lighthouse.sample` | `[]` | URL path patterns: audit only the first page matching each, and every page that matches none |
 | `lighthouse.all` | `false` | audit every page, ignoring `sample` and the one-per-directory default |
 | `lighthouse.urls` | `[]` | fixed list of paths to audit instead of the built pages |
@@ -120,6 +121,20 @@ export default defineConfig({
   lighthouse: {
     sample: ['^/blog/.+', '^/docs/.+'],
     thresholds: { performance: 0.8, seo: 0.9 },
+  },
+});
+```
+
+A heavy page, or a section built with a slower framework, can have its own thresholds while
+the rest of the site keeps the defaults:
+
+```ts
+export default defineConfig({
+  lighthouse: {
+    overrides: [
+      { match: '^/app/', thresholds: { performance: 0.85 } },
+      { match: '^/showcase', thresholds: { performance: 0.75 } },
+    ],
   },
 });
 ```

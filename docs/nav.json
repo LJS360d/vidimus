@@ -40,6 +40,9 @@
   },
   {
     "text": "About these docs",
-    "items": [{ "text": "Six flavors", "link": "flavors" }]
+    "items": [
+      { "text": "Eight flavors", "link": "flavors" },
+      { "text": "Showcase", "link": "showcase" }
+    ]
   }
 ]

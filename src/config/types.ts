@@ -8,6 +8,11 @@ export interface ViewportSize {
   height?: number;
 }
 
+export interface FallbackRule {
+  match: Pattern;
+  file: string;
+}
+
 export interface HeaderRule {
   match: Pattern;
   headers: Record<string, string>;
@@ -59,6 +64,7 @@ export interface VidimusConfig {
   };
   render: NavigateOptions & {
     mode: RenderMode;
+    include: Pattern[];
     concurrency: number;
   };
   audits: string[];
@@ -78,7 +84,7 @@ export interface VidimusConfig {
   server: {
     gzip: boolean;
     headers: HeaderRule[];
-    fallback: string;
+    fallback: string | FallbackRule[];
     fallbackStatus: 200 | 404;
   };
   i18n: {
@@ -129,6 +135,7 @@ export interface VidimusConfig {
     all: boolean;
     urls: string[];
     thresholds: Record<string, number>;
+    overrides: { match: Pattern; thresholds: Record<string, number> }[];
   };
   links: {
     skip: Pattern[];

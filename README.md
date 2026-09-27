@@ -57,6 +57,10 @@ export default defineConfig({
 Adopting it on an existing site: `npx vidimus --accept-findings` records today's findings, and
 later runs fail only on new ones.
 
+Client-rendered apps (React, Angular, Vue) work too: `server.fallback` answers their routes,
+`routes` lists or crawls them, and `render` audits the DOM the browser builds instead of the
+empty shell: [client-rendered apps](https://ljs360d.github.io/vidimus/frameworks#client-rendered-apps).
+
 ## Docs
 
 **[ljs360d.github.io/vidimus](https://ljs360d.github.io/vidimus/)**: [getting started](https://ljs360d.github.io/vidimus/getting-started),
@@ -65,9 +69,10 @@ later runs fail only on new ones.
 [CI](https://ljs360d.github.io/vidimus/ci), [frameworks](https://ljs360d.github.io/vidimus/frameworks),
 [custom audits and API](https://ljs360d.github.io/vidimus/plugins). Contributing: [CONTRIBUTING.md](https://github.com/LJS360d/vidimus/blob/main/CONTRIBUTING.md).
 
-The docs are deliberately built six times from the same markdown, by VitePress, Starlight, Hugo,
-Eleventy, Zola and mdBook, deployed side by side and audited by vidimus as one site, to dogfood
-it against six generators' real output: [why](https://ljs360d.github.io/vidimus/flavors).
+The docs are deliberately built eight times from the same markdown, by VitePress, Starlight, Hugo,
+Eleventy, Zola, mdBook and client-rendered React and Angular apps, deployed side by side and
+audited by vidimus as one site, to dogfood it against eight builds' real output:
+[why](https://ljs360d.github.io/vidimus/flavors).
 
 ## License
 

@@ -24,6 +24,7 @@ export type {
   AuditSeverity,
   ConfigEnv,
   ConfigInput,
+  FallbackRule,
   HeaderRule,
   IgnoreRule,
   NavigateOptions,

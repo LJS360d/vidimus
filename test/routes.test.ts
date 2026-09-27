@@ -96,6 +96,17 @@ describe('routes', () => {
     ]);
   });
 
+  it('accepts routes answered by a fallback rule, and rejects the others', async () => {
+    const files = { 'dist/index.html': SHELL, 'dist/app/index.html': SHELL };
+    const server = { fallback: [{ match: '^/app/', file: 'app/index.html' }] };
+    const { paths } = await collect(files, { server, routes: { paths: ['/app/docs'] } });
+    assert.deepEqual(paths, ['/app/', '/', '/app/docs']);
+    await assert.rejects(
+      collect(files, { server, routes: { paths: ['/app/docs', '/other'] } }),
+      (error) => error instanceof UsageError && /routes \/other have no file/.test(error.message),
+    );
+  });
+
   it('fails fast when a route has no file and the fallback is off', async () => {
     await assert.rejects(
       collect({ 'dist/index.html': SHELL }, { routes: { paths: ['/docs/seo'] } }),

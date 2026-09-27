@@ -1,0 +1,7 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+A generated test pattern: colour bars and a moving block.
+
+00:00:02.000 --> 00:00:04.000
+shots pauses videos at their first frame, so the screenshot does not change.

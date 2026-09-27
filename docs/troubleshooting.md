@@ -93,6 +93,46 @@ These checks compare the origin (scheme, host and port) with `siteUrl`. The usua
 Set the generator and `siteUrl` from the same value. A config function can read it from the
 environment: `siteUrl: env.SITE_URL ?? 'https://example.org'`.
 
+## Only one page is audited
+
+A client-rendered app builds one `index.html`, and the page list is the HTML files in
+`distDir`, so every server audit checks the home route only. The pretty reporter says so at
+the start:
+
+```
+vidimus: dist has one HTML page and a 412 kB script: looks like a client-rendered app; set routes.paths or routes.discover to audit its routes
+```
+
+Set `routes` to list the other routes, read them from a sitemap, or crawl them, and
+`server.fallback` so the built-in server answers them with `index.html`. See
+[Frameworks](./frameworks#client-rendered-apps).
+
+## seo says there is no title, but the app sets one
+
+`seo`, `html`, `csp` and `assets` read the built HTML file, and in a client-rendered app that is
+the shell before any script runs: no `<title>`, no description, no `<h1>`. Set
+`render.mode: 'on'` (or `'auto'`) so they read the DOM a browser renders, with
+`render.waitFor` set to something that appears once the app has rendered. See
+[How it works](./how-it-works#client-rendered-sites).
+
+Search engines that do not run JavaScript see the shell too; prerendering fixes both.
+
+## shots differ on every run
+
+Something on the page changes on its own. Open `.vidimus/shots/diff.html` and look at where the
+red is:
+
+- a canvas or WebGL scene: keep `shots.freeze` on, or make the scene render one frame under
+  `prefers-reduced-motion: reduce`, which the main screenshot uses;
+- an embedded map, video player or widget: `shots.maskEmbeds` masks cross-origin iframes;
+  add anything else to `shots.mask`;
+- content a script fetches after load: set `render.waitFor` to a selector that appears once it
+  is in, or to `'networkidle'`;
+- the text of the page itself, across machines: fonts render differently on each OS, so record
+  the baseline on the same kind of machine that compares it.
+
+See [shots](./audits/shots#canvas-webgl-video-gifs-and-embeds).
+
 ## Timeouts and slow runs
 
 The non-exclusive audits run at the same time, and each browser audit opens several tabs.

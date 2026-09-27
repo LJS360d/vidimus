@@ -116,12 +116,34 @@ ${[
   .join('\n')}
 `;
 
-const waitForFontsAndImages = async (budget: number) => {
+const waitForStylesFontsAndImages = async (budget: number) => {
   const deadline = new Promise((done) => setTimeout(done, budget));
-  for (const img of document.images) img.loading = 'eager';
+  // Eager and sync: a lazy image never loads below the fold, and an async one can be left out
+  // of the paint when the full-page screenshot grows the viewport.
+  for (const img of document.images) {
+    img.loading = 'eager';
+    img.decoding = 'sync';
+  }
+  // decode() on an image whose request has not started yet rejects at once: wait for load first.
   const pendingImages = [...document.images]
     .filter((img) => !img.complete)
-    .map((img) => img.decode().catch(() => {}));
+    .map((img) =>
+      new Promise((done) => {
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      }).then(() => img.decode().catch(() => {})),
+    );
+  // Stylesheets a script added after load, as client-rendered pages do, may still be loading.
+  const sheets = [...document.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]')]
+    .filter((link) => !link.sheet && !link.disabled)
+    .map(
+      (link) =>
+        new Promise((done) => {
+          link.addEventListener('load', done, { once: true });
+          link.addEventListener('error', done, { once: true });
+        }),
+    );
+  await Promise.race([Promise.all(sheets), deadline]);
   const fonts = Promise.all([...document.fonts].map((face) => face.load().catch(() => {})));
   await Promise.race([fonts.then(() => document.fonts.ready), deadline]);
   await Promise.race([Promise.all(pendingImages), deadline]);
@@ -204,14 +226,22 @@ const stillMedia = async () => {
     animation.currentTime = 0;
   }
   await Promise.all(
-    [...document.querySelectorAll('video')].map((video) => {
+    [...document.querySelectorAll('video')].map(async (video) => {
       video.pause();
-      if (video.currentTime === 0) return undefined;
-      return new Promise((done) => {
-        video.addEventListener('seeked', done, { once: true });
-        video.currentTime = 0;
-        setTimeout(done, 1000);
-      });
+      const settle = (event: string, start: () => void) =>
+        new Promise((done) => {
+          video.addEventListener(event, done, { once: true });
+          setTimeout(done, 1000);
+          start();
+        });
+      // The controls show the duration only once metadata is in, which preload="none" leaves
+      // to chance; the poster stays up until playback.
+      if (video.readyState < HTMLMediaElement.HAVE_METADATA && video.preload === 'none')
+        await settle('loadedmetadata', () => {
+          video.preload = 'metadata';
+          video.load();
+        });
+      if (video.currentTime !== 0) await settle('seeked', () => (video.currentTime = 0));
     }),
   );
 };
@@ -235,11 +265,13 @@ const maskElements = (selectors: string[], embeds: boolean) => {
       } catch {}
     }
   }
-  for (const node of masked) node.setAttribute('data-vidimus-mask', '');
-  const style = document.createElement('style');
-  style.textContent =
-    '[data-vidimus-mask]{filter:brightness(0)!important;background:#000!important;animation:none!important}';
-  document.documentElement.append(style);
+  // Through CSSOM, not a <style> element: a page's CSP can block injected stylesheets.
+  for (const node of masked) {
+    if (!(node instanceof HTMLElement || node instanceof SVGElement)) continue;
+    node.style.setProperty('filter', 'brightness(0)', 'important');
+    node.style.setProperty('background', '#000', 'important');
+    node.style.setProperty('animation', 'none', 'important');
+  }
   return invalid;
 };
 
@@ -374,7 +406,7 @@ export const shots: Audit = {
       } finally {
         await page.removeScriptToEvaluateOnNewDocument(identifier);
       }
-      await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+      await page.evaluate(waitForStylesFontsAndImages, config.shots.settleTimeout);
       for (const selector of await page.evaluate(maskElements, config.shots.mask, maskEmbeds))
         invalidMasks.add(selector);
     };
@@ -401,11 +433,25 @@ export const shots: Audit = {
         () => (window as unknown as { __vidimus?: Instrumented }).__vidimus?.glFailures ?? [],
       );
       if (failures.length) glFailures.set(name, failures);
+      // The full page, taken as one tall viewport: growing the viewport makes <picture> pick its
+      // source again, so wait for images once more, and measure the page only once.
+      // Content that arrives late can change the height again: measure until it holds still.
+      let height = size.height;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const measured = Math.max(
+          size.height,
+          await page.evaluate(() => document.documentElement.scrollHeight),
+        );
+        if (measured === height) break;
+        height = measured;
+        await page.setViewport({ ...size, height });
+        await page.evaluate(waitForStylesFontsAndImages, config.shots.settleTimeout);
+      }
       await page.screenshot({
         path: png(currentDir, name) as `${string}.png`,
-        fullPage: true,
         captureBeyondViewport: false,
       });
+      await page.setViewport(size);
       let note = '';
       if (motion) {
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);

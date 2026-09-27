@@ -50,6 +50,11 @@ export default defineConfig({
     page.frontmatter.head ??= [];
     page.frontmatter.head.push(['link', { rel: 'canonical', href: `${site}/${path}` }]);
   },
+  // Markdown <script> tags would be read as Vue SFC blocks, so page scripts come from frontmatter.
+  transformHead: ({ pageData }) =>
+    pageData.frontmatter.script
+      ? [['script', { type: 'module', src: `${base}${pageData.frontmatter.script}` }]]
+      : [],
   buildEnd: ({ outDir }) => {
     const schema = join(import.meta.dirname, '..', '..', 'schema.json');
     if (existsSync(schema)) copyFileSync(schema, join(outDir, 'schema.json'));

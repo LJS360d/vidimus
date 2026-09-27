@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="content-security-policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="content-security-policy" content="{{ .Params.csp | default "default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" }}">
   {{- $title := cond .IsHome (printf "vidimus · %s" .Title) (printf "%s · vidimus" .Title) }}
   <title>{{ $title }}</title>
   <meta name="description" content="{{ .Description }}">

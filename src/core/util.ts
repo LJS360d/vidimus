@@ -19,6 +19,12 @@ export const stripBase = (pathname: string, siteUrl: string) => {
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
 };
 
+// The fallback file for a path relative to the base path, or '' when there is none.
+export const fallbackFor = (fallback: string | { match: Pattern; file: string }[], path: string) =>
+  typeof fallback === 'string'
+    ? fallback
+    : (fallback.find(({ match }) => regex(match).test(path))?.file ?? '');
+
 export const pathOf = (url: string, root = '') => stripBase(new URL(url).pathname, root);
 
 export const slug = (url: string, root = '') =>

@@ -5,10 +5,24 @@
     "src/cli.ts",
     "scripts/*.ts",
     "test/**/*.test.ts",
-    "docs/vidimus.config.ts"
+    "docs/vidimus.config.ts",
+    "docs/react/src/main.tsx",
+    "docs/react/vite.config.ts",
+    "docs/angular/src/main.ts",
+    "docs/showcase/showcase.ts",
+    "docs/showcase/vite.config.ts"
   ],
-  "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "docs/**/*.{ts,astro}"],
-  "ignoreDependencies": ["html-validate", "lighthouse", "pa11y", "@11ty/eleventy"],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "docs/**/*.{ts,tsx,astro}"],
+  "ignoreDependencies": [
+    "html-validate",
+    "lighthouse",
+    "pa11y",
+    "@11ty/eleventy",
+    "@angular/build",
+    "@angular/cli",
+    "@angular/compiler-cli",
+    "tslib"
+  ],
   "ignoreUnresolved": ["peer-types\\.ts$"],
   "astro": {
     "config": ["docs/astro/astro.config.ts"],

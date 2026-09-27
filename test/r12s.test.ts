@@ -31,13 +31,15 @@ const page = (viewport: string, body: string) => `<!doctype html>
 <body style="font-size:16px">${body}</body></html>`;
 
 describe('r12s audit', () => {
-  it('skips unrendered text and inline links, and allows zoom above 1', {
+  it('skips unrendered text, inline links and screen-reader-only links, and allows zoom above 1', {
     skip: noBrowser,
   }, async () => {
     const cwd = fixture({
       'dist/index.html': page(
         'width=device-width, initial-scale=1, maximum-scale=1.5',
-        '<p>visible</p><ul style="display:none;font-size:8px"><li>hidden menu</li></ul>' +
+        '<a href="#main" style="position:absolute;top:20px;left:20px;width:1px;height:1px;padding:8px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%)">skip</a>' +
+          '<a href="/x" style="display:inline-block;width:48px;height:48px">x</a>' +
+          '<p>visible</p><ul style="display:none;font-size:8px"><li>hidden menu</li></ul>' +
           '<p>See <a href="/a">a</a> and <a href="/b">b</a> in a sentence.</p>',
       ),
     });

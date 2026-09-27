@@ -94,6 +94,21 @@ such as `/assets/app.js` still get a `404`. Set it to match your host:
 A `404` status is what `links` and the Lighthouse SEO check see, so keep it when the host sends
 it.
 
+Several apps under one origin each need their own fallback. `server.fallback` then takes a list
+of rules, tried in order, whose `match` regex is tested against the request path under the
+`siteUrl` base path; a path no rule matches gets a `404`:
+
+```ts
+export default defineConfig({
+  server: {
+    fallback: [
+      { match: '^/app/', file: 'app/index.html' },
+      { match: '^/admin/', file: 'admin/index.html' },
+    ],
+  },
+});
+```
+
 `server.headers` is the only source of response headers. The server does not read `_headers`;
 that file is read by the [`security` audit](./audits/security).
 
@@ -213,6 +228,10 @@ not counting `404.html`, next to a script of 100 kB or more.
 | `security` | the shipped HTML: meta CSP, mixed content and SRI are about what the server sends |
 | `budget` | the shipped HTML size, and the files the browser requested for the rest |
 | `links` | the rendered links of every page, see [links](./audits/links#client-rendered-links) |
+
+`render.include` limits rendering to the pages whose path matches one of its patterns, for a
+site where only some sections are client-rendered: `render: { mode: 'on', include: ['^/app/'] }`.
+The other pages are read from their files, and `links` reads them as served.
 
 Only built files are rendered for the `dist` audits; [`routes`](#client-rendered-routes)
 without a file reach the server audits only. A page that fails to render within

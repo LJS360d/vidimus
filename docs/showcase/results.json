@@ -1,0 +1,57 @@
+[
+  {
+    "audit": "seo",
+    "status": "passed",
+    "summary": "164 pages, no problems"
+  },
+  {
+    "audit": "security",
+    "status": "passed",
+    "summary": "165 pages, headers from nowhere (skipped), no problems"
+  },
+  {
+    "audit": "html",
+    "status": "passed",
+    "summary": "165 pages, 2 distinct problem(s)"
+  },
+  {
+    "audit": "budget",
+    "status": "passed",
+    "summary": "165 page(s), heaviest /mdbook/showcase.html 335 kB"
+  },
+  {
+    "audit": "assets",
+    "status": "passed",
+    "summary": "164 page(s), all assets in place"
+  },
+  {
+    "audit": "csp",
+    "status": "passed",
+    "summary": "0 inline blocks across 83 pages, all hashed, 6 third-party iframe(s)"
+  },
+  {
+    "audit": "links",
+    "status": "passed",
+    "summary": "650 links checked across 217 pages, none broken"
+  },
+  {
+    "audit": "a11y",
+    "status": "passed",
+    "summary": "1 distinct issue(s), 0 page(s) failed to load"
+  },
+  {
+    "audit": "r12s",
+    "status": "passed",
+    "summary": "217 pages x 3 viewports (320, 375, 768px), no defects"
+  },
+  {
+    "audit": "privacy",
+    "status": "passed",
+    "summary": "217 pages, 1 third-party host(s), 0 cookie(s)"
+  },
+  {
+    "audit": "lighthouse",
+    "status": "passed",
+    "summary": "6 problem(s) across 24 pages, reports in .vidimus/lighthouse/"
+  }
+]

@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths: ['docs/**', 'src/**', 'scripts/schema.ts', 'scripts/docs.ts', 'mise.toml', 'package.json', 'pnpm-lock.yaml', '.github/**']
   workflow_dispatch:
+    inputs:
+      update-shots:
+        description: record a new shots baseline for the showcase pages
+        type: boolean
+        default: false
 
 # Never cancel a run midway: that could interrupt a Pages deployment.
 concurrency:
@@ -27,6 +32,24 @@ jobs:
       - run: pnpm run build
       - run: pnpm run docs:build
       - run: pnpm run docs:audit
+      # shots compares the showcase pages with the baseline a previous run saved in the cache.
+      # With none (first run, evicted, or update-shots), this run records it first.
+      - id: shots-baseline
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: docs/.vidimus/shots/baseline
+          key: docs-shots-${{ github.run_id }}
+          restore-keys: docs-shots-
+      - id: shots-record
+        if: steps.shots-baseline.outputs.cache-matched-key == '' || inputs.update-shots
+        run: pnpm run docs:audit shots --update-baseline
+      - run: pnpm run docs:audit shots
+      - if: steps.shots-record.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: docs/.vidimus/shots/baseline
+          key: docs-shots-${{ github.run_id }}
+      - run: node scripts/docs.ts pages-copies
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

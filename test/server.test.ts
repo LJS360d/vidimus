@@ -140,6 +140,22 @@ describe('static server SPA fallback', () => {
     assert.equal(res.body, 'not found page');
   });
 
+  it('picks the fallback file by path with fallback rules', async () => {
+    const port = await start(
+      {
+        fallback: [
+          { match: '^/app/', file: '404.html' },
+          { match: '^/', file: 'index.html' },
+        ],
+      },
+      'https://user.github.io/project',
+    );
+    assert.equal((await get('/project/app/deep', {}, port)).body, 'not found page');
+    assert.equal((await get('/project/other', {}, port)).body, 'shell');
+    const none = await start({ fallback: [{ match: '^/app/', file: 'index.html' }] });
+    assert.equal((await get('/other', {}, none)).status, 404);
+  });
+
   it('serves the fallback under the base path of siteUrl', async () => {
     const port = await start({}, 'https://user.github.io/project');
     const res = await get('/project/deep/route', {}, port);
