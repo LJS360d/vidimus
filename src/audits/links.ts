@@ -1,3 +1,7 @@
+import { extname } from 'node:path';
+import { localFile } from '../core/html.ts';
+import type { RenderedPage } from '../core/render.ts';
+import { RENDERED_HEADER } from '../core/server.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { escapeRegExp, pathOf } from '../core/util.ts';
 
@@ -18,12 +22,44 @@ export const brokenLinkFix = (status: number | undefined) => {
   return 'Check the target is up, raise links.timeout or enable links.retry, or add a pattern to links.skip if it is flaky.';
 };
 
+// Internal links the fallback answers with 200, so only the browser can tell a missing route.
+const routeLinks = (pages: RenderedPage[], origin: string, dist: string) => {
+  const targets = new Map<string, { display: string; sources: Set<string> }>();
+  const audited = new URL(origin).origin;
+  for (const page of pages) {
+    for (const href of page.anchors) {
+      const url = new URL(href);
+      if (url.origin !== audited) continue;
+      const path = pathOf(href, origin);
+      const hashRoute = url.hash.startsWith('#/');
+      if (!hashRoute && (extname(path) || localFile(dist, path))) continue;
+      const key = `${url.origin}${url.pathname}${url.search}${hashRoute ? url.hash : ''}`;
+      const target = targets.get(key) ?? {
+        display: `${path}${url.search}${hashRoute ? url.hash : ''}`,
+        sources: new Set(),
+      };
+      target.sources.add(pathOf(page.url, origin));
+      targets.set(key, target);
+    }
+  }
+  return targets;
+};
+
 export const links: Audit = {
   name: 'links',
   description: 'no broken internal links, assets or external targets',
-  async run({ config, origin, pageUrls, importPeer }) {
+  async run({ config, origin, dist, pageUrls, importPeer, renderPage, log }) {
     const { LinkChecker } = await importPeer<typeof import('linkinator')>('linkinator');
     const urls = pageUrls();
+    const rendered = renderPage
+      ? (await Promise.all(urls.map((url) => renderPage(url).catch(() => undefined)))).filter(
+          (page) => page !== undefined,
+        )
+      : [];
+    // The built-in server hands linkinator the rendered DOM of these pages instead of the shell.
+    const snapshots = rendered.length > 0 && !config.origin;
+    if (renderPage && config.origin)
+      log('--origin: links are read from the HTML the server sends, not the rendered DOM');
     const site = config.siteUrl.replace(/\/$/, '');
     const checker = new LinkChecker();
     const broken: LinkResult[] = [];
@@ -41,6 +77,7 @@ export const links: Audit = {
       timeout: config.links.timeout,
       retry: config.links.retry,
       retryErrors: config.links.retry,
+      ...(snapshots && { headers: { [RENDERED_HEADER]: '1' } }),
       urlRewriteExpressions: site
         ? [{ pattern: new RegExp(`^${escapeRegExp(site)}(?=[/?#]|$)`), replacement: origin }]
         : [],
@@ -62,6 +99,19 @@ export const links: Audit = {
       where: [...sources],
       fix: brokenLinkFix(status),
     }));
+
+    const { selector, text } = config.links.notFound;
+    if (renderPage && (selector || text)) {
+      for (const [url, { display, sources }] of routeLinks(rendered, origin, dist)) {
+        const target = await renderPage(url).catch(() => undefined);
+        if (!target?.notFound) continue;
+        findings.push({
+          message: `not-found view ${display}`,
+          where: [...sources],
+          fix: 'Fix or remove the link on the pages listed, or add the route to the app router.',
+        });
+      }
+    }
     return {
       summary: findings.length
         ? `${findings.length} broken target(s) out of ${scanned} links checked`

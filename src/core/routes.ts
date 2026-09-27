@@ -3,9 +3,9 @@ import { extname, join } from 'node:path';
 import type { VidimusConfig } from '../config/types.ts';
 import { UsageError } from './errors.ts';
 import { localFile, originOf, type PageReader } from './html.ts';
-import type { Browser } from './peer-types.ts';
+import type { Renderer } from './render.ts';
 import { pathnameOf, readSitemaps } from './sitemap.ts';
-import { firstFew, matchesAny, navigate } from './util.ts';
+import { firstFew, matchesAny } from './util.ts';
 
 const SPA_BUNDLE_BYTES = 100_000;
 
@@ -36,38 +36,30 @@ const fromSitemap = (config: VidimusConfig, dist: string) => {
     .filter((path): path is string => path !== null);
 };
 
+// Breadth first, one level of routes rendered at a time.
 const crawl = async (
-  browser: Browser,
+  renderer: Renderer,
   origin: string,
   seeds: string[],
   config: VidimusConfig,
   keep: (route: string) => boolean,
 ) => {
   const found = new Set(seeds);
-  const queue = [...found];
+  let level = [...found];
   let added = 0;
-  const page = await browser.newPage();
-  try {
-    for (const route of queue) {
-      try {
-        await navigate(page, `${origin}${route}`, config.routes);
-      } catch {
-        continue;
-      }
-      const hrefs = await page.$$eval('a[href]', (links) =>
-        links.map((link) => (link as HTMLAnchorElement).href),
-      );
-      for (const href of hrefs) {
-        const next = routeOf(href, origin);
-        if (!next || found.has(next) || !keep(next)) continue;
-        if (added >= config.routes.limit) return [...found];
-        found.add(next);
-        queue.push(next);
-        added += 1;
-      }
+  while (level.length) {
+    const rendered = await Promise.all(
+      level.map((route) => renderer.render(`${origin}${route}`).catch(() => undefined)),
+    );
+    level = [];
+    for (const href of rendered.flatMap((page) => page?.anchors ?? [])) {
+      const next = routeOf(href, origin);
+      if (!next || found.has(next) || !keep(next)) continue;
+      if (added >= config.routes.limit) return [...found];
+      found.add(next);
+      level.push(next);
+      added += 1;
     }
-  } finally {
-    await page.close().catch(() => {});
   }
   return [...found];
 };
@@ -78,19 +70,14 @@ export const resolveRoutes = async (
   dist: string,
   pages: PageReader,
   origin: string,
-  browser: () => Promise<Browser>,
+  renderer: Renderer,
 ) => {
   const { paths, discover } = config.routes;
   const keep = (route: string) => !matchesAny(config.exclude, route.slice(1));
   let routes = [...paths, ...(discover === 'sitemap' ? fromSitemap(config, dist) : [])];
   if (discover === 'crawl') {
     const seeds = [...pages(config.exclude).map(({ path }) => path), ...routes];
-    const shared = await browser();
-    try {
-      routes = await crawl(shared, origin, seeds, config, keep);
-    } finally {
-      await shared.close();
-    }
+    routes = await crawl(renderer, origin, seeds, config, keep);
   }
   const fileless = [...new Set(routes)].filter((route) => keep(route) && !localFile(dist, route));
   if (fileless.length && !config.origin && !config.server.fallback) {
@@ -102,18 +89,22 @@ export const resolveRoutes = async (
   return fileless;
 };
 
-export const clientRenderedHint = (config: VidimusConfig, dist: string, pages: PageReader) => {
-  const { paths, discover } = config.routes;
-  if (paths.length || discover !== 'off') return undefined;
+// The size of the largest script when the build is one HTML page next to a big bundle.
+export const clientRenderedBundle = (config: VidimusConfig, dist: string, pages: PageReader) => {
   const html = pages(config.exclude).filter(({ rel }) => rel !== '404.html');
-  if (html.length !== 1) return undefined;
+  if (html.length !== 1) return 0;
   const largest = Math.max(
     0,
     ...globSync('**/*.js', { cwd: dist }).map((rel) => statSync(join(dist, rel)).size),
   );
-  if (largest < SPA_BUNDLE_BYTES) return undefined;
+  return largest >= SPA_BUNDLE_BYTES ? largest : 0;
+};
+
+export const clientRenderedHint = (config: VidimusConfig, bundle: number) => {
+  const { paths, discover } = config.routes;
+  if (!bundle || paths.length || discover !== 'off') return undefined;
   return (
-    `${config.distDir} has one HTML page and a ${Math.round(largest / 1000)} kB script: ` +
+    `${config.distDir} has one HTML page and a ${Math.round(bundle / 1000)} kB script: ` +
     'looks like a client-rendered app; set routes.paths or routes.discover to audit its routes'
   );
 };

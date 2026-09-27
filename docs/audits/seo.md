@@ -16,6 +16,9 @@ Nothing to install. It reads the build (`dist/`) and starts no server or browser
 top-level `siteUrl`: without it the canonical, hreflang and sitemap checks can only verify that
 URLs are absolute, not that they point at your site and at pages that exist.
 
+With [`render.mode`](../how-it-works#client-rendered-sites) on, every check reads the DOM a
+browser renders, so titles, descriptions and canonical links set by the app count.
+
 ## Run it
 
 ```sh

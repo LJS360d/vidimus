@@ -51,6 +51,11 @@ const COMPRESSIBLE = /text|json|xml|svg|manifest|wasm/;
 const wantsPage = (req: IncomingMessage, pathname: string) =>
   !extname(pathname) || /text\/html/.test(String(req.headers.accept ?? ''));
 
+// Requests with this header get the rendered DOM of a page instead of the built file, if any.
+export const RENDERED_HEADER = 'x-vidimus-rendered';
+
+type Snapshot = (pathname: string) => string | undefined;
+
 export interface StaticServer {
   port: number;
   close: () => Promise<void>;
@@ -62,9 +67,15 @@ const handle = (
   dist: string,
   options: VidimusConfig['server'],
   siteUrl: string,
+  snapshot: Snapshot,
 ) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const { pathname } = url;
+  const rendered = req.headers[RENDERED_HEADER] ? snapshot(pathname) : undefined;
+  if (rendered !== undefined) {
+    res.writeHead(200, { 'content-type': TYPES['.html'] }).end(rendered);
+    return;
+  }
   const found = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
   const fallback = !found && !!options.fallback && wantsPage(req, pathname);
   const file = fallback ? localFile(dist, `/${options.fallback}`) : found;
@@ -98,11 +109,17 @@ const handle = (
   else pipeline(createReadStream(file), res, done);
 };
 
-export const serve = (dist: string, port: number, options: VidimusConfig['server'], siteUrl = '') =>
+export const serve = (
+  dist: string,
+  port: number,
+  options: VidimusConfig['server'],
+  siteUrl = '',
+  snapshot: Snapshot = () => undefined,
+) =>
   new Promise<StaticServer>((resolve, reject) => {
     const server = createServer((req, res) => {
       try {
-        handle(req, res, dist, options, siteUrl);
+        handle(req, res, dist, options, siteUrl, snapshot);
       } catch {
         if (!res.headersSent) res.writeHead(400, { 'content-type': 'text/plain' });
         res.end('Bad request');

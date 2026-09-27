@@ -8,11 +8,12 @@ import type { Reporter } from '../reporters/types.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
 import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
 import { createPageReader } from './html.ts';
-import { createPageUrls } from './pages.ts';
+import { createPageUrls, pageUrlOf } from './pages.ts';
 import { importPeer, launchBrowser, sharedBrowser } from './peer.ts';
-import { clientRenderedHint, resolveRoutes } from './routes.ts';
+import { createRenderer } from './render.ts';
+import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
-import type { Audit, AuditContext, AuditResult, Finding, RunReport } from './types.ts';
+import type { Audit, AuditContext, AuditResult, Finding, PageSource, RunReport } from './types.ts';
 import { basePathOf } from './util.ts';
 
 export interface RunOptions extends LoadConfigOptions {
@@ -61,10 +62,14 @@ export const runAudits = async (
   const startedAt = new Date();
   const dist = resolve(config.root, config.distDir);
   const needsDist = audits.some((audit) => requirement(audit) !== 'source');
-  const needsServer = audits.some((audit) => requirement(audit) === 'server');
   if (needsDist && !existsSync(dist)) {
     throw new UsageError(`no build output at ${dist}. Run the build first.`);
   }
+  const builtPages = createPageReader(dist);
+  const bundle = needsDist ? clientRenderedBundle(config, dist, builtPages) : 0;
+  const rendering =
+    needsDist && (config.render.mode === 'on' || (config.render.mode === 'auto' && bundle > 0));
+  const needsServer = rendering || audits.some((audit) => requirement(audit) === 'server');
   createOutDir(resolve(config.root, config.outDir));
 
   const baselineFile = config.baseline.file ? resolve(config.root, config.baseline.file) : '';
@@ -73,16 +78,32 @@ export const runAudits = async (
     : { version: 1 as const, findings: [] };
   const unsuppressed = new Map<string, Finding[]>();
 
+  const browser = sharedBrowser(() => launchBrowser(config));
+  const renderer = createRenderer(config, browser);
   const server =
     needsServer && !config.origin
-      ? await serve(dist, config.port, config.server, config.siteUrl)
+      ? await serve(dist, config.port, config.server, config.siteUrl, renderer.snapshot)
       : undefined;
   const origin = (
     config.origin || `http://localhost:${server?.port ?? config.port}${basePathOf(config.siteUrl)}`
   ).replace(/\/$/, '');
-  const builtPages = createPageReader(dist);
-  const browser = sharedBrowser(() => launchBrowser(config));
   let pageUrls = createPageUrls(config, dist, builtPages, origin);
+
+  const renderedPages = async (exclude: string[] = [], log: (line: string) => void) => {
+    const pages = builtPages(exclude);
+    if (!rendering) return pages;
+    return Promise.all(
+      pages.map(async (page): Promise<PageSource> => {
+        try {
+          const { html, requests } = await renderer.render(pageUrlOf(origin, page.rel));
+          return { file: page.file, rel: page.rel, path: page.path, html, requests };
+        } catch (error) {
+          log(`could not render ${page.path}, read the built file: ${(error as Error).message}`);
+          return page;
+        }
+      }),
+    );
+  };
 
   const runOne = async (audit: Audit): Promise<AuditResult> => {
     const log: string[] = [];
@@ -95,6 +116,8 @@ export const runAudits = async (
       resolve: (...segments) => resolve(config.root, ...segments),
       pageUrls,
       builtPages,
+      renderedPages: (exclude) => renderedPages(exclude, (line) => log.push(line)),
+      ...(rendering && { renderPage: renderer.render }),
       log: (line = '') => log.push(...line.split('\n')),
       importPeer,
       launchBrowser: (options) => (options ? launchBrowser(config, options) : browser()),
@@ -137,7 +160,7 @@ export const runAudits = async (
 
   const results: AuditResult[] = [];
   try {
-    const hint = needsServer ? clientRenderedHint(config, dist, builtPages) : undefined;
+    const hint = needsServer ? clientRenderedHint(config, bundle) : undefined;
     for (const reporter of reporters) {
       await reporter.onStart?.({
         audits: audits.map(({ name }) => name),
@@ -147,13 +170,14 @@ export const runAudits = async (
       });
     }
     if (needsServer) {
-      const routes = await resolveRoutes(config, dist, builtPages, origin, browser);
+      const routes = await resolveRoutes(config, dist, builtPages, origin, renderer);
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
     results.push(...(await Promise.all(audits.filter((audit) => !audit.exclusive).map(runOne))));
     for (const audit of audits.filter((audit) => audit.exclusive))
       results.push(await runOne(audit));
   } finally {
+    await renderer.close();
     await server?.close();
   }
 

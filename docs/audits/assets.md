@@ -17,6 +17,9 @@ Nothing to install. It reads the build (`dist/`) and starts no server or browser
 top-level `siteUrl` so absolute `og:image` URLs on your site are checked against the build and
 `og:url` is checked against your origin.
 
+With [`render.mode`](../how-it-works#client-rendered-sites) on, it checks the DOM a browser
+renders instead of the shipped HTML file.
+
 ## Run it
 
 ```sh

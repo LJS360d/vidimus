@@ -155,13 +155,15 @@ const checkPatterns = (config: VidimusConfig) => {
   }
 };
 
-const DISCOVERY = ['off', 'sitemap', 'crawl'];
+const checkOneOf = (at: string, value: string, allowed: string[]) => {
+  if (!allowed.includes(value))
+    throw new UsageError(`${at}: "${value}" is not one of ${allowed.join(', ')}`);
+};
 
-const checkRoutes = ({ routes }: VidimusConfig) => {
-  if (!DISCOVERY.includes(routes.discover))
-    throw new UsageError(
-      `routes.discover: "${routes.discover}" is not one of ${DISCOVERY.join(', ')}`,
-    );
+const checkRoutes = ({ routes, render, links }: VidimusConfig) => {
+  checkOneOf('routes.discover', routes.discover, ['off', 'sitemap', 'crawl']);
+  checkOneOf('render.mode', render.mode, ['off', 'auto', 'on']);
+  if (links.notFound.text) checkPattern('links.notFound.text', links.notFound.text);
   for (const [index, path] of routes.paths.entries()) {
     if (typeof path !== 'string' || !path.startsWith('/'))
       throw new UsageError(`routes.paths[${index}]: must be a path starting with /`);

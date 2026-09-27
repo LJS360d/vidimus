@@ -20,8 +20,12 @@ export const defaults = (cwd: string): VidimusConfig => ({
     paths: [],
     discover: 'off',
     limit: 200,
+  },
+  render: {
+    mode: 'off',
     waitFor: 'load',
     timeout: 30000,
+    concurrency: halfTheCores,
   },
   audits: DEFAULT_AUDITS,
   severity: {},
@@ -94,6 +98,10 @@ export const defaults = (cwd: string): VidimusConfig => ({
     timeout: 20_000,
     checkExternal: true,
     retry: true,
+    notFound: {
+      selector: '',
+      text: '',
+    },
   },
   seo: {
     exclude: ['^/404(\\.html|/)?$'],

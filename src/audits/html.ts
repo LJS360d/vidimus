@@ -94,9 +94,11 @@ export const html: Audit = {
   name: 'html',
   description: 'html-validate finds no HTML errors',
   requires: 'dist',
-  async run({ config, root, builtPages, importPeer }) {
+  async run({ config, root, renderedPages, importPeer }) {
     const { exclude, extends: extendsPresets, rules } = config.html;
-    const pages = builtPages(config.exclude).filter(({ path }) => !matchesAny(exclude, path));
+    const pages = (await renderedPages(config.exclude)).filter(
+      ({ path }) => !matchesAny(exclude, path),
+    );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built HTML pages' };
 
     const { HtmlValidate, StaticConfigLoader } =

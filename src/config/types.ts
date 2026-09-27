@@ -34,6 +34,8 @@ export interface MotionOptions {
 
 export type RouteDiscovery = 'off' | 'sitemap' | 'crawl';
 
+export type RenderMode = 'off' | 'auto' | 'on';
+
 export interface NavigateOptions {
   waitFor: string | number;
   timeout: number;
@@ -50,10 +52,14 @@ export interface VidimusConfig {
   locales: string[];
   defaultLocale: string;
   allLocales: boolean;
-  routes: NavigateOptions & {
+  routes: {
     paths: string[];
     discover: RouteDiscovery;
     limit: number;
+  };
+  render: NavigateOptions & {
+    mode: RenderMode;
+    concurrency: number;
   };
   audits: string[];
   severity: Record<string, AuditSeverity>;
@@ -126,6 +132,10 @@ export interface VidimusConfig {
     timeout: number;
     checkExternal: boolean;
     retry: boolean;
+    notFound: {
+      selector: string;
+      text: Pattern;
+    };
   };
   seo: {
     exclude: Pattern[];

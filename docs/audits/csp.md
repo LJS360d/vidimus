@@ -11,6 +11,9 @@ A strict Content Security Policy blocks every inline `<script>` and `<style>` it
 
 Nothing to install. The audit reads the HTML files in the build (`requires: 'dist'`); no server is started for it.
 
+With [`render.mode`](../how-it-works#client-rendered-sites) on, it checks the DOM a browser
+renders instead of the shipped HTML file.
+
 ## Run it
 
 ```sh

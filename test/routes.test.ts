@@ -132,7 +132,8 @@ describe('routes', () => {
     const files = { 'dist/index.html': SHELL, 'dist/app.js': APP };
     const overrides = {
       server: { fallback: 'index.html' },
-      routes: { discover: 'crawl', waitFor: '#root[data-ready]' },
+      routes: { discover: 'crawl' },
+      render: { waitFor: '#root[data-ready]' },
     };
     assert.deepEqual((await collect(files, overrides)).paths, ['/', '/a', '/b', '/c']);
     const limited = await collect(files, {

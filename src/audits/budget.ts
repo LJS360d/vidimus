@@ -9,8 +9,8 @@ import {
   stripNonMarkup,
   tags,
 } from '../core/html.ts';
-import type { Audit, Finding } from '../core/types.ts';
-import { matchesAny } from '../core/util.ts';
+import type { Audit, Finding, PageSource } from '../core/types.ts';
+import { matchesAny, stripBase } from '../core/util.ts';
 import { imageSizeOf } from './image-size.ts';
 
 type Kind = 'html' | 'css' | 'js' | 'page';
@@ -69,15 +69,17 @@ const topFiles = (assets: Asset[]) =>
     .slice(0, 3)
     .map(({ url, size }) => `${formatBytes(size)} ${url}`);
 
+const OTHER_REQUESTS = ['font', 'media', 'fetch', 'xhr', 'other'];
+
 const sum = (assets: Asset[]) => assets.reduce((total, { size }) => total + size, 0);
 
 export const budget: Audit = {
   name: 'budget',
   description: 'page weight, image size and format, image dimensions',
   requires: 'dist',
-  async run({ config, builtPages, dist }) {
+  async run({ config, renderedPages, dist, origin }) {
     const options = config.budget;
-    const pages = builtPages(config.exclude).filter(
+    const pages = (await renderedPages(config.exclude)).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built pages' };
@@ -103,38 +105,70 @@ export const budget: Audit = {
       ...new Map(assets.filter((asset) => asset !== undefined).map((a) => [a.file, a])).values(),
     ];
 
+    const served = (href: string, measure: (file: string) => number) => {
+      let url: URL;
+      try {
+        url = new URL(href);
+      } catch {
+        return undefined;
+      }
+      if (url.origin !== new URL(origin).origin) return undefined;
+      const path = stripBase(url.pathname, config.siteUrl);
+      const file = localFile(dist, url.pathname) ?? localFile(dist, path);
+      return file ? { url: path, file, size: measure(file) } : undefined;
+    };
+
+    const requested = (page: PageSource, types: string[], measure: (file: string) => number) =>
+      distinct(
+        (page.requests ?? [])
+          .filter(({ type }) => types.includes(type))
+          .map(({ url }) => served(url, measure)),
+      );
+
     let heaviest = { path: '', size: 0 };
 
     for (const page of pages) {
       const { html } = page;
       const htmlAsset = { url: page.path, file: page.file, size: gzipped(page.file) };
-      const css = distinct(
-        linksWithRel(html, 'stylesheet').map(({ attrs }) => local(attrs.href ?? '', page, gzipped)),
-      );
-      const js = distinct([
-        ...tags(html, 'script').map(({ attrs }) =>
-          attrs.src ? local(attrs.src, page, gzipped) : undefined,
-        ),
-        ...linksWithRel(html, 'modulepreload').map(({ attrs }) =>
-          local(attrs.href ?? '', page, gzipped),
-        ),
-      ]);
+      // A rendered page measures what the browser loaded, lazy chunks and fonts included.
+      const network = page.requests !== undefined;
+      const css = network
+        ? requested(page, ['stylesheet'], gzipped)
+        : distinct(
+            linksWithRel(html, 'stylesheet').map(({ attrs }) =>
+              local(attrs.href ?? '', page, gzipped),
+            ),
+          );
+      const js = network
+        ? requested(page, ['script'], gzipped)
+        : distinct([
+            ...tags(html, 'script').map(({ attrs }) =>
+              attrs.src ? local(attrs.src, page, gzipped) : undefined,
+            ),
+            ...linksWithRel(html, 'modulepreload').map(({ attrs }) =>
+              local(attrs.href ?? '', page, gzipped),
+            ),
+          ]);
       const images = tags(html, 'img', 'source');
-      const imageAssets = distinct(
-        images.flatMap(({ name, attrs }) =>
-          [...(name === 'img' && attrs.src ? [attrs.src] : []), ...srcsetUrls(attrs.srcset)].map(
-            (ref) => local(ref, page, raw),
-          ),
-        ),
-      );
+      const imageAssets = network
+        ? requested(page, ['image'], raw)
+        : distinct(
+            images.flatMap(({ name, attrs }) =>
+              [
+                ...(name === 'img' && attrs.src ? [attrs.src] : []),
+                ...srcsetUrls(attrs.srcset),
+              ].map((ref) => local(ref, page, raw)),
+            ),
+          );
+      const other = network ? requested(page, OTHER_REQUESTS, raw) : [];
 
       const totals: Record<Kind, { size: number; assets: Asset[] }> = {
         html: { size: htmlAsset.size, assets: [htmlAsset] },
         css: { size: sum(css), assets: css },
         js: { size: sum(js), assets: js },
         page: {
-          size: htmlAsset.size + sum(css) + sum(js) + sum(imageAssets),
-          assets: [htmlAsset, ...css, ...js, ...imageAssets],
+          size: htmlAsset.size + sum(css) + sum(js) + sum(imageAssets) + sum(other),
+          assets: [htmlAsset, ...css, ...js, ...imageAssets, ...other],
         },
       };
       if (totals.page.size > heaviest.size) heaviest = { path: page.path, size: totals.page.size };

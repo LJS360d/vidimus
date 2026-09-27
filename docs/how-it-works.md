@@ -164,7 +164,7 @@ export default defineConfig({
   `sitemap_index.xml` in `distDir`, following sitemap indexes. URLs on another origin than
   `siteUrl` are skipped.
 - `routes.discover: 'crawl'` opens the built pages and `routes.paths` in the browser, waits for
-  `routes.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
+  `render.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
   first, until `routes.limit` new routes are found. Links to files with an extension other
   than `.html` are not routes.
 
@@ -186,6 +186,40 @@ script of 100 kB or more, the pretty reporter prints a note at the start:
 ```
 vidimus: dist has one HTML page and a 412 kB script: looks like a client-rendered app; set routes.paths or routes.discover to audit its routes
 ```
+
+### Client-rendered sites
+
+The `dist` audits read the HTML files as shipped. For a React, Angular or Vue app that is a
+shell, `<div id="root"></div>` and scripts, so `seo` misses the title a router sets and `csp`
+never sees styles injected at runtime. With `render.mode: 'on'` they read the DOM a browser
+renders instead:
+
+```ts
+export default defineConfig({
+  server: { fallback: 'index.html' },
+  render: { mode: 'on', waitFor: '#root > *' },
+});
+```
+
+Each built page is opened once per run in the shared browser, waits for `render.waitFor`, and
+its serialized DOM is shared by every audit that
+asks for it. Rendering needs the server, so the built-in one starts even when only `dist`
+audits run. `render.mode: 'auto'` renders when the build looks client-rendered: one HTML page,
+not counting `404.html`, next to a script of 100 kB or more.
+
+| Audit | Reads |
+| --- | --- |
+| `seo`, `html`, `csp`, `assets` | the rendered DOM |
+| `security` | the shipped HTML: meta CSP, mixed content and SRI are about what the server sends |
+| `budget` | the shipped HTML size, and the files the browser requested for the rest |
+| `links` | the rendered links of every page, see [links](./audits/links#client-rendered-links) |
+
+Only built files are rendered for the `dist` audits; [`routes`](#client-rendered-routes)
+without a file reach the server audits only. A page that fails to render within
+`render.timeout` is read from its file, with a line in the audit log.
+
+`render.waitFor` also decides when `r12s`, `privacy` and `shots` consider a page loaded, whether
+or not `render.mode` is on: the `load` event fires before most apps fetch data and render.
 
 ### Locales
 

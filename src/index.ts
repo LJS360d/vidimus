@@ -29,6 +29,7 @@ export type {
   NavigateOptions,
   Pattern,
   Range,
+  RenderMode,
   RouteDiscovery,
   UserConfig,
   VidimusConfig,
@@ -37,6 +38,7 @@ export type {
 export { MissingPeerError, UsageError } from './core/errors.ts';
 export type { AcceptedFinding, BaselineFile } from './core/findings.ts';
 export type { Browser, LaunchOptions, Page } from './core/peer-types.ts';
+export type { RenderedPage, RenderedRequest } from './core/render.ts';
 export { auditRegistry, type RunOptions, run, runAudits, selectAudits } from './core/run.ts';
 export type {
   Audit,
@@ -47,6 +49,7 @@ export type {
   AuditStatus,
   Finding,
   PageQuery,
+  PageSource,
   RunReport,
   Severity,
 } from './core/types.ts';

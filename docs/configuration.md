@@ -132,8 +132,10 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `routes.paths` | `[]` | extra page paths to audit, relative to the `siteUrl` base path |
 | `routes.discover` | `'off'` | `'sitemap'` or `'crawl'`: find more pages, for client-rendered apps |
 | `routes.limit` | `200` | most new routes `'crawl'` adds |
-| `routes.waitFor` | `'load'` | when a crawled page is ready: `'load'`, `'networkidle'`, milliseconds or a CSS selector |
-| `routes.timeout` | `30000` | milliseconds per crawled page |
+| `render.mode` | `'off'` | `'on'` or `'auto'`: `dist` audits read the DOM a browser renders, see [How it works](./how-it-works#client-rendered-sites) |
+| `render.waitFor` | `'load'` | when an opened page is ready: `'load'`, `'networkidle'`, milliseconds after load or a CSS selector |
+| `render.timeout` | `30000` | milliseconds per rendered or crawled page |
+| `render.concurrency` | half the cores, 2 to 8 | browser tabs rendering at once |
 | `audits` | `['i18n', 'csp', 'a11y', 'links', 'r12s']` | what `npx vidimus` runs |
 | `severity` | `{}` | per audit `error`, `warn` or `off` |
 | `strict` | `false` | fail on warnings too |

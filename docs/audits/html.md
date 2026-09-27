@@ -16,6 +16,9 @@ reader output and hydration mismatches start. It is not in the default set.
   `"html-validate" is not installed. Add it as a dev dependency: npm i -D html-validate`.
 - The build (`dist/`). No server or browser is started.
 
+With [`render.mode`](../how-it-works#client-rendered-sites) on, it checks the DOM a browser
+renders instead of the shipped HTML file.
+
 ## Run it
 
 ```sh

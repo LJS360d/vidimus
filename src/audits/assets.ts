@@ -55,9 +55,9 @@ export const assets: Audit = {
   name: 'assets',
   description: 'favicon, web manifest, Open Graph image and 404 page',
   requires: 'dist',
-  async run({ config, builtPages, dist }) {
+  async run({ config, renderedPages, dist }) {
     const options = config.assets;
-    const pages = builtPages(config.exclude).filter(
+    const pages = (await renderedPages(config.exclude)).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built pages' };

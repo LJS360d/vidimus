@@ -55,10 +55,10 @@ export const seo: Audit = {
   description:
     'titles, descriptions, canonical, hreflang, noindex, sitemap, robots.txt and orphan pages',
   requires: 'dist',
-  async run({ config, builtPages, dist }) {
+  async run({ config, renderedPages, dist }) {
     const options = config.seo;
     const siteOrigin = originOf(config.siteUrl);
-    const built = builtPages(config.exclude);
+    const built = await renderedPages(config.exclude);
     const pages = built.filter((page) => !matchesAny(options.exclude, page.path));
     if (!pages.length) return { status: 'skipped', summary: 'no pages to check' };
 

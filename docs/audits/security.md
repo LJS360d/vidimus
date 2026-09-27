@@ -15,6 +15,9 @@ without `integrity` is one careless edit away. It is not in the default set.
 Nothing to install. It reads the build (`dist/`) and starts no server. The header checks need
 a source of headers, see below; the HTML checks always run.
 
+The HTML checks always read the shipped files, also with
+[`render.mode`](../how-it-works#client-rendered-sites) on: they are about what the server sends.
+
 ## Run it
 
 ```sh

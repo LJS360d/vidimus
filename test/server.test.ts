@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { type StaticServer, serve } from '../src/core/server.ts';
+import { RENDERED_HEADER, type StaticServer, serve } from '../src/core/server.ts';
 import { fixture } from './helpers.ts';
 
 const PORT = 4399;
@@ -71,6 +71,29 @@ describe('static server', () => {
 
   it('serves wasm as application/wasm', async () => {
     assert.equal((await get('/app.wasm')).headers['content-type'], 'application/wasm');
+  });
+});
+
+describe('static server rendered snapshots', () => {
+  const root = fixture({ 'dist/index.html': 'shell' });
+  let server: StaticServer;
+
+  before(async () => {
+    server = await serve(
+      join(root, 'dist'),
+      0,
+      { gzip: false, headers: [], fallback: '', fallbackStatus: 200 },
+      '',
+      (pathname) => (pathname === '/' ? 'rendered' : undefined),
+    );
+  });
+
+  after(() => server.close());
+
+  it('answers tagged requests with the snapshot and others with the file', async () => {
+    assert.equal((await get('/', { [RENDERED_HEADER]: '1' }, server.port)).body, 'rendered');
+    assert.equal((await get('/', {}, server.port)).body, 'shell');
+    assert.equal((await get('/other', { [RENDERED_HEADER]: '1' }, server.port)).status, 404);
   });
 });
 

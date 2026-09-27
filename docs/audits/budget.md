@@ -41,7 +41,11 @@ references it.
 | `page` | all of the above | sum of the sizes above |
 
 Not counted: fonts, CSS background images, `<video>`/`<audio>` sources, and anything a script
-or stylesheet loads. Every candidate in a `srcset` counts toward the page total, not only the
+or stylesheet loads, unless [`render.mode`](../how-it-works#client-rendered-sites) is on. With
+rendering, `html` is still the shipped file, and the other kinds are the build files the browser
+requested while rendering: stylesheets, scripts (lazy chunks included) and images by request
+type, while fonts, media and `fetch` requests (models, data) count toward `page` only. Every
+candidate in a `srcset` counts toward the page total, not only the
 one a browser would pick, so pages with many responsive variants read heavier than a real visit.
 
 ### Checks

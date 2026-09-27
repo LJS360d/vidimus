@@ -13,12 +13,12 @@ export const csp: Audit = {
   name: 'csp',
   description: 'every inline <script> and <style> is allowed by a hash in the meta CSP',
   requires: 'dist',
-  async run({ config, builtPages }) {
+  async run({ config, renderedPages }) {
     const findings: Finding[] = [];
     let checked = 0;
     let pages = 0;
 
-    for (const { file, html } of builtPages([...config.exclude, ...config.csp.exclude])) {
+    for (const { file, html } of await renderedPages([...config.exclude, ...config.csp.exclude])) {
       const policy = html.match(META_CSP)?.[3];
       if (!policy) continue;
       pages += 1;

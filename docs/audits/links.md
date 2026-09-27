@@ -75,6 +75,8 @@ Internal targets are shown on the audit origin (`http://localhost:4322/…`), si
 | `links.timeout` | `20000` | ms per request |
 | `links.retry` | `true` | retry `429` responses (after their `retry-after`), `5xx` responses and failed requests |
 | `links.concurrency` | `25` | requests in flight at the same time |
+| `links.notFound.selector` | `''` | with rendering: a CSS selector of the app's not-found view |
+| `links.notFound.text` | `''` | with rendering: a regular expression matched against the page text of the not-found view |
 | `siteUrl` | `''` | top level: your production origin, so absolute self-links are checked against the build |
 
 `links` has no `exclude` of its own. `links.skip` removes targets; to stop pages being used as start points, use the top-level `exclude`, which matches built file paths.
@@ -99,6 +101,34 @@ To check only the site itself, for example on a pull request where external flak
 
 ```sh
 npx vidimus links --set links.checkExternal=false
+```
+
+## Client-rendered links
+
+linkinator reads HTML without running scripts, so on a client-rendered app it finds the shell's
+`<script>` and `<link>` tags and nothing else. With
+[`render.mode`](../how-it-works#client-rendered-sites) on, every audited page is rendered first
+and the built-in server hands linkinator the rendered DOM of those pages, so nav and in-content
+links, images and iframes added by scripts are checked, and findings list the page they are on.
+With `--origin` there is no built-in server and the served HTML is read as usual.
+
+An internal route the app does not know still answers `200` through `server.fallback` and shows
+the app's not-found view. Set `links.notFound` to tell that view apart: every internal link
+without a file in the build, and every hash route (`#/path`), is opened in the browser and
+reported when the selector matches or the text appears.
+
+```ts
+export default defineConfig({
+  server: { fallback: 'index.html' },
+  render: { mode: 'on', waitFor: '#root > *' },
+  links: { notFound: { selector: '[data-page="not-found"]' } },
+});
+```
+
+```
+✖ not-found view /docs/old-page
+    on: / /docs/
+    → Fix or remove the link on the pages listed, or add the route to the app router.
 ```
 
 ## Tips

@@ -1,6 +1,6 @@
 import type { Page } from '../core/peer-types.ts';
 import type { Audit, Finding } from '../core/types.ts';
-import { inParallelTabs, pathOf, viewport } from '../core/util.ts';
+import { inParallelTabs, navigate, pathOf, viewport } from '../core/util.ts';
 
 interface LayoutDefect {
   rule: string;
@@ -155,7 +155,7 @@ export const r12s: Audit = {
         await page.setViewport(viewport(width));
         let defects: LayoutDefect[];
         try {
-          await page.goto(url, { waitUntil: 'load', timeout });
+          await navigate(page, url, { waitFor: config.render.waitFor, timeout });
           defects = await measureAfterFontsAndRedirects(page, minTarget, minFont);
         } catch (error) {
           const path = pathOf(url, origin);

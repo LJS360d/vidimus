@@ -15,6 +15,7 @@ import type { Audit, AuditContext, Finding } from '../core/types.ts';
 import {
   displayPath,
   inParallelTabs,
+  navigate,
   onePagePerTemplate,
   pathOf,
   slug,
@@ -225,7 +226,7 @@ export const shots: Audit = {
     ) => {
       await page.setViewport(size);
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-      await page.goto(url, { waitUntil: 'load' });
+      await navigate(page, url, config.render);
       await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
       await page.screenshot({
         path: png(currentDir, name) as `${string}.png`,
@@ -235,7 +236,7 @@ export const shots: Audit = {
       let note = '';
       if (motion) {
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);
-        await page.reload({ waitUntil: 'load' });
+        await navigate(page, url, config.render);
         await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
         const { frames, settled } = await captureMotion(page, motion);
         if (frames.length > 1) {

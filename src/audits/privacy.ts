@@ -1,6 +1,6 @@
 import type { Pattern } from '../config/types.ts';
 import type { Audit, Finding } from '../core/types.ts';
-import { inParallel, matchesAny, onePagePerTemplate, pathOf } from '../core/util.ts';
+import { inParallel, matchesAny, navigate, onePagePerTemplate, pathOf } from '../core/util.ts';
 
 interface KnownThirdParty {
   hosts: string[];
@@ -176,7 +176,7 @@ export const privacy: Audit = {
               record(hosts, hostOf(requested), path, requested);
           });
           try {
-            await page.goto(url, { waitUntil: 'load', timeout });
+            await navigate(page, url, { waitFor: config.render.waitFor, timeout });
             await new Promise((resolve) => setTimeout(resolve, wait));
           } catch (error) {
             failed.push({

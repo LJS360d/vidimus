@@ -3,6 +3,9 @@ import type { PageReader } from './html.ts';
 import type { PageQuery } from './types.ts';
 import { matchesAny, pathOf } from './util.ts';
 
+export const pageUrlOf = (origin: string, rel: string) =>
+  `${origin}/${rel.replace(/(^|\/)index\.html$/, '$1')}`;
+
 export const createPageUrls = (
   config: VidimusConfig,
   dist: string,
@@ -13,7 +16,7 @@ export const createPageUrls = (
   const translatedLocales = config.locales.filter((locale) => locale !== config.defaultLocale);
   const isTranslation = (page: string) =>
     translatedLocales.some((locale) => page.startsWith(`${locale}/`));
-  const toUrl = (page: string) => `${origin}/${page.replace(/(^|\/)index\.html$/, '$1')}`;
+  const toUrl = (page: string) => pageUrlOf(origin, page);
 
   let builtPages: string[] | undefined;
   const findBuiltPages = () => {

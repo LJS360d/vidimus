@@ -1,6 +1,7 @@
 import type { Pattern, VidimusConfig } from '../config/types.ts';
 import type { BuiltPage } from './html.ts';
 import type { Browser, LaunchOptions } from './peer-types.ts';
+import type { RenderedPage, RenderedRequest } from './render.ts';
 
 export type AuditRequirement = 'source' | 'dist' | 'server';
 
@@ -26,6 +27,10 @@ export interface PageQuery {
   allLocales?: boolean;
 }
 
+export interface PageSource extends BuiltPage {
+  requests?: RenderedRequest[];
+}
+
 export interface AuditContext {
   config: VidimusConfig;
   root: string;
@@ -34,6 +39,8 @@ export interface AuditContext {
   resolve: (...segments: string[]) => string;
   pageUrls: (query?: PageQuery) => string[];
   builtPages: (exclude?: Pattern[]) => BuiltPage[];
+  renderedPages: (exclude?: Pattern[]) => Promise<PageSource[]>;
+  renderPage?: (url: string) => Promise<RenderedPage>;
   log: (line?: string) => void;
   importPeer: <T>(name: string) => Promise<T>;
   launchBrowser: (options?: LaunchOptions) => Promise<Browser>;
