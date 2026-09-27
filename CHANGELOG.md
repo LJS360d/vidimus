@@ -1,5 +1,17 @@
 # vidimus
 
+## 0.8.0
+
+### Minor Changes
+
+- d0891a6: Iframes and embeds across audits. `csp` reports iframes whose URL the page's `frame-src` (meta CSP or `server.headers`) does not allow, warns about third-party iframes without `sandbox` (`csp.sandbox`), and checks inline blocks inside `<iframe srcdoc>`. `privacy` reports hosts loaded into an iframe as `third-party embed from <host>`, including requests made inside cross-origin frames, with a click-to-load facade as the fix. `html` validates `<iframe srcdoc>` markup.
+- 79f5a99: Per-path options for sites that mix static and client-rendered sections: `server.fallback` also takes `{ match, file }` rules, so several apps under one origin each answer their own routes; `render.include` renders only the pages whose path matches; and `lighthouse.overrides` sets other thresholds for the pages whose path matches, later rules winning.
+
+### Patch Changes
+
+- d0891a6: `r12s` now detects horizontal overflow at mobile widths: under mobile emulation the check measured a viewport that grew with the content, so overflow below 768px was never reported. Overflow findings no longer list elements clipped by a scrolling box or off the start edge of the page, and suggest `aspect-ratio` sizing when an iframe or video causes it.
+- 79f5a99: Steadier screenshots and small fixes found on the docs showcase: `shots` masks through inline styles, which a strict CSP does not block; waits for lazy images to load and decodes them before painting; waits for stylesheets added after load; grows the viewport to the page height itself, waiting again for `<picture>` sources and for late content that changes the height; and loads video metadata so the controls look the same on every run. `r12s` no longer counts screen-reader-only elements (clipped with `clip` or `clip-path`) as tap targets. The built-in server sends `.vtt` captions as `text/vtt`.
+
 ## 0.7.0
 
 ### Minor Changes
