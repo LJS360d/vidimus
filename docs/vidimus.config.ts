@@ -53,6 +53,8 @@ export default defineConfig({
       message: '^element-permitted-content: <div> element is not permitted as content under <pre>$',
       where: '^/mdbook/',
     },
+    // A docs site is not meant to be installed.
+    { audit: 'assets', message: '^no <link rel="manifest"> on any page$' },
     // The showcase embeds an OpenStreetMap iframe without a facade on purpose, to show the finding.
     {
       audit: 'privacy',

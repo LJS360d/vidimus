@@ -133,6 +133,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     unsafeInline: true,
     mixedContent: true,
     sri: true,
+    securityTxt: true,
   },
   privacy: {
     allow: [],
@@ -166,5 +167,9 @@ export const defaults = (cwd: string): VidimusConfig => ({
     openGraph: true,
     ogImage: { width: 1200, height: 630 },
     notFound: true,
+    adsTxt: 'auto',
+    changePassword: 'auto',
+    appleAppSiteAssociation: 'auto',
+    assetLinks: 'auto',
   },
 });

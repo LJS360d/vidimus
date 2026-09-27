@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { headersFor, parseHeadersFile } from '../src/audits/security.ts';
+import { headersFor, parseHeadersFile, securityTxtFields } from '../src/audits/security.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -17,8 +17,20 @@ const GOOD_HEADERS = `# security headers
 
 const page = (body = '<p>hi</p>') => `<!doctype html><title>t</title>${body}`;
 
-const audit = async (files: Record<string, string>, overrides = {}) => {
-  const cwd = fixture(files);
+const DAY = 24 * 60 * 60 * 1000;
+const inDays = (days: number) => new Date(Date.now() + days * DAY).toISOString();
+const securityTxt = (expires = inDays(180)) =>
+  `Contact: mailto:security@example.com\nExpires: ${expires}\n`;
+const WELL_KNOWN = 'dist/.well-known/security.txt';
+
+const audit = async (files: Record<string, string | undefined>, overrides = {}) => {
+  const cwd = fixture(
+    Object.fromEntries(
+      Object.entries({ [WELL_KNOWN]: securityTxt(), ...files }).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+  );
   const { results } = await run({ cwd, env: {}, audits: ['security'], reporters: [], overrides });
   const result = results[0];
   assert.ok(result);
@@ -210,6 +222,90 @@ describe('security audit', () => {
   it('is skipped when there are no pages', async () => {
     const result = await audit({ 'dist/app.js': '' });
     assert.equal(result.status, 'skipped');
+  });
+});
+
+describe('security.txt', () => {
+  const txt = async (files: Record<string, string | undefined>, config = {}) =>
+    audit({
+      'dist/index.html': page(),
+      'dist/_headers': GOOD_HEADERS,
+      'vidimus.config.json': JSON.stringify(config),
+      ...files,
+    });
+  const findings = (result: { findings: { message: string; severity?: string }[] }) =>
+    result.findings.map(({ message, severity }) => `${severity ?? 'error'}: ${message}`);
+
+  it('parses fields, repeated ones and PGP-signed files', () => {
+    const fields = securityTxtFields(`-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+# comment
+Contact: mailto:a@example.com
+contact: https://example.com/security
+Expires: 2030-01-01T00:00:00Z
+-----BEGIN PGP SIGNATURE-----
+Version: x
+`);
+    assert.deepEqual(fields.get('contact'), [
+      'mailto:a@example.com',
+      'https://example.com/security',
+    ]);
+    assert.deepEqual(fields.get('expires'), ['2030-01-01T00:00:00Z']);
+    assert.equal(fields.get('version'), undefined);
+  });
+
+  it('warns when there is none', async () => {
+    const result = await txt({ [WELL_KNOWN]: undefined });
+    assert.equal(result.status, 'warned');
+    assert.deepEqual(findings(result), ['warn: no /.well-known/security.txt']);
+    assert.match(result.findings[0]?.fix ?? '', /securityTxt/);
+  });
+
+  it('warns about a security.txt in the root only', async () => {
+    const result = await txt({ [WELL_KNOWN]: undefined, 'dist/security.txt': securityTxt() });
+    assert.deepEqual(findings(result), ['warn: security.txt is not under /.well-known/']);
+  });
+
+  it('requires Contact and Expires', async () => {
+    const result = await txt({ [WELL_KNOWN]: 'Preferred-Languages: en\n' });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(findings(result), [
+      'error: security.txt has no Contact field',
+      'error: security.txt has no Expires field',
+    ]);
+  });
+
+  it('checks Contact URIs', async () => {
+    const result = await txt({
+      [WELL_KNOWN]: `Contact: security@example.com\nContact: http://example.com/sec\nContact: tel:+1-201-555-0123\nExpires: ${inDays(30)}\n`,
+    });
+    assert.deepEqual(findings(result), [
+      'error: security.txt Contact "security@example.com" is not a mailto:, tel: or https:// URI',
+      'error: security.txt Contact "http://example.com/sec" is not a mailto:, tel: or https:// URI',
+    ]);
+  });
+
+  it('checks Expires', async () => {
+    const expired = await txt({ [WELL_KNOWN]: securityTxt('2020-01-01T00:00:00Z') });
+    assert.deepEqual(findings(expired), ['error: security.txt expired on 2020-01-01T00:00:00Z']);
+    const far = inDays(400);
+    const distant = await txt({ [WELL_KNOWN]: securityTxt(far) });
+    assert.deepEqual(findings(distant), [
+      `warn: security.txt Expires ${far} is more than a year away`,
+    ]);
+    const garbled = await txt({ [WELL_KNOWN]: securityTxt('soon') });
+    assert.deepEqual(findings(garbled), ['error: security.txt Expires "soon" is not a date']);
+    const twice = await txt({ [WELL_KNOWN]: `${securityTxt()}Expires: ${inDays(10)}\n` });
+    assert.deepEqual(findings(twice), ['error: security.txt has more than one Expires field']);
+  });
+
+  it('is skipped when turned off or when the site is under a base path', async () => {
+    const off = await txt({ [WELL_KNOWN]: undefined }, { security: { securityTxt: false } });
+    assert.deepEqual(findings(off), []);
+    const based = await txt({ [WELL_KNOWN]: undefined }, { siteUrl: 'https://example.com/docs/' });
+    assert.deepEqual(findings(based), []);
+    assert.ok(based.log.some((line) => line.includes('security.txt check skipped')));
   });
 });
 

@@ -15,10 +15,10 @@ vidimus ships thirteen audits. Five run by default; the rest you turn on in `aud
 | [`links`](./links) | broken internal links, assets and external targets | `linkinator` | yes |
 | [`r12s`](./r12s) | horizontal overflow, small tap targets, small text, missing or locked viewport meta | `puppeteer` | yes |
 | [`seo`](./seo) | lang, title, description, `noindex`, canonical, hreflang, sitemap, robots.txt, orphan pages | | |
-| [`security`](./security) | security headers, clickjacking protection, unsafe CSP, mixed content, SRI | | |
+| [`security`](./security) | security headers, clickjacking protection, unsafe CSP, mixed content, SRI, `security.txt` | | |
 | [`html`](./html) | invalid markup found by html-validate | `html-validate` | |
 | [`budget`](./budget) | HTML, CSS, JS and total page weight, image size and format, image dimensions | | |
-| [`assets`](./assets) | favicon, web manifest, Open Graph image, 404 page | | |
+| [`assets`](./assets) | favicon, web manifest, Open Graph image, 404 page; ads.txt, change-password and app links when the pages show the site needs them | | |
 | [`privacy`](./privacy) | third-party requests and cookies on page load | `puppeteer` | |
 | [`shots`](./shots) | screenshots against a recorded baseline | `puppeteer`, `sharp` (motion GIFs) | |
 | [`lighthouse`](./lighthouse) | Lighthouse category scores against thresholds | `lighthouse`, `puppeteer` | |

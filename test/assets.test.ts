@@ -100,6 +100,19 @@ describe('assets audit', () => {
     assert.deepEqual(result.findings[1]?.where, ['/']);
   });
 
+  it('warns when no page links a manifest', async () => {
+    const page = head({ manifest: '' });
+    const result = await audit(site({ 'dist/index.html': page, 'dist/about/index.html': page }));
+    assert.deepEqual(result.messages, ['warn: no <link rel="manifest"> on any page']);
+    const external = head({
+      manifest: '<link rel="manifest" href="https://cdn.example.org/m.json">',
+    });
+    const linked = await audit(
+      site({ 'dist/index.html': external, 'dist/about/index.html': page }),
+    );
+    assert.deepEqual(linked.messages, []);
+  });
+
   it('reports a missing manifest file', async () => {
     const result = await audit(site({ 'dist/app/site.webmanifest': undefined }));
     assert.deepEqual(result.messages, ['error: manifest /app/site.webmanifest not found']);

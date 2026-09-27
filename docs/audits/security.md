@@ -1,6 +1,6 @@
 ---
 title: security
-description: How the security audit checks response headers, clickjacking protection, unsafe CSP, mixed content and subresource integrity.
+description: How the security audit checks response headers, clickjacking protection, unsafe CSP, mixed content, subresource integrity and security.txt.
 ---
 
 # security: headers and safe loading
@@ -132,6 +132,26 @@ The other header checks:
   another origin (not `siteUrl`) without an `integrity` attribute is a warning,
   `cross-origin <script> without integrity: https://…`. Protocol-relative `//cdn…` URLs count.
 
+### security.txt (`security.securityTxt`)
+
+[RFC 9116](https://www.rfc-editor.org/rfc/rfc9116) asks every site to publish
+`/.well-known/security.txt` so researchers know where to report a vulnerability. vidimus reads
+it from the build:
+
+- Without `.well-known/security.txt` or a root `security.txt`: `no /.well-known/security.txt`
+  (warning).
+- Only a root `security.txt`: `security.txt is not under /.well-known/` (warning). The root
+  location is a legacy fallback.
+- No `Contact` field, or one that is not a URI (`security@example.com` without `mailto:`, or an
+  `http://` URL): error.
+- No `Expires` field, more than one, one that is not a date, or one in the past
+  (`security.txt expired on …`): error. An `Expires` more than a year away is a warning, since
+  the RFC recommends reviewing the file at least yearly.
+
+A PGP-signed file is read as is; the signature block is ignored. When `siteUrl` has a path
+(`https://example.github.io/project/`), the check is skipped with a log line: the file belongs
+at the origin root, which the build does not own.
+
 ## Example output
 
 ```
@@ -168,6 +188,7 @@ With `--origin`, the fixes say "your host's header config" instead of `/* in _he
 | `security.unsafeInline` | `true` | warn on `'unsafe-inline'` without hashes or nonces, and on `'unsafe-eval'` |
 | `security.mixedContent` | `true` | fail on resources loaded over `http://` |
 | `security.sri` | `true` | warn on cross-origin scripts and stylesheets without `integrity` |
+| `security.securityTxt` | `true` | check `/.well-known/security.txt`; warn when it is missing |
 | `security.exclude` | `[]` | URL path patterns to skip |
 
 Top-level keys used: `origin`, `siteUrl`, `exclude`. Objects merge deeply, so adding a key to
@@ -228,3 +249,13 @@ release. Generate it with
 For a live server, remove `X-Powered-By` in the framework (`app.disable('x-powered-by')` in
 Express) and hide the version with `server_tokens off;` in nginx or `ServerTokens Prod` in
 Apache. See [CI](../ci) for auditing a preview deployment with `--origin`.
+
+A `security.txt` that passes, in `public/.well-known/security.txt` (renew `Expires` before it
+lapses):
+
+```text
+Contact: mailto:security@example.com
+Expires: 2027-06-30T00:00:00Z
+Preferred-Languages: en
+Canonical: https://example.com/.well-known/security.txt
+```

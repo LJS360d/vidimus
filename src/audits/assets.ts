@@ -12,6 +12,7 @@ import {
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
 import { imageSizeOf as measure } from './image-size.ts';
+import { siteFileFindings } from './site-files.ts';
 
 interface Group {
   finding: Finding;
@@ -53,9 +54,10 @@ const readJson = (file: string) => {
 
 export const assets: Audit = {
   name: 'assets',
-  description: 'favicon, web manifest, Open Graph image and 404 page',
+  description:
+    'favicon, web manifest, Open Graph image, 404 page, and ads.txt, change-password and app links when the site needs them',
   requires: 'dist',
-  async run({ config, renderedPages, dist }) {
+  async run({ config, renderedPages, dist, log }) {
     const options = config.assets;
     const pages = (await renderedPages(config.exclude)).filter(
       (page) => !matchesAny(options.exclude, page.path),
@@ -107,12 +109,21 @@ export const assets: Audit = {
 
     if (options.manifest) {
       const manifests = new Map<string, Set<string>>();
+      let linked = false;
       for (const page of pages) {
         for (const { attrs } of linksWithRel(page.html, 'manifest')) {
+          linked = true;
           const resolved = resolveHref(attrs.href ?? '', page.path, config.siteUrl);
           if (!resolved?.path) continue;
           manifests.set(resolved.path, (manifests.get(resolved.path) ?? new Set()).add(page.path));
         }
+      }
+      if (!linked) {
+        report({
+          message: 'no <link rel="manifest"> on any page',
+          severity: 'warn',
+          fix: 'Add a site.webmanifest with name and icons to the build and <link rel="manifest" href="/site.webmanifest"> to every page, or set assets.manifest to false.',
+        });
       }
       for (const [path, linkedFrom] of manifests) {
         const problem = (message: string, fix: string, file?: string, severity?: 'warn') => {
@@ -261,6 +272,11 @@ export const assets: Audit = {
         severity: 'warn',
         fix: 'Add a 404.html to the build (most hosts serve it for missing pages).',
       });
+    }
+
+    for (const { finding, where } of siteFileFindings(pages, dist, config.siteUrl, options, log)) {
+      if (!where.length) report(finding);
+      for (const path of where) report(finding, path);
     }
 
     const findings = [...groups.values()].map(({ finding, where }) => ({

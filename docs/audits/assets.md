@@ -1,6 +1,6 @@
 ---
 title: assets
-description: How the assets audit checks favicons, the web app manifest, Open Graph and Twitter card tags, and the 404 page.
+description: How the assets audit checks favicons, the web app manifest, Open Graph and Twitter card tags, the 404 page, and the ads.txt, change-password and app association files a site needs.
 ---
 
 # assets: icons, manifest, social cards, 404
@@ -43,8 +43,9 @@ the 404 page. Each check can be turned off on its own.
 
 ### Web app manifest (`assets.manifest`)
 
-A manifest is optional; these checks run for each one a page links with `<link rel="manifest">`,
-and each finding lists the pages that link it.
+If no page links a manifest: `no <link rel="manifest"> on any page` (warning). Browsers need one
+to install the site and to pick its name, icons and theme color. The checks below run for each
+manifest a page links with `<link rel="manifest">`, and each finding lists the pages that link it.
 
 - The file exists (`manifest /site.webmanifest not found`) and parses as a JSON object
   (`manifest /site.webmanifest is not valid JSON`).
@@ -75,6 +76,40 @@ be shared.
 
 Without `404.html` or `404/index.html` in the build: `no 404 page (404.html or 404/index.html)`
 (warning). Most static hosts serve that file for missing URLs.
+
+### Files the site turns out to need
+
+Some root files only matter for some sites: `ads.txt` for sites that show ads, a
+change-password URL for sites with accounts, app association files for sites with an app.
+vidimus looks for signs in the pages and checks the file only when a sign is there, so you
+don't need to know the file exists to be told you need it. Each option takes `'auto'`
+(default: check when a sign is found), `'on'` (always check) or `'off'`. A missing file is a
+warning listing the pages that gave the sign away; an invalid one is an error.
+
+| Option | Sign in the pages | File |
+| --- | --- | --- |
+| `assets.adsTxt` | a publisher ad tag: AdSense, Google Publisher Tag, Amazon, Prebid, Xandr, Media.net, Ezoic, Mediavine, Raptive, Taboola, Outbrain, Criteo, PubMatic, Magnite, OpenX, Carbon | `/ads.txt` |
+| `assets.changePassword` | an `<input type="password">` or `autocomplete="current-password"`/`"new-password"` | `/.well-known/change-password` |
+| `assets.appleAppSiteAssociation` | `<meta name="apple-itunes-app">`, an `ios-app://` alternate link, or `"platform": "itunes"` in the manifest's `related_applications` | `/.well-known/apple-app-site-association` |
+| `assets.assetLinks` | `<meta name="google-play-app">`, an `android-app://` alternate link, or `"platform": "play"` in `related_applications` | `/.well-known/assetlinks.json` |
+
+- **ads.txt**: every record must read `<domain>, <account id>, DIRECT|RESELLER[, <cert id>]`
+  (`ads.txt has malformed lines`, with the line numbers), and there must be at least one. An
+  AdSense `ca-pub-…` ID found in a page must have its `google.com, pub-…` line:
+  `ads.txt does not list AdSense publisher pub-…`. Advertiser pixels such as Google Ads
+  conversion tracking don't count as ads. An `app-ads.txt` in the build is checked the same
+  way; vidimus never asks for one, since no page can tell whether your app shows ads.
+- **change-password** ([W3C](https://w3c.github.io/webappsec-change-password-url/)): lets
+  password managers send users straight to the page where they change their password. It
+  counts when the build has the path as a file or folder, or `_redirects` has a rule from it.
+  The fix suggests the first page with an `autocomplete="new-password"` field as target. A
+  redirect set up on the server instead is invisible in the build: set the option to `'off'`.
+- **apple-app-site-association**: `.well-known/` or the root, a JSON object with an
+  `applinks`, `webcredentials`, `appclips` or `activitycontinuation` section.
+- **assetlinks.json**: a non-empty JSON array of statements with `relation` and `target`.
+
+These files live at the origin root, so with a `siteUrl` path (`https://example.github.io/project/`)
+the checks are skipped with a log line.
 
 ## Example output
 
@@ -107,10 +142,14 @@ A clean run ends with `✔ assets: 12 page(s), all assets in place`.
 | Key | Default | Description |
 | --- | --- | --- |
 | `assets.favicon` | `true` | check favicon and Apple touch icon links |
-| `assets.manifest` | `true` | check linked web app manifests and their icons |
+| `assets.manifest` | `true` | warn without a manifest, check linked ones and their icons |
 | `assets.openGraph` | `true` | check `og:title`, `og:image`, `twitter:card` and `og:url` |
 | `assets.ogImage` | `{ width: 1200, height: 630 }` | warn when `og:image` is smaller than this |
 | `assets.notFound` | `true` | warn without a 404 page |
+| `assets.adsTxt` | `'auto'` | check `/ads.txt` (and an existing `/app-ads.txt`) when a page shows ads |
+| `assets.changePassword` | `'auto'` | check `/.well-known/change-password` when a page has a password field |
+| `assets.appleAppSiteAssociation` | `'auto'` | check the iOS app association file when the site points at an iOS app |
+| `assets.assetLinks` | `'auto'` | check `assetlinks.json` when the site points at an Android app |
 | `assets.exclude` | `['^/404(\\.html\|/)?$']` | URL path patterns to skip |
 
 Top-level keys used: `siteUrl`, `exclude`.

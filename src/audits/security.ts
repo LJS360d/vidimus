@@ -4,7 +4,7 @@ import { headerPolicies, metaPolicies, type Policy, parsePolicy } from '../core/
 import type { BuiltPage, Tag } from '../core/html.ts';
 import { relTokens, resolveHref, srcsetUrls, tags } from '../core/html.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
-import { escapeRegExp, inParallel, matchesAny } from '../core/util.ts';
+import { basePathOf, escapeRegExp, inParallel, matchesAny } from '../core/util.ts';
 
 export interface HeaderRule {
   pattern: string;
@@ -167,6 +167,93 @@ const UNSAFE_FIXES: Record<string, string> = {
     "Drop 'unsafe-eval' from script-src and replace the eval()/new Function() code or the library that needs it.",
 };
 
+const YEAR = 366 * 24 * 60 * 60 * 1000;
+
+const SECURITY_TXT_EXAMPLE =
+  'Contact: mailto:security@example.com and Expires: <a date less than a year away, e.g. 2027-01-01T00:00:00Z>';
+
+export const securityTxtFields = (text: string) => {
+  const fields = new Map<string, string[]>();
+  for (const raw of text.split(/\r?\n/)) {
+    if (raw.startsWith('-----BEGIN PGP SIGNATURE')) break;
+    const line = raw.trim();
+    const colon = line.indexOf(':');
+    if (!line || line.startsWith('#') || colon <= 0) continue;
+    const name = line.slice(0, colon).trim().toLowerCase();
+    fields.set(name, [...(fields.get(name) ?? []), line.slice(colon + 1).trim()]);
+  }
+  return fields;
+};
+
+const securityTxtFindings = (dist: string, now: number): Finding[] => {
+  const wellKnown = join(dist, '.well-known', 'security.txt');
+  const legacy = join(dist, 'security.txt');
+  const found = [wellKnown, legacy].find((file) => existsSync(file));
+  if (!found) {
+    return [
+      {
+        message: 'no /.well-known/security.txt',
+        severity: 'warn',
+        fix: `Add .well-known/security.txt to the folder copied to the build as is (usually public/) with ${SECURITY_TXT_EXAMPLE}, or set security.securityTxt to false.`,
+      },
+    ];
+  }
+  const findings: Finding[] = [];
+  const problem = (message: string, fix: string, severity?: Severity) =>
+    findings.push({ message, file: found, fix, ...(severity ? { severity } : {}) });
+  if (found === legacy) {
+    problem(
+      'security.txt is not under /.well-known/',
+      'Move security.txt to .well-known/security.txt; the root location is only a legacy fallback.',
+      'warn',
+    );
+  }
+  const fields = securityTxtFields(readFileSync(found, 'utf8'));
+  const contacts = fields.get('contact') ?? [];
+  if (!contacts.length) {
+    problem(
+      'security.txt has no Contact field',
+      'Add a line like "Contact: mailto:security@example.com" or "Contact: https://example.com/security".',
+    );
+  }
+  for (const contact of contacts) {
+    if (/^http:/i.test(contact) || !/^[a-z][a-z\d+.-]*:/i.test(contact)) {
+      problem(
+        `security.txt Contact "${contact}" is not a mailto:, tel: or https:// URI`,
+        'Write the contact as a URI, e.g. "mailto:security@example.com" or "https://example.com/security".',
+      );
+    }
+  }
+  const expires = fields.get('expires') ?? [];
+  const [expiry] = expires;
+  const time = expiry === undefined ? Number.NaN : Date.parse(expiry);
+  if (expiry === undefined) {
+    problem(
+      'security.txt has no Expires field',
+      `Add a line like "Expires: ${new Date(now + YEAR / 2).toISOString().slice(0, 10)}T00:00:00Z".`,
+    );
+  } else if (expires.length > 1) {
+    problem('security.txt has more than one Expires field', 'Keep a single Expires line.');
+  } else if (Number.isNaN(time)) {
+    problem(
+      `security.txt Expires "${expiry}" is not a date`,
+      'Write Expires as an ISO 8601 date and time, e.g. "Expires: 2027-01-01T00:00:00Z".',
+    );
+  } else if (time <= now) {
+    problem(
+      `security.txt expired on ${expiry}`,
+      'Review the file and move Expires to a date less than a year away.',
+    );
+  } else if (time - now > YEAR) {
+    problem(
+      `security.txt Expires ${expiry} is more than a year away`,
+      'Set Expires less than a year ahead so the file is reviewed at least yearly.',
+      'warn',
+    );
+  }
+  return findings;
+};
+
 interface ReportOptions {
   severity?: Severity;
   details?: string[];
@@ -175,7 +262,7 @@ interface ReportOptions {
 
 export const security: Audit = {
   name: 'security',
-  description: 'security headers, clickjacking, unsafe CSP, mixed content and SRI',
+  description: 'security headers, clickjacking, unsafe CSP, mixed content, SRI and security.txt',
   requires: 'dist',
   async run({ config, builtPages, dist, log }) {
     const options = config.security;
@@ -321,6 +408,13 @@ export const security: Audit = {
     }
 
     const findings = [...grouped.values()];
+    if (options.securityTxt) {
+      if (basePathOf(config.siteUrl)) {
+        log(
+          `security.txt check skipped: the site is served under ${basePathOf(config.siteUrl)}/, security.txt belongs at the origin root`,
+        );
+      } else findings.push(...securityTxtFindings(dist, Date.now()));
+    }
     return {
       summary: `${pages.length} pages, headers from ${source || 'nowhere (skipped)'}, ${
         findings.length ? `${findings.length} problem(s)` : 'no problems'

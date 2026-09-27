@@ -41,6 +41,8 @@ export type RouteDiscovery = 'off' | 'sitemap' | 'crawl';
 
 export type RenderMode = 'off' | 'auto' | 'on';
 
+export type SiteFileCheck = 'off' | 'auto' | 'on';
+
 export interface NavigateOptions {
   waitFor: string | number;
   timeout: number;
@@ -167,6 +169,7 @@ export interface VidimusConfig {
     unsafeInline: boolean;
     mixedContent: boolean;
     sri: boolean;
+    securityTxt: boolean;
   };
   privacy: {
     allow: Pattern[];
@@ -200,6 +203,10 @@ export interface VidimusConfig {
     openGraph: boolean;
     ogImage: { width: number; height: number };
     notFound: boolean;
+    adsTxt: SiteFileCheck;
+    changePassword: SiteFileCheck;
+    appleAppSiteAssociation: SiteFileCheck;
+    assetLinks: SiteFileCheck;
   };
 }
 

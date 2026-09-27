@@ -168,6 +168,11 @@ const checkOneOf = (at: string, value: string, allowed: string[]) => {
     throw new UsageError(`${at}: "${value}" is not one of ${allowed.join(', ')}`);
 };
 
+const checkAssets = ({ assets }: VidimusConfig) => {
+  for (const key of ['adsTxt', 'changePassword', 'appleAppSiteAssociation', 'assetLinks'] as const)
+    checkOneOf(`assets.${key}`, assets[key], ['off', 'auto', 'on']);
+};
+
 const checkRoutes = ({ routes, render, links }: VidimusConfig) => {
   checkOneOf('routes.discover', routes.discover, ['off', 'sitemap', 'crawl']);
   checkOneOf('render.mode', render.mode, ['off', 'auto', 'on']);
@@ -217,6 +222,7 @@ export const loadConfig = async ({
   checkIgnoreRules(config.ignore);
   checkPatterns(config);
   checkRoutes(config);
+  checkAssets(config);
 
   return { config, source };
 };
