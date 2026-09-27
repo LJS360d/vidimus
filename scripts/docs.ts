@@ -464,27 +464,46 @@ const showcaseAssets = async (all: Page[]) => {
     'media/clip-poster.webp',
   ])
     copyFileSync(join(docs, 'showcase', file), join(showcaseDir, posix.basename(file)));
-  const card = join(docs, 'public', 'og.png');
-  await Promise.all(
-    [480, 960].flatMap((width) => [
-      sharp(card)
-        .resize(width)
-        .avif({ quality: 50 })
-        .toFile(join(showcaseDir, `card-${width}.avif`)),
-      sharp(card)
-        .resize(width)
-        .webp({ quality: 70 })
-        .toFile(join(showcaseDir, `card-${width}.webp`)),
-      sharp(card)
-        .resize(width)
-        .png({ palette: true })
-        .toFile(join(showcaseDir, `card-${width}.png`)),
-    ]),
-  );
-  await sharp(card)
-    .resize(960, 540, { fit: 'cover' })
-    .webp({ quality: 70 })
-    .toFile(join(showcaseDir, 'facade.webp'));
+  const media = (file: string) => join(docs, 'showcase', 'media', file);
+  // Every image in AVIF, WebP and JPEG at each width; `crop` is the art-directed narrow version.
+  const variants = (
+    name: string,
+    source: string,
+    widths: number[],
+    crop?: { left: number; top: number; width: number; height: number },
+  ) =>
+    widths.flatMap((width) => {
+      const image = () => (crop ? sharp(source).extract(crop) : sharp(source)).resize(width);
+      return [
+        image()
+          .avif({ quality: 50 })
+          .toFile(join(showcaseDir, `${name}-${width}.avif`)),
+        image()
+          .webp({ quality: 70 })
+          .toFile(join(showcaseDir, `${name}-${width}.webp`)),
+        image()
+          .jpeg({ quality: 75, mozjpeg: true })
+          .toFile(join(showcaseDir, `${name}-${width}.jpg`)),
+      ];
+    });
+  await Promise.all([
+    ...variants('owl', media('owl.jpg'), [480, 960]),
+    ...variants('tiger', media('tiger.jpg'), [640, 1024]),
+    ...variants('tiger-crop', media('tiger.jpg'), [480], {
+      left: 180,
+      top: 520,
+      width: 740,
+      height: 740,
+    }),
+    sharp(media('zoo.jpg'))
+      .resize(480, 270, { fit: 'cover' })
+      .webp({ quality: 80 })
+      .toFile(join(showcaseDir, 'zoo.webp')),
+    sharp(join(docs, 'public', 'og.png'))
+      .resize(960, 540, { fit: 'cover' })
+      .webp({ quality: 70 })
+      .toFile(join(showcaseDir, 'facade.webp')),
+  ]);
 };
 
 const sync = () => {

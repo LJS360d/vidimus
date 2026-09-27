@@ -65,3 +65,152 @@
 .showcase-scene.is-live img {
   display: none;
 }
+
+.showcase-scene {
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.showcase-scene:active {
+  cursor: grabbing;
+}
+
+.showcase-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+@media (min-width: 640px) {
+  .showcase-stats {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.showcase-stats div {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #cbd5e1;
+}
+
+.showcase-stats dt {
+  font-size: max(12px, 0.875em);
+}
+
+.showcase-stats dd {
+  margin: 0;
+  font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.showcase-live {
+  margin: 1rem 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.showcase-live-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #1e293b;
+}
+
+.showcase-live-bar button {
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: #4ade80;
+  color: #052e16;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.showcase-live-bar button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.showcase-live-bar button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+.showcase-live pre {
+  margin: 0;
+  padding: 1rem;
+  max-height: 28rem;
+  overflow: auto;
+  background: transparent;
+  color: inherit;
+  font-size: max(12px, 0.8125em);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.showcase-live .t-ok {
+  color: #4ade80;
+}
+
+.showcase-live .t-warn {
+  color: #facc15;
+}
+
+.showcase-live .t-fail {
+  color: #f87171;
+}
+
+.showcase-live .t-dim {
+  color: #94a3b8;
+}
+
+.showcase-live .t-bold {
+  font-weight: 700;
+}
+
+.showcase-live .t-cmd {
+  color: #22d3ee;
+}
+
+.showcase-status.is-passed::before {
+  content: "✔ ";
+  color: #16a34a;
+}
+
+.showcase-status.is-warned::before {
+  content: "⚠ ";
+  color: #ca8a04;
+}
+
+.showcase-status.is-failed::before {
+  content: "✖ ";
+  color: #dc2626;
+}
+
+.showcase-gallery {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.showcase-gallery figure {
+  margin: 0;
+}
+
+.showcase-gallery .showcase-picture img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
