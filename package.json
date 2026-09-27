@@ -1,6 +1,6 @@
 {
   "name": "vidimus",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Pre-publication checks for public static websites: accessibility, links, responsiveness, SEO, security headers, privacy, HTML validity, page weight, CSP, i18n, visual regression and Lighthouse.",
   "type": "module",
   "license": "MIT",

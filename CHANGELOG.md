@@ -1,5 +1,12 @@
 # vidimus
 
+## 0.6.0
+
+### Minor Changes
+
+- a0adeda: New `render` option for client-rendered sites. With `render.mode: 'on'`, or `'auto'` for a one-page build with a large script, `seo`, `html`, `csp` and `assets` read the DOM a browser renders instead of the shipped shell, `budget` measures the build files the browser requested (lazy chunks, fonts, models), and `links` checks the links in the rendered DOM. `links.notFound` reports internal links and hash routes that render the app's not-found view. `render.waitFor` (`'load'`, `'networkidle'`, milliseconds or a CSS selector) also sets when `r12s`, `privacy`, `shots` and the route crawl consider a page loaded.
+- 6c731df: New `routes` option for client-rendered apps: the server audits (`a11y`, `links`, `r12s`, `privacy`, `shots`, `lighthouse`) also open `routes.paths`, the URLs of the build's sitemap (`routes.discover: 'sitemap'`), or the same-origin links found by crawling the rendered pages (`routes.discover: 'crawl'`, up to `routes.limit` new routes). Routes without a file need `server.fallback`, and the run stops with a usage error otherwise. When no routes are set and the build has one HTML page next to a large script, the pretty reporter prints a note suggesting them.
+
 ## 0.5.0
 
 ### Minor Changes
