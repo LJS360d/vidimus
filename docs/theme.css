@@ -91,6 +91,12 @@ pre {
   font-size: 0.875rem;
 }
 
+p code,
+li code,
+td code {
+  overflow-wrap: anywhere;
+}
+
 pre code {
   padding: 0;
   background: none;

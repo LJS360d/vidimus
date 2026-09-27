@@ -30,9 +30,14 @@ const KNOWN_THIRD_PARTIES: KnownThirdParty[] = [
     fix: 'Load the Meta pixel only after consent, and replace Facebook widgets with plain links.',
   },
   {
+    hosts: ['youtube-nocookie.com'],
+    label: 'YouTube (no-cookie): the player still loads YouTube scripts on page load',
+    fix: 'Keep youtube-nocookie.com, and put the player behind a click-to-load facade (e.g. lite-youtube-embed) so nothing loads before a click.',
+  },
+  {
     hosts: ['youtube.com', 'ytimg.com', 'googlevideo.com'],
     label: 'YouTube: embed from youtube-nocookie.com behind a click-to-load placeholder',
-    fix: 'Use youtube-nocookie.com behind a click-to-load facade.',
+    fix: 'Use youtube-nocookie.com behind a click-to-load facade (e.g. lite-youtube-embed).',
   },
   {
     hosts: ['vimeo.com', 'vimeocdn.com'],
@@ -88,6 +93,9 @@ const KNOWN_THIRD_PARTIES: KnownThirdParty[] = [
 
 const UNKNOWN_HOST_FIX =
   'Self-host the resource, load it only after consent, or add a pattern to privacy.allow if it is covered by your privacy policy.';
+
+const EMBED_FIX =
+  'Put the embed behind a click-to-load facade (a static preview that loads the iframe on click), or load it only after consent.';
 
 const FIRST_PARTY_COOKIE_FIX =
   'Set it only after consent, or add it to your cookie notice if it is strictly necessary.';
@@ -160,6 +168,7 @@ export const privacy: Audit = {
     );
     const firstParty = firstPartyHostsOf(origin, config.siteUrl);
     const hosts = new Map<string, Seen>();
+    const embeds = new Set<string>();
     const cookieJar = new Map<string, { where: Set<string>; firstParty: boolean }>();
     const failed: Finding[] = [];
     const browser = await launchBrowser();
@@ -172,8 +181,10 @@ export const privacy: Audit = {
           const page = await context.newPage();
           page.on('request', (request) => {
             const requested = request.url();
-            if (classifyRequest(requested, firstParty, allow) === 'third-party')
-              record(hosts, hostOf(requested), path, requested);
+            if (classifyRequest(requested, firstParty, allow) !== 'third-party') return;
+            record(hosts, hostOf(requested), path, requested);
+            if (request.isNavigationRequest() && request.frame() !== page.mainFrame())
+              embeds.add(hostOf(requested));
           });
           try {
             await navigate(page, url, { waitFor: config.render.waitFor, timeout });
@@ -209,11 +220,16 @@ export const privacy: Audit = {
     const findings: Finding[] = [
       ...sorted(hosts).map(([host, { where, examples }]) => {
         const label = knownService(host);
+        const embedded = embeds.has(host);
         return {
-          message: `third-party request to ${host}`,
-          details: [...(label ? [label] : []), ...examples],
+          message: `third-party ${embedded ? 'embed' : 'request'} ${embedded ? 'from' : 'to'} ${host}`,
+          details: [
+            ...(embedded ? ['loaded in an <iframe> on page load'] : []),
+            ...(label ? [label] : []),
+            ...examples,
+          ],
           where: [...where].sort(),
-          fix: requestFix(host),
+          fix: embedded && !knownEntry(host) ? EMBED_FIX : requestFix(host),
         };
       }),
       ...sorted(cookieJar).map(([key, { where, firstParty }]) => ({

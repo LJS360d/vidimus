@@ -45,6 +45,11 @@ with the configured rules. With no pages left the audit is skipped (`no built HT
   `no-raw-characters`, `wcag/h37`); the rest point at the rule's documentation. Every fix ends
   with how to turn the rule off.
 
+The markup in an `<iframe srcdoc="…">` is validated as its own document, usually a fragment,
+and its example locations read `/path/ <iframe srcdoc>:line:column`. An `<iframe>` without
+`title` fails `element-required-attributes`, and invalid `sandbox` or `allow` values fail
+`attribute-allowed-values`.
+
 ### Configuration sources
 
 1. `html.extends`, `['html-validate:standard']` by default.

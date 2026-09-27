@@ -38,7 +38,18 @@ Blocks that are not checked:
 
 Everything else is checked, including `type="module"` and import maps. The audit does not check which directive a hash is in: a hash anywhere in the policy counts. It does not look at `style="…"` attributes, event handler attributes or CSP response headers; the [`security`](./security) audit covers headers.
 
-If no page in the build declares a meta CSP, the audit is skipped.
+An `<iframe srcdoc>` document inherits the policy of the page that embeds it, so the inline blocks in its markup are checked against the same hashes: `inline <style> in <iframe srcdoc> has no CSP hash …`.
+
+### Iframes
+
+For every `<iframe src>` over `http(s)`, on every page:
+
+- **Blocked embeds.** The policies that apply to the page are its meta CSP and the `Content-Security-Policy` headers of the `server.headers` rules that match its path. The frame directive in effect is `frame-src`, else `child-src`, else `default-src`; with none, frames are not restricted. An iframe whose URL that directive does not allow is a failing finding, `<iframe> from https://evil.example is blocked by frame-src`: the browser would show an empty box. `'self'` is the `siteUrl` origin and relative URLs; host sources with `*.` wildcards, schemes, ports and paths are matched as browsers do.
+- **Sandbox.** An iframe from another origin than `siteUrl` without a `sandbox` attribute is a warning, `third-party <iframe> from https://www.youtube-nocookie.com without sandbox`. Turn it off with `csp.sandbox: false`.
+
+`frame-ancestors`, which decides who may embed your site, cannot be set in a meta CSP; the [`security`](./security) audit checks it in headers.
+
+If no page in the build declares a meta CSP or embeds a third-party iframe, the audit is skipped.
 
 ## Example output
 
@@ -67,7 +78,7 @@ The detail line is the first 80 characters of the trimmed block, always followed
 When no page has a meta CSP:
 
 ```
-○ csp: no page declares a meta CSP (0.0s)
+○ csp: no page declares a meta CSP or embeds an iframe (0.0s)
 ```
 
 ## Options
@@ -75,6 +86,7 @@ When no page has a meta CSP:
 | Key | Default | Description |
 | --- | --- | --- |
 | `csp.exclude` | `[]` | built file paths to skip, e.g. `^admin/` |
+| `csp.sandbox` | `true` | warn about third-party iframes without `sandbox` |
 
 Unlike the other audits' `exclude`, `csp.exclude` matches file paths in the build (`admin/index.html`), the same as the top-level `exclude`, not URL paths.
 

@@ -8,11 +8,16 @@ interface LayoutDefect {
   nodes: string[];
 }
 
+const EMBED = /^(iframe|video|embed|object)\b/;
+
 export const defectFix = (
-  { rule, detail }: Pick<LayoutDefect, 'rule' | 'detail'>,
+  { rule, detail, nodes = [] }: Pick<LayoutDefect, 'rule' | 'detail'> & { nodes?: string[] },
   minTarget: number,
   minFont: number,
 ) => {
+  if (rule === 'overflow' && nodes.some((node) => EMBED.test(node))) {
+    return 'Size the embed with CSS instead of fixed width/height attributes: width:100%; height:auto; aspect-ratio:16/9 (or its real ratio).';
+  }
   if (rule === 'overflow') {
     return 'Constrain the widest element listed so it fits the viewport, e.g. with max-width:100% or overflow-wrap:anywhere.';
   }
@@ -45,14 +50,26 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     }
     return true;
   };
-  const vw = window.innerWidth;
+  // innerWidth grows to fit wide content under mobile emulation; the layout viewport does not.
+  const vw = document.documentElement.clientWidth;
   const findings: LayoutDefect[] = [];
 
   const scrollWidth = document.documentElement.scrollWidth;
   if (scrollWidth > vw + 1) {
+    // Content inside a scrolling or clipping box does not scroll the page; neither does content
+    // off the start edge (a skip link at left:-999px in a left-to-right page).
+    const rtl = getComputedStyle(document.documentElement).direction === 'rtl';
+    const clipped = (el: Element) => {
+      for (let node = el.parentElement; node && node !== document.body; node = node.parentElement)
+        if (getComputedStyle(node).overflowX !== 'visible') return true;
+      return false;
+    };
     const overflowing = [...document.querySelectorAll('body *')]
       .map((el) => ({ el, r: el.getBoundingClientRect() }))
-      .filter(({ r }) => r.width > 0 && r.height > 0 && (r.right > vw + 1 || r.left < -1));
+      .filter(
+        ({ el, r }) =>
+          r.width > 0 && r.height > 0 && (rtl ? r.left < -1 : r.right > vw + 1) && !clipped(el),
+      );
     const innermost = overflowing.filter(
       ({ el }) => !overflowing.some((other) => other.el !== el && el.contains(other.el)),
     );

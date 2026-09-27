@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { headerPolicies, metaPolicies, type Policy, parsePolicy } from '../core/csp.ts';
 import type { BuiltPage, Tag } from '../core/html.ts';
 import { relTokens, resolveHref, srcsetUrls, tags } from '../core/html.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
@@ -88,25 +89,6 @@ const fetchHeaders = async (url: string): Promise<HeaderMap> => {
   }
   return Object.fromEntries([...response.headers].map(([name, value]) => [name, value]));
 };
-
-type Policy = Map<string, string[]>;
-
-const parsePolicy = (policy: string): Policy =>
-  new Map(
-    policy
-      .split(';')
-      .map((directive) => directive.trim().split(/\s+/))
-      .filter(([name]) => name)
-      .map(([name = '', ...values]) => [name.toLowerCase(), values.map((v) => v.toLowerCase())]),
-  );
-
-const headerPolicies = (headers: HeaderMap) =>
-  (headers['content-security-policy'] ?? '').split(',').filter((policy) => policy.trim());
-
-const metaPolicies = (html: string) =>
-  tags(html, 'meta')
-    .filter(({ attrs }) => attrs['http-equiv']?.toLowerCase() === 'content-security-policy')
-    .map(({ attrs }) => attrs.content ?? '');
 
 const unsafeSources = (policy: Policy) => {
   const sources = policy.get('script-src') ?? policy.get('default-src') ?? [];

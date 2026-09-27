@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tags } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
 
@@ -109,13 +110,22 @@ export const html: Audit = {
     const groups = new Map<string, Group>();
 
     for (const page of pages) {
-      const report = await validator.validateString(page.html, page.file);
-      for (const message of report.results.flatMap(({ messages }) => messages)) {
-        const key = `${message.ruleId}\n${message.message}`;
-        const group = groups.get(key) ?? { message, pages: [], examples: [] };
-        group.pages.push({ path: page.path, file: page.file });
-        if (group.examples.length < MAX_EXAMPLES) group.examples.push(location(page.path, message));
-        groups.set(key, group);
+      // srcdoc markup is its own document, validated as the fragment it usually is.
+      const documents = [
+        { source: page.html, label: page.path },
+        ...tags(page.html, 'iframe').flatMap(({ attrs }) =>
+          attrs.srcdoc ? [{ source: attrs.srcdoc, label: `${page.path} <iframe srcdoc>` }] : [],
+        ),
+      ];
+      for (const { source, label } of documents) {
+        const report = await validator.validateString(source, page.file);
+        for (const message of report.results.flatMap(({ messages }) => messages)) {
+          const key = `${message.ruleId}\n${message.message}`;
+          const group = groups.get(key) ?? { message, pages: [], examples: [] };
+          group.pages.push({ path: page.path, file: page.file });
+          if (group.examples.length < MAX_EXAMPLES) group.examples.push(location(label, message));
+          groups.set(key, group);
+        }
       }
     }
 

@@ -10,7 +10,7 @@ vidimus ships thirteen audits. Five run by default; the rest you turn on in `aud
 | Audit | Checks | Needs | Default |
 | --- | --- | --- | --- |
 | [`i18n`](./i18n) | every locale file has exactly the default locale's keys, none blank (no build needed) | | yes |
-| [`csp`](./csp) | every inline `<script>`/`<style>` is allowed by a hash in the meta CSP | | yes |
+| [`csp`](./csp) | every inline `<script>`/`<style>` is allowed by a hash in the meta CSP, and iframes are allowed by `frame-src` and sandboxed | | yes |
 | [`a11y`](./a11y) | WCAG violations found by pa11y (default locale only) | `pa11y`, `puppeteer` | yes |
 | [`links`](./links) | broken internal links, assets and external targets | `linkinator` | yes |
 | [`r12s`](./r12s) | horizontal overflow, small tap targets, small text, missing or locked viewport meta | `puppeteer` | yes |
@@ -115,7 +115,7 @@ Each audit ends with one status line: a symbol, the audit name, a summary and th
 | passed | `✔` | no findings |
 | warned | `⚠` | findings, but none that fail: all are warnings, or the audit has `severity: 'warn'` |
 | failed | `✖` | at least one finding at error severity, or any finding with `--strict` |
-| skipped | `○` | the audit had nothing to check, e.g. `i18n` without `i18n.files`, or `csp` when no page has a meta CSP |
+| skipped | `○` | the audit had nothing to check, e.g. `i18n` without `i18n.files`, or `csp` when no page has a meta CSP or a third-party iframe |
 | errored | `!` | the audit could not run: a missing peer, a missing translation file, a page `r12s` could not load |
 
 Findings are printed above the status line. Each has a message, optional detail lines, `in:` for the file it concerns, `on:` for the pages (the first three, then `+N more`) and `→` with the fix:

@@ -43,6 +43,8 @@ Each page gets its own browser context, so no cookies or cache carry over from o
 
 ### Requests
 
+Requests made by iframes count too, including cross-origin iframes the browser runs in their own process: a YouTube, Vimeo or map embed shows up with every host its player contacts. A host whose page was loaded into an `<iframe>` is reported as `third-party embed from <host>` with the detail `loaded in an <iframe> on page load`, and the fix points at a click-to-load facade: a static preview that loads the real iframe only on click, such as [lite-youtube-embed](https://github.com/paulirish/lite-youtube-embed). `youtube-nocookie.com` is still reported: it sets no cookies before playback, but the player and its scripts load all the same.
+
 Every `http`, `https`, `ws` and `wss` request is classified. `data:` and `blob:` URLs are ignored.
 
 - **first-party**: the host of the audit origin or of `siteUrl`. Ports are not compared, so a local server on `localhost:4322` is first-party.

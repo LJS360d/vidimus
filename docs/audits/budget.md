@@ -40,7 +40,7 @@ references it.
 | images | `<img src>`, `srcset` of `<img>` and `<source>` | raw bytes |
 | `page` | all of the above | sum of the sizes above |
 
-Not counted: fonts, CSS background images, `<video>`/`<audio>` sources, and anything a script
+Not counted: iframes and what they load (Lighthouse counts them), fonts, CSS background images, `<video>`/`<audio>` sources, and anything a script
 or stylesheet loads, unless [`render.mode`](../how-it-works#client-rendered-sites) is on. With
 rendering, `html` is still the shipped file, and the other kinds are the build files the browser
 requested while rendering: stylesheets, scripts (lazy chunks included) and images by request

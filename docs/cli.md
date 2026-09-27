@@ -79,7 +79,7 @@ Prints every audit the config knows about, built-in and plugin, with its descrip
 
 ```
 * i18n        every locale defines exactly the keys of the default locale
-* csp         every inline <script> and <style> is allowed by a hash in the meta CSP
+* csp         inline <script> and <style> are hashed in the meta CSP, and iframes are allowed and sandboxed
   seo         titles, descriptions, canonical, hreflang, noindex, sitemap, robots.txt and orphan pages
   budget      page weight, image size and format, image dimensions (warn only)
 - lighthouse  Lighthouse category scores meet their thresholds
