@@ -45,8 +45,10 @@ For each page and each entry in `shots.viewports`, vidimus:
 
 1. sets the viewport (a number is a width with a height of 800px; widths below 768px are emulated as a mobile device with touch),
 2. turns on `prefers-reduced-motion: reduce`, so sites that respect it render without animation,
-3. loads the page, forces lazy images to load, and waits for web fonts and images up to `shots.settleTimeout`,
-4. takes a full-page PNG screenshot into `.vidimus/shots/current/`.
+3. loads the page (ready at [`render.waitFor`](../how-it-works#client-rendered-sites), the `load` event by default), forces lazy images to load, and waits for web fonts and images up to `shots.settleTimeout`,
+4. with `shots.freeze`, waits for animation-frame loops to stop and stills videos and endless CSS animations, see [Canvas, WebGL, video, gifs and embeds](#canvas-webgl-video-gifs-and-embeds),
+5. masks `shots.mask` elements and, with `shots.maskEmbeds`, cross-origin iframes,
+6. takes a full-page PNG screenshot into `.vidimus/shots/current/`.
 
 A screenshot that fails (the page does not load, or the browser times out) is a failing finding, `failed to capture <name>`, with the browser error as detail; the other screenshots are still taken.
 
@@ -73,7 +75,24 @@ By default the baseline lives inside `.vidimus/`, which ignores itself with its 
 
 ### Motion
 
-Unless `shots.motion` is `false`, each page is then reloaded with reduced motion off. Animations that repeat forever are paused, and vidimus takes a viewport screenshot every `motion.interval` ms until `motion.stableFrames` consecutive frames are identical or `motion.maxFrames` frames were taken. If anything moved, the frames are written as `.vidimus/shots/motion/<name>.gif` with their real timing, and the log line notes the frame count, or `(never settled)` when it hit `maxFrames`. Motion GIFs are for review only; they are not compared with anything.
+Unless `shots.motion` is `false`, each page is then reloaded with reduced motion off. Animations that repeat forever are paused, and vidimus takes a viewport screenshot every `motion.interval` ms until `motion.stableFrames` consecutive frames are identical or `motion.maxFrames` frames were taken. If anything moved, the frames are written as `.vidimus/shots/motion/<name>.gif` with their real timing, and the log line notes the frame count, or `(never settled)` when it hit `maxFrames`, naming up to three elements that were still moving when it can tell: `(never settled: canvas#scene animates)`. Freezing does not apply to this pass; masks do. Motion GIFs are for review only; they are not compared with anything.
+
+### Canvas, WebGL, video, gifs and embeds
+
+Pages that keep changing on their own would diff on every run. Four things keep the main screenshot stable:
+
+- **Reduced motion.** The main screenshot is taken with `prefers-reduced-motion: reduce`. A scene that honours it, by rendering one frame instead of starting its loop, is stable without anything else; this is the best fix when you own the code.
+- **`shots.freeze`** (default `true`) runs a script before the page's own scripts. It seeds `Math.random`, replaces `performance.now()` and the `requestAnimationFrame` timestamps with a virtual clock that advances 1/60 s per frame, and stops calling `requestAnimationFrame` callbacks after 30 frames. A three.js or canvas scene that animates by time or by random numbers then stops on the same frame every run. Before the screenshot, videos are paused at their first frame and CSS animations that repeat forever are paused at their start. This is best effort: `Date.now()`, timers, workers, WebAssembly and anything streamed from the network are not controlled.
+- **`shots.mask`** is a list of CSS selectors, painted flat black in place before the screenshot, the same in the baseline and the current screenshot, so they never diff. Use it for maps, ads, live counters, GIFs and anything else freezing cannot reach. An invalid selector is logged and skipped.
+- **`shots.maskEmbeds`** (default `true`) masks every `<iframe>` whose `src` is on another origin (YouTube, maps, CodePen): they load late and change content. Same-origin iframes are captured.
+
+WebGL in headless Chrome renders in software. vidimus starts the `shots` browser with `--use-angle=swiftshader --enable-unsafe-swiftshader`, so WebGL works the same way on every machine and in CI, though not pixel-identical to a real GPU: record the baseline on the same kind of machine that compares it, and raise `shots.tolerance` if antialiasing still differs. A canvas whose WebGL context could not be created is logged, `index@1280x800: no WebGL context for canvas#scene, the shot shows it blank`, instead of silently comparing an empty box.
+
+```ts
+export default defineConfig({
+  shots: { mask: ['.map', '[data-live]', 'img[src$=".gif"]'] },
+});
+```
 
 ## Example output
 
@@ -121,6 +140,9 @@ side-by-side gallery at .vidimus/shots/diff.html
 | `shots.allLocales` | `false` | also capture pages of translated locales |
 | `shots.tolerance` | `12` | per-channel colour difference (0 to 255) a pixel may have and still count as unchanged |
 | `shots.maxDiff` | `0.002` | share of changed pixels allowed before a screenshot fails |
+| `shots.freeze` | `true` | stop animation-frame loops, seed `Math.random`, still videos and endless CSS animations before the screenshot |
+| `shots.mask` | `[]` | CSS selectors painted flat black before the screenshot |
+| `shots.maskEmbeds` | `true` | also mask cross-origin iframes |
 | `shots.motion` | `{ interval: 100, stableFrames: 5, maxFrames: 60 }` | record animations as GIFs, `false` to skip |
 | `shots.settleTimeout` | `10000` | ms to wait for fonts and images before the screenshot |
 | `shots.protocolTimeout` | `600000` | ms the browser may take for one operation, such as a very tall screenshot |

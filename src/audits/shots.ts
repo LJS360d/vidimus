@@ -127,6 +127,140 @@ const waitForFontsAndImages = async (budget: number) => {
   await Promise.race([Promise.all(pendingImages), deadline]);
 };
 
+const FROZEN_FRAMES = 30;
+
+const WEBGL_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+
+interface Instrumented {
+  settled: () => boolean;
+  lastRequest: number;
+  glFailures: string[];
+}
+
+// Runs before any page script. Records WebGL contexts that fail and, with freeze, makes rAF
+// scenes deterministic: seeded Math.random, a virtual clock, and no frames after the limit.
+const instrument = (freeze: boolean, limit: number) => {
+  const describe = (node: Element) =>
+    node.tagName.toLowerCase() +
+    (node.id ? `#${node.id}` : node.classList[0] ? `.${node.classList[0]}` : '');
+  const clock = performance.now.bind(performance);
+  const state: Instrumented = { settled: () => true, lastRequest: 0, glFailures: [] };
+  Object.defineProperty(window, '__vidimus', { value: state });
+
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (
+    this: HTMLCanvasElement,
+    type: string,
+    ...rest: unknown[]
+  ) {
+    const context = (getContext as (...args: unknown[]) => unknown).call(this, type, ...rest);
+    if (!context && /webgl/i.test(type)) state.glFailures.push(describe(this));
+    return context;
+  } as typeof getContext;
+
+  const raf = window.requestAnimationFrame.bind(window);
+  if (!freeze) {
+    window.requestAnimationFrame = (callback) => {
+      state.lastRequest = clock();
+      return raf(callback);
+    };
+    return;
+  }
+
+  let seed = 0x9e3779b9;
+  Math.random = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  // Every call moves the clock a little, so busy-wait loops still end.
+  let virtual = 0;
+  performance.now = () => {
+    virtual += 0.001;
+    return virtual;
+  };
+  let frames = 0;
+  let lastFrame = -1;
+  window.requestAnimationFrame = (callback) => {
+    state.lastRequest = clock();
+    return raf((timestamp) => {
+      if (timestamp !== lastFrame) {
+        lastFrame = timestamp;
+        frames += 1;
+        virtual = Math.max(virtual, (frames * 1000) / 60);
+      }
+      if (frames <= limit) callback(virtual);
+    });
+  };
+  state.settled = () => frames >= limit || clock() - state.lastRequest > 200;
+};
+
+// Stops what freeze cannot reach from script: video frames and endless CSS animations.
+const stillMedia = async () => {
+  for (const animation of document.getAnimations()) {
+    if (animation.effect?.getComputedTiming().iterations !== Infinity) continue;
+    animation.pause();
+    animation.currentTime = 0;
+  }
+  await Promise.all(
+    [...document.querySelectorAll('video')].map((video) => {
+      video.pause();
+      if (video.currentTime === 0) return undefined;
+      return new Promise((done) => {
+        video.addEventListener('seeked', done, { once: true });
+        video.currentTime = 0;
+        setTimeout(done, 1000);
+      });
+    }),
+  );
+};
+
+// Paints masked elements a flat colour in place, so the layout stays as it is.
+const maskElements = (selectors: string[], embeds: boolean) => {
+  const invalid: string[] = [];
+  const masked: Element[] = [];
+  for (const selector of selectors) {
+    try {
+      masked.push(...document.querySelectorAll(selector));
+    } catch {
+      invalid.push(selector);
+    }
+  }
+  if (embeds) {
+    for (const frame of document.querySelectorAll('iframe[src]')) {
+      try {
+        const src = new URL(frame.getAttribute('src') ?? '', document.baseURI);
+        if (src.origin !== location.origin) masked.push(frame);
+      } catch {}
+    }
+  }
+  for (const node of masked) node.setAttribute('data-vidimus-mask', '');
+  const style = document.createElement('style');
+  style.textContent =
+    '[data-vidimus-mask]{filter:brightness(0)!important;background:#000!important;animation:none!important}';
+  document.documentElement.append(style);
+  return invalid;
+};
+
+const movingElements = () => {
+  const describe = (node: Element) =>
+    node.tagName.toLowerCase() +
+    (node.id ? `#${node.id}` : node.classList[0] ? `.${node.classList[0]}` : '');
+  const found = new Set<string>();
+  for (const animation of document.getAnimations()) {
+    const target = (animation.effect as KeyframeEffect | null)?.target;
+    if (animation.playState === 'running' && target) found.add(describe(target));
+  }
+  for (const video of document.querySelectorAll('video'))
+    if (!video.paused) found.add(describe(video));
+  const state = (window as unknown as { __vidimus?: Instrumented }).__vidimus;
+  if (state && performance.now() - state.lastRequest < 500) {
+    for (const canvas of document.querySelectorAll('canvas')) found.add(describe(canvas));
+  }
+  return [...found].slice(0, 3);
+};
+
 const captureMotion = async (page: Page, { interval, stableFrames, maxFrames }: MotionOptions) => {
   await page.evaluate(() => {
     for (const anim of document.getAnimations()) {
@@ -174,8 +308,18 @@ export const shots: Audit = {
   name: 'shots',
   description: 'screenshots match the recorded baseline within tolerance',
   async run({ config, root, origin, resolve, pageUrls, launchBrowser, importPeer, log }) {
-    const { viewports, tolerance, maxDiff, sample, exclude, allLocales, concurrency, motion } =
-      config.shots;
+    const {
+      viewports,
+      tolerance,
+      maxDiff,
+      sample,
+      exclude,
+      allLocales,
+      concurrency,
+      motion,
+      maskEmbeds,
+      freeze,
+    } = config.shots;
     const updateBaseline = config.shots.updateBaseline;
     const out = resolve(config.outDir, config.shots.outDir);
     const shown = displayPath(root, out);
@@ -211,12 +355,29 @@ export const shots: Audit = {
     const browser = await launchBrowser({
       headless: 'shell',
       protocolTimeout: config.shots.protocolTimeout,
+      args: WEBGL_ARGS,
     });
     const changes: { name: string; ratio: number; percent: string }[] = [];
     const lines: string[] = [];
     const motionNotes = new Map<string, string>();
     let missingBaseline = 0;
     const failed = new Map<string, { path: string; error: string }>();
+
+    const invalidMasks = new Set<string>();
+    const glFailures = new Map<string, string[]>();
+
+    // Instruments the next navigation only; the tab is reused for other shots.
+    const open = async (page: Page, url: string, freeze: boolean) => {
+      const { identifier } = await page.evaluateOnNewDocument(instrument, freeze, FROZEN_FRAMES);
+      try {
+        await navigate(page, url, config.render);
+      } finally {
+        await page.removeScriptToEvaluateOnNewDocument(identifier);
+      }
+      await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+      for (const selector of await page.evaluate(maskElements, config.shots.mask, maskEmbeds))
+        invalidMasks.add(selector);
+    };
 
     const capture = async (
       page: Page,
@@ -226,8 +387,20 @@ export const shots: Audit = {
     ) => {
       await page.setViewport(size);
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-      await navigate(page, url, config.render);
-      await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+      await open(page, url, freeze);
+      if (freeze) {
+        await page
+          .waitForFunction(
+            () => (window as unknown as { __vidimus?: Instrumented }).__vidimus?.settled() ?? true,
+            { timeout: config.shots.settleTimeout, polling: 50 },
+          )
+          .catch(() => {});
+        await page.evaluate(stillMedia);
+      }
+      const failures = await page.evaluate(
+        () => (window as unknown as { __vidimus?: Instrumented }).__vidimus?.glFailures ?? [],
+      );
+      if (failures.length) glFailures.set(name, failures);
       await page.screenshot({
         path: png(currentDir, name) as `${string}.png`,
         fullPage: true,
@@ -236,11 +409,14 @@ export const shots: Audit = {
       let note = '';
       if (motion) {
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);
-        await navigate(page, url, config.render);
-        await page.evaluate(waitForFontsAndImages, config.shots.settleTimeout);
+        await open(page, url, false);
         const { frames, settled } = await captureMotion(page, motion);
         if (frames.length > 1) {
-          note = `  ${frames.length} frames -> motion/${name}.gif${settled ? '' : ' (never settled)'}`;
+          const moving = settled ? [] : await page.evaluate(movingElements);
+          const unsettled = moving.length
+            ? ` (never settled: ${moving.join(', ')} ${moving.length > 1 ? 'animate' : 'animates'})`
+            : ' (never settled)';
+          note = `  ${frames.length} frames -> motion/${name}.gif${settled ? '' : unsettled}`;
           mkdirSync(motionDir, { recursive: true });
           await writeGif(importPeer, frames, join(motionDir, `${name}.gif`));
           motionNotes.set(name, note);
@@ -298,6 +474,9 @@ export const shots: Audit = {
     lines.sort();
     changes.sort((a, b) => a.name.localeCompare(b.name));
     for (const line of lines) log(line);
+    for (const selector of invalidMasks) log(`shots.mask: "${selector}" is not a valid selector`);
+    for (const [name, canvases] of [...glFailures].sort(([a], [b]) => a.localeCompare(b)))
+      log(`${name}: no WebGL context for ${canvases.join(', ')}, the shot shows it blank`);
 
     const failures: Finding[] = [...failed]
       .sort(([a], [b]) => a.localeCompare(b))

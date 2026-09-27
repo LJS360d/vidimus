@@ -3,7 +3,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import type { UserConfig } from '../src/config/types.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
@@ -63,5 +63,95 @@ describe('shots audit', () => {
     assert.equal(partial.status, 'warned');
     assert.equal(partial.findings[0]?.message, '1 screenshot(s) have no baseline');
     assert.equal(partial.findings[0]?.severity, 'warn');
+  });
+});
+
+// A canvas redrawn every frame from the clock and Math.random, next to a cross-origin iframe whose
+// colour changes on every load.
+const dynamic = (embed: string) => `<!doctype html><html lang="en"><head><title>t</title></head>
+<body style="margin:0">
+<canvas id="scene" width="200" height="100"></canvas>
+<iframe src="${embed}" width="200" height="100" style="border:0;display:block"></iframe>
+<canvas id="gl" width="10" height="10"></canvas>
+<script>
+const context = document.getElementById('scene').getContext('2d');
+const draw = (time) => {
+  context.fillStyle = 'hsl(' + Math.floor(Math.random() * 360) + ' 80% 50%)';
+  context.fillRect(0, 0, 200, 100);
+  context.fillStyle = '#000';
+  context.fillRect((time / 5) % 200, 40, 20, 20);
+  requestAnimationFrame(draw);
+};
+requestAnimationFrame(draw);
+document.getElementById('gl').getContext('webgl');
+</script>
+</body></html>`;
+
+describe('shots on dynamic content', { skip: noBrowser }, () => {
+  let embed = '';
+  const upstream = createServer((_req, res) => {
+    const hue = Math.floor(Math.random() * 360);
+    res
+      .writeHead(200, { 'content-type': 'text/html' })
+      .end(`<body style="margin:0;background:hsl(${hue} 80% 50%)">embed ${hue}</body>`);
+  });
+  before(
+    () =>
+      new Promise<void>((resolve) =>
+        upstream.listen(0, '127.0.0.1', () => {
+          embed = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/`;
+          resolve();
+        }),
+      ),
+  );
+  after(() => new Promise((resolve) => upstream.close(resolve)));
+
+  const shots = async (cwd: string, shotsConfig: UserConfig['shots'] = {}, args: string[] = []) => {
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['shots'],
+      reporters: [],
+      overrides: {
+        port: await freePort(),
+        browser: { args: ['--no-sandbox', ...args] },
+        shots: { viewports: [320], motion: false, maxDiff: 0, ...shotsConfig },
+      },
+    });
+    const result = results[0];
+    assert.ok(result);
+    return result;
+  };
+
+  it('freezes the canvas and masks the embed, so reruns do not diff', async () => {
+    const cwd = fixture({ 'dist/index.html': dynamic(embed) });
+    assert.equal((await shots(cwd, { updateBaseline: true })).status, 'passed');
+    const rerun = await shots(cwd);
+    assert.equal(rerun.status, 'passed');
+    assert.ok(rerun.log.some((line) => /index@320x800\.png\s+unchanged/.test(line)));
+
+    const raw = await shots(cwd, { freeze: false, maskEmbeds: false });
+    assert.equal(raw.status, 'failed');
+  });
+
+  it('names what keeps moving when motion never settles', async () => {
+    const cwd = fixture({ 'dist/index.html': dynamic(embed) });
+    const result = await shots(cwd, {
+      updateBaseline: true,
+      motion: { interval: 20, stableFrames: 3, maxFrames: 4 },
+    });
+    assert.ok(
+      result.log.some((line) => /never settled: .*canvas#scene/.test(line)),
+      result.log.join('\n'),
+    );
+  });
+
+  it('logs canvases whose WebGL context failed', async () => {
+    const cwd = fixture({ 'dist/index.html': dynamic(embed) });
+    const result = await shots(cwd, { updateBaseline: true }, ['--disable-3d-apis']);
+    assert.ok(
+      result.log.some((line) => /no WebGL context for canvas#gl/.test(line)),
+      result.log.join('\n'),
+    );
   });
 });

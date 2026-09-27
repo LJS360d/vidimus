@@ -111,6 +111,9 @@ export interface VidimusConfig {
     sample: Pattern[];
     allLocales: boolean;
     motion: MotionOptions | false;
+    mask: string[];
+    maskEmbeds: boolean;
+    freeze: boolean;
     concurrency: number;
     tolerance: number;
     maxDiff: number;
