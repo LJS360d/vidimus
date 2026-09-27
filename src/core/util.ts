@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from 'node:path';
-import type { Pattern, ViewportSize } from '../config/types.ts';
+import type { NavigateOptions, Pattern, ViewportSize } from '../config/types.ts';
 import type { Browser, Page } from './peer-types.ts';
 
 export const escapeRegExp = (text: string) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
@@ -112,4 +112,12 @@ export const isPlainObject = (value: unknown): value is Record<string, unknown> 
 export const displayPath = (root: string, path: string) => {
   const fromRoot = relative(root, path);
   return !fromRoot ? '.' : fromRoot.startsWith('..') || isAbsolute(fromRoot) ? path : fromRoot;
+};
+
+// waitFor is 'load', 'networkidle', a number of milliseconds after load, or a CSS selector.
+export const navigate = async (page: Page, url: string, { waitFor, timeout }: NavigateOptions) => {
+  const wait = typeof waitFor === 'number' || /^\d+$/.test(waitFor) ? Number(waitFor) : waitFor;
+  await page.goto(url, { waitUntil: wait === 'networkidle' ? 'networkidle0' : 'load', timeout });
+  if (typeof wait === 'number') await new Promise((done) => setTimeout(done, wait));
+  else if (wait !== 'load' && wait !== 'networkidle') await page.waitForSelector(wait, { timeout });
 };

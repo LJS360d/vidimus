@@ -10,6 +10,7 @@ import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } fr
 import { createPageReader } from './html.ts';
 import { createPageUrls } from './pages.ts';
 import { importPeer, launchBrowser, sharedBrowser } from './peer.ts';
+import { clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, RunReport } from './types.ts';
 import { basePathOf } from './util.ts';
@@ -81,7 +82,7 @@ export const runAudits = async (
   ).replace(/\/$/, '');
   const builtPages = createPageReader(dist);
   const browser = sharedBrowser(() => launchBrowser(config));
-  const pageUrls = createPageUrls(config, dist, builtPages, origin);
+  let pageUrls = createPageUrls(config, dist, builtPages, origin);
 
   const runOne = async (audit: Audit): Promise<AuditResult> => {
     const log: string[] = [];
@@ -136,12 +137,18 @@ export const runAudits = async (
 
   const results: AuditResult[] = [];
   try {
+    const hint = needsServer ? clientRenderedHint(config, dist, builtPages) : undefined;
     for (const reporter of reporters) {
       await reporter.onStart?.({
         audits: audits.map(({ name }) => name),
         origin: needsServer ? origin : '',
         serving: server ? config.distDir : undefined,
+        notes: hint ? [hint] : [],
       });
+    }
+    if (needsServer) {
+      const routes = await resolveRoutes(config, dist, builtPages, origin, browser);
+      pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
     results.push(...(await Promise.all(audits.filter((audit) => !audit.exclusive).map(runOne))));
     for (const audit of audits.filter((audit) => audit.exclusive))

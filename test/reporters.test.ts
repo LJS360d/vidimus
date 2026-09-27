@@ -132,7 +132,12 @@ describe('pretty reporter', () => {
   it('prints findings, warnings and a closing line', async () => {
     const { stream, text } = sink();
     const reporter = pretty(stream);
-    await reporter.onStart?.({ audits: ['links'], origin: 'http://localhost:1', serving: 'dist' });
+    await reporter.onStart?.({
+      audits: ['links'],
+      origin: 'http://localhost:1',
+      serving: 'dist',
+      notes: ['looks like a client-rendered app'],
+    });
     for (const result of report.results) await reporter.onAuditEnd?.(result);
     await reporter.onAuditEnd?.({
       name: 'seo',
@@ -153,6 +158,7 @@ describe('pretty reporter', () => {
     await reporter.onEnd?.(report);
     const output = text();
     assert.match(output, /serving dist on http:\/\/localhost:1/);
+    assert.match(output, /vidimus: looks like a client-rendered app/);
     assert.match(output, /✖ 404 <https:\/\/x\.test\/\?a=1&b=2>/);
     assert.match(output, /⚠ title too long/);
     assert.match(output, /→ shorten the <title>/);

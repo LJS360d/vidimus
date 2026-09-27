@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   type BuiltPage,
-  decodeEntities,
   isNoindex,
   linksWithRel,
   localFile,
@@ -12,18 +11,9 @@ import {
   tags,
   textOf,
 } from '../core/html.ts';
+import { pathnameOf, readSitemaps } from '../core/sitemap.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
 import { matchesAny, stripBase } from '../core/util.ts';
-
-const SITEMAPS = ['sitemap.xml', 'sitemap-index.xml', 'sitemap_index.xml'];
-
-const pathnameOf = (url: string, siteUrl: string) => {
-  try {
-    return stripBase(new URL(url).pathname, siteUrl);
-  } catch {
-    return null;
-  }
-};
 
 const isRedirect = (html: string) =>
   tags(html, 'meta').some(
@@ -31,12 +21,6 @@ const isRedirect = (html: string) =>
       (attrs['http-equiv'] ?? '').toLowerCase() === 'refresh' &&
       /(^|[;,\s])url\s*=/i.test(attrs.content ?? ''),
   );
-
-const locs = (xml: string, parent: string) =>
-  [...xml.matchAll(new RegExp(`<${parent}\\b[^>]*>([\\s\\S]*?)</${parent}\\s*>`, 'gi'))]
-    .map(([, body = '']) => /<loc\b[^>]*>([\s\S]*?)<\/loc\s*>/i.exec(body)?.[1])
-    .filter((loc): loc is string => loc !== undefined)
-    .map((loc) => decodeEntities(loc.replace(/^\s*<!\[CDATA\[|\]\]>\s*$/g, '').trim()));
 
 const robotsRules = (text: string) => {
   const sitemaps: string[] = [];
@@ -359,22 +343,10 @@ export const seo: Audit = {
       const fromRobots = (robots?.sitemaps ?? [])
         .map((url) => pathnameOf(url, config.siteUrl))
         .filter((path): path is string => path !== null);
-      const roots = [...SITEMAPS.map((name) => `/${name}`), ...fromRobots]
-        .map((path) => localFile(dist, path))
-        .filter((file): file is string => file !== null);
-      const visited = new Set<string>();
+      const sitemaps = readSitemaps(dist, config.siteUrl, fromRobots);
       const listed = new Set<string>();
-      const queue = [...new Set(roots)];
-      for (const sitemapFile of queue) {
-        if (visited.has(sitemapFile)) continue;
-        visited.add(sitemapFile);
-        const xml = readFileSync(sitemapFile, 'utf8');
-        for (const loc of locs(xml, 'sitemap')) {
-          const path = pathnameOf(loc, config.siteUrl);
-          const child = path ? localFile(dist, path) : null;
-          if (child) queue.push(child);
-        }
-        for (const loc of locs(xml, 'url')) {
+      for (const { file: sitemapFile, urls } of sitemaps) {
+        for (const loc of urls) {
           let url: URL;
           try {
             url = new URL(loc);
@@ -436,7 +408,7 @@ export const seo: Audit = {
           }
         }
       }
-      if (!visited.size)
+      if (!sitemaps.length)
         report(
           'no sitemap.xml',
           'Generate a sitemap.xml in the build output and reference it from robots.txt, or turn seo.sitemap off.',

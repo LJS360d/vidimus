@@ -16,6 +16,13 @@ export const defaults = (cwd: string): VidimusConfig => ({
   locales: [],
   defaultLocale: '',
   allLocales: false,
+  routes: {
+    paths: [],
+    discover: 'off',
+    limit: 200,
+    waitFor: 'load',
+    timeout: 30000,
+  },
   audits: DEFAULT_AUDITS,
   severity: {},
   strict: false,

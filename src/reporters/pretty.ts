@@ -20,9 +20,10 @@ export const pretty = (stream: NodeJS.WriteStream = process.stdout): Reporter =>
 
   return {
     name: 'pretty',
-    onStart({ origin, serving }) {
+    onStart({ origin, serving, notes }) {
       if (serving) out(`vidimus: serving ${serving} on ${origin}`);
       else if (origin) out(`vidimus: auditing ${origin}`);
+      for (const note of notes) out(paint('yellow', `vidimus: ${note}`));
     },
     onAuditEnd(result) {
       out();

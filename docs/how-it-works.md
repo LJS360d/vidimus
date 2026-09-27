@@ -62,7 +62,7 @@ vidimus: no build output at /path/to/site/dist. Run the build first.
 ```
 
 Server audits need the build too, even with `--origin`: the list of pages to open comes from
-the HTML files in `distDir`.
+the HTML files in `distDir`, plus any [`routes`](#client-rendered-routes).
 
 Audits run concurrently. Audits marked `exclusive` (the built-in `lighthouse`) run afterwards,
 one at a time, so their measurements are not disturbed by the others.
@@ -144,6 +144,48 @@ top-level `exclude`. `exclude` matches built file paths relative to `distDir`
 
 When `distDir` has no HTML file left, the server audits error with
 `<dist> has no HTML pages. Rebuild.` and the `dist` audits are skipped.
+
+### Client-rendered routes
+
+A single-page app builds one `index.html` and renders its routes in the browser, so the page
+list above has one entry and every server audit checks the home route only. `routes` adds the
+other routes to the list of the server audits (`a11y`, `links`, `r12s`, `privacy`, `shots`,
+`lighthouse`); the `dist` audits keep reading files.
+
+```ts
+export default defineConfig({
+  server: { fallback: 'index.html' },
+  routes: { paths: ['/pricing', '/docs/seo'], discover: 'sitemap' },
+});
+```
+
+- `routes.paths` lists paths relative to the `siteUrl` base path, each starting with `/`.
+- `routes.discover: 'sitemap'` adds the URLs of `sitemap.xml`, `sitemap-index.xml` or
+  `sitemap_index.xml` in `distDir`, following sitemap indexes. URLs on another origin than
+  `siteUrl` are skipped.
+- `routes.discover: 'crawl'` opens the built pages and `routes.paths` in the browser, waits for
+  `routes.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
+  first, until `routes.limit` new routes are found. Links to files with an extension other
+  than `.html` are not routes.
+
+A route that matches a built file is already in the list and is dropped. The rest have no
+file, so the built-in server answers them through
+[`server.fallback`](#serving-the-build); without it, the run stops:
+
+```
+vidimus: routes /pricing /docs/seo have no file in dist; set server.fallback (e.g. 'index.html') so the built-in server answers them, or drop them from routes
+```
+
+The top-level `exclude` and the locale rules below apply to routes as to built pages, with the
+route path minus its leading `/` in place of the file path, and so do per-audit `exclude` and
+`sample`.
+
+When no `routes` are set and `distDir` has one HTML page (not counting `404.html`) next to a
+script of 100 kB or more, the pretty reporter prints a note at the start:
+
+```
+vidimus: dist has one HTML page and a 412 kB script: looks like a client-rendered app; set routes.paths or routes.discover to audit its routes
+```
 
 ### Locales
 

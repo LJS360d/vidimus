@@ -32,6 +32,13 @@ export interface MotionOptions {
   maxFrames: number;
 }
 
+export type RouteDiscovery = 'off' | 'sitemap' | 'crawl';
+
+export interface NavigateOptions {
+  waitFor: string | number;
+  timeout: number;
+}
+
 export interface VidimusConfig {
   root: string;
   distDir: string;
@@ -43,6 +50,11 @@ export interface VidimusConfig {
   locales: string[];
   defaultLocale: string;
   allLocales: boolean;
+  routes: NavigateOptions & {
+    paths: string[];
+    discover: RouteDiscovery;
+    limit: number;
+  };
   audits: string[];
   severity: Record<string, AuditSeverity>;
   strict: boolean;

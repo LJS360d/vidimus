@@ -4,6 +4,7 @@ export interface RunInfo {
   audits: string[];
   origin: string;
   serving: string | undefined;
+  notes: string[];
 }
 
 export interface Reporter {

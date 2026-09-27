@@ -25,7 +25,8 @@ has to include it. See [How it works](./how-it-works#base-paths).
 
 A single-page app with client-side routing (React Router, Angular Router, Vue Router) builds
 one `index.html` and relies on the host to answer deep URLs with it. Set `server.fallback` so
-the built-in server does the same; see [How it works](./how-it-works#serving-the-build).
+the built-in server does the same, and list or discover the routes with `routes`; see
+[How it works](./how-it-works#client-rendered-routes).
 
 | Generator | Build | `distDir` | Base path setting | Static folder |
 | --- | --- | --- | --- | --- |

@@ -8,6 +8,7 @@ export const createPageUrls = (
   dist: string,
   pages: PageReader,
   origin: string,
+  routes: string[] = [],
 ) => {
   const translatedLocales = config.locales.filter((locale) => locale !== config.defaultLocale);
   const isTranslation = (page: string) =>
@@ -16,7 +17,10 @@ export const createPageUrls = (
 
   let builtPages: string[] | undefined;
   const findBuiltPages = () => {
-    builtPages ??= pages(config.exclude).map(({ rel }) => rel);
+    builtPages ??= [
+      ...pages(config.exclude).map(({ rel }) => rel),
+      ...routes.map((route) => route.slice(1)),
+    ];
     if (builtPages.length === 0) throw new Error(`${dist} has no HTML pages. Rebuild.`);
     return builtPages;
   };

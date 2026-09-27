@@ -155,6 +155,19 @@ const checkPatterns = (config: VidimusConfig) => {
   }
 };
 
+const DISCOVERY = ['off', 'sitemap', 'crawl'];
+
+const checkRoutes = ({ routes }: VidimusConfig) => {
+  if (!DISCOVERY.includes(routes.discover))
+    throw new UsageError(
+      `routes.discover: "${routes.discover}" is not one of ${DISCOVERY.join(', ')}`,
+    );
+  for (const [index, path] of routes.paths.entries()) {
+    if (typeof path !== 'string' || !path.startsWith('/'))
+      throw new UsageError(`routes.paths[${index}]: must be a path starting with /`);
+  }
+};
+
 const resolveRoot = (root: string | undefined, base: string) =>
   root === undefined ? undefined : isAbsolute(root) ? root : resolve(base, root);
 
@@ -193,6 +206,7 @@ export const loadConfig = async ({
   config = { ...config, root: resolveRoot(config.root, cwd) ?? cwd };
   checkIgnoreRules(config.ignore);
   checkPatterns(config);
+  checkRoutes(config);
 
   return { config, source };
 };
