@@ -13,12 +13,13 @@ to four questions:
 | where does the build go? | `distDir` |
 | what is the production URL, with any base path? | `siteUrl`, the same value as the generator's own setting |
 | where do static files go, for `_headers`? | the generator's public or static folder |
-| is there a preview server? | optional: `--origin` to audit it instead of the built-in server |
+| how does the host serve it? | optional: `server.command` to serve it with the host's tool, see [Serving the build](./serving) |
 
 The `security` audit reads response headers from `_headers` at the root of the build (Netlify
 and Cloudflare Pages format, `security.file`). Every generator below copies a static folder
 into the build as is; put `_headers` there. The built-in server does not send those headers;
-use `server.headers` for headers the browser audits should see.
+use `server.headers` for headers the browser audits should see, or serve the build with
+`wrangler pages dev` or `netlify dev` through [`server.command`](./serving), which do.
 
 When the site lives under a path, the generator has to build with that prefix and `siteUrl`
 has to include it. See [How it works](./how-it-works#base-paths).

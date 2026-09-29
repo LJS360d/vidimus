@@ -213,7 +213,23 @@ lower score with `lighthouse.thresholds.seo`.
 
 The built-in server listens on `127.0.0.1:4322`. When another process holds the port, the run
 stops with Node's `EADDRINUSE` error and exit code `2`. Pick another with `--port 5000` or
-`VIDIMUS_PORT=5000`.
+`VIDIMUS_PORT=5000`. With `server.command`, vidimus checks the port before starting the command
+and stops with `port 4322 is in use` when something already answers there.
+
+## server.command did not start
+
+```
+vidimus: server.command exited with code 1: npx wrangler pages dev /path/to/dist --port 4322
+✘ [ERROR] …
+(full output in /path/to/.vidimus/server.log)
+```
+
+The command exited, or did not answer on `port` within `server.startTimeout`. The last lines of
+its output are in the message, all of it in `server.log` in `outDir`. Common causes: the tool is
+not installed, it asks a question (pass its non-interactive flag, such as `--yes`), it needs a
+login in CI, or it listens on a port of its own config file instead of `{port}`; set `port` to
+that number. A slow first start (downloading a Docker image) needs a larger
+`server.startTimeout`.
 
 ## Exit codes
 

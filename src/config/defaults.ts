@@ -43,6 +43,8 @@ export const defaults = (cwd: string): VidimusConfig => ({
     executablePath: '',
   },
   server: {
+    command: '',
+    startTimeout: 60000,
     gzip: true,
     headers: [],
     fallback: '',

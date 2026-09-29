@@ -5,6 +5,7 @@ import { type LoadConfigOptions, loadConfig } from '../config/load.ts';
 import type { VidimusConfig } from '../config/types.ts';
 import { createReporters } from '../reporters/registry.ts';
 import type { Reporter } from '../reporters/types.ts';
+import { serveCommand } from './command-server.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
 import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
 import { createPageReader } from './html.ts';
@@ -54,6 +55,18 @@ const createOutDir = (dir: string) => {
   writeFileSync(resolve(dir, '.gitignore'), '*\n');
 };
 
+const startServer = (config: VidimusConfig, dist: string, snapshot: Parameters<typeof serve>[4]) =>
+  config.server.command
+    ? serveCommand({
+        command: config.server.command,
+        cwd: config.root,
+        dist,
+        port: config.port,
+        timeout: config.server.startTimeout,
+        log: resolve(config.root, config.outDir, 'server.log'),
+      })
+    : serve(dist, config.port, config.server, config.siteUrl, snapshot);
+
 export const runAudits = async (
   config: VidimusConfig,
   audits: Audit[],
@@ -69,7 +82,12 @@ export const runAudits = async (
   const bundle = needsDist ? clientRenderedBundle(config, dist, builtPages) : 0;
   const rendering =
     needsDist && (config.render.mode === 'on' || (config.render.mode === 'auto' && bundle > 0));
-  const needsServer = rendering || audits.some((audit) => requirement(audit) === 'server');
+  const command = !config.origin && config.server.command;
+  // security fetches real response headers when there is a real server to ask.
+  const needsServer =
+    rendering ||
+    audits.some((audit) => requirement(audit) === 'server') ||
+    (!!command && audits.some(({ name }) => name === 'security'));
   createOutDir(resolve(config.root, config.outDir));
 
   const baselineFile = config.baseline.file ? resolve(config.root, config.baseline.file) : '';
@@ -81,12 +99,12 @@ export const runAudits = async (
   const browser = sharedBrowser(() => launchBrowser(config));
   const renderer = createRenderer(config, browser);
   const server =
-    needsServer && !config.origin
-      ? await serve(dist, config.port, config.server, config.siteUrl, renderer.snapshot)
-      : undefined;
+    needsServer && !config.origin ? await startServer(config, dist, renderer.snapshot) : undefined;
   const origin = (
     config.origin || `http://localhost:${server?.port ?? config.port}${basePathOf(config.siteUrl)}`
   ).replace(/\/$/, '');
+  // Audits treat a server.command like --origin: the host tool, not vidimus, answers requests.
+  const auditConfig = command && server ? { ...config, origin } : config;
   let pageUrls = createPageUrls(config, dist, builtPages, origin);
 
   const included = (path: string) =>
@@ -116,7 +134,7 @@ export const runAudits = async (
     const log: string[] = [];
     const started = performance.now();
     const context: AuditContext = {
-      config,
+      config: auditConfig,
       root: config.root,
       dist,
       origin,
@@ -172,12 +190,12 @@ export const runAudits = async (
       await reporter.onStart?.({
         audits: audits.map(({ name }) => name),
         origin: needsServer ? origin : '',
-        serving: server ? config.distDir : undefined,
+        serving: server && [config.distDir, command].filter(Boolean).join(' with '),
         notes: hint ? [hint] : [],
       });
     }
     if (needsServer) {
-      const routes = await resolveRoutes(config, dist, builtPages, origin, renderer);
+      const routes = await resolveRoutes(auditConfig, dist, builtPages, origin, renderer);
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
     results.push(...(await Promise.all(audits.filter((audit) => !audit.exclusive).map(runOne))));

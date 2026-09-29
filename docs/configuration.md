@@ -123,7 +123,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `root` | the config file's directory, or the working directory | where relative paths resolve from |
 | `distDir` | `dist` | build output, relative to `root` |
 | `outDir` | `.vidimus` | reports and screenshots, relative to `root` |
-| `port` | `4322` | port of the built-in static server |
+| `port` | `4322` | port the build is served on, by the built-in server or `server.command` |
 | `origin` | `''` | audit this server instead of serving the build (`--origin`) |
 | `siteUrl` | `''` | production URL, with the base path if there is one |
 | `exclude` | `[]` | built file paths to leave out of every audit |
@@ -146,6 +146,8 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `reporters` | `[]` | reporter names, `name:file` or objects, see [Reporters](./reporters) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
+| `server.command` | `''` | serve the build with this shell command instead of the built-in server; `{port}` and `{dist}` are filled in (`--serve`), see [Serving the build](./serving) |
+| `server.startTimeout` | `60000` | milliseconds to wait for `server.command` to answer |
 | `server.gzip` | `true` | gzip text responses of the built-in server |
 | `server.headers` | `[]` | `{ match, headers }` rules for the built-in server |
 | `server.fallback` | `''` | build file served for page requests that match no file, for single-page apps, or `{ match, file }` rules per path |

@@ -84,6 +84,8 @@ export interface VidimusConfig {
     executablePath: string;
   };
   server: {
+    command: string;
+    startTimeout: number;
     gzip: boolean;
     headers: HeaderRule[];
     fallback: string | FallbackRule[];

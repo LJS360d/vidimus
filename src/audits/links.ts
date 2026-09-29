@@ -59,7 +59,9 @@ export const links: Audit = {
     // The built-in server hands linkinator the rendered DOM of these pages instead of the shell.
     const snapshots = rendered.length > 0 && !config.origin;
     if (renderPage && config.origin)
-      log('--origin: links are read from the HTML the server sends, not the rendered DOM');
+      log(
+        `${config.server.command ? 'server.command' : '--origin'}: links are read from the HTML the server sends, not the rendered DOM`,
+      );
     const site = config.siteUrl.replace(/\/$/, '');
     const checker = new LinkChecker();
     const broken: LinkResult[] = [];

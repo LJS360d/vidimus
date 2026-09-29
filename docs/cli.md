@@ -42,7 +42,8 @@ An unknown audit name is an error that lists the known ones.
 | `--root`, `--dist`, `--out-dir` | project root, build output, report output |
 | `--origin <url>` | audit a running server instead of serving the build, including any base path (`http://localhost:4173/project`) |
 | `--site-url <url>` | production origin; absolute self-links are rewritten onto the audit origin |
-| `--port <n>` | port of the built-in static server |
+| `--serve <command>` | serve the build with this command instead of the built-in server, see [Serving the build](./serving) |
+| `--port <n>` | port the build is served on |
 | `--all-locales` | include translated pages too |
 | `--update-baseline` | `shots`: record the current screenshots as the baseline |
 | `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, repeatable |
@@ -55,6 +56,7 @@ Each flag sets a config key and wins over every other source:
 | --- | --- |
 | `--root` / `--dist` / `--out-dir` | `root` / `distDir` / `outDir` |
 | `--origin` / `--site-url` / `--port` | `origin` / `siteUrl` / `port` |
+| `--serve` | `server.command` |
 | `--all-locales` | `allLocales: true` |
 | `--update-baseline` | `shots.updateBaseline: true` |
 | `--accept-findings` | `baseline.update: true` |

@@ -23,6 +23,7 @@ interface RunFlags extends ConfigFlags {
   origin?: string;
   siteUrl?: string;
   port?: number;
+  serve?: string;
   allLocales?: boolean;
   updateBaseline?: boolean;
   acceptFindings?: boolean;
@@ -59,6 +60,7 @@ const runOverrides = (flags: RunFlags): UserConfig => ({
   origin: flags.origin,
   siteUrl: flags.siteUrl,
   port: flags.port,
+  ...(flags.serve && { server: { command: flags.serve } }),
   ...(flags.allLocales && { allLocales: true }),
   ...(flags.updateBaseline && { shots: { updateBaseline: true } }),
   ...(flags.acceptFindings && { baseline: { update: true } }),
@@ -119,7 +121,8 @@ withConfigOptions(
     '--site-url <url>',
     'production origin; absolute self-links are rewritten to the audit origin',
   )
-  .option('--port <port>', 'port for the built-in static server', toPort)
+  .option('--serve <command>', "serve the build with this command, e.g. your host's dev server")
+  .option('--port <port>', 'port the build is served on', toPort)
   .option('--all-locales', 'include every locale, not only the default one')
   .option('--update-baseline', 'shots: record the current screenshots as the baseline')
   .option('--accept-findings', 'record current findings in the baseline file so only new ones fail')

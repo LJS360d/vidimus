@@ -298,7 +298,7 @@ export const security: Audit = {
         } catch (error) {
           report('could not fetch headers', page.path, {
             details: [error instanceof Error ? error.message : String(error)],
-            fix: `Make sure ${origin} is up and serves this page, or drop --origin to read ${options.file} from the build.`,
+            fix: `Make sure ${origin} is up and serves this page, or drop ${config.server.command ? 'server.command' : '--origin'} to read ${options.file} from the build.`,
           });
         }
       });

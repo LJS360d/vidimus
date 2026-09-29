@@ -9,7 +9,8 @@ A run goes through the same steps every time:
 
 1. Load and merge the config from its sources.
 2. Select the audits to run.
-3. Serve the build locally, or use the server given by `--origin`.
+3. Serve the build locally, with the built-in server or `server.command`, or use the server
+   given by `--origin`.
 4. Run the audits, each one reading the source, the build or the server.
 5. Filter each audit's findings through `ignore` and the findings baseline, then apply
    `severity` and `--strict`.
@@ -73,6 +74,12 @@ When at least one selected audit requires `server` and no `origin` is set, vidim
 static server on `127.0.0.1` at `port` (default `4322`) and stops it at the end of the run. The
 audit origin is `http://localhost:<port>` followed by the base path of `siteUrl`.
 
+The built-in server is a stand-in: it does not apply `_headers`, `_redirects`, `vercel.json`,
+`firebase.json` or any other host config, and does not copy any host's redirect and 404
+behavior. To audit what production will send, set `server.command` to your host's local tool
+(`wrangler pages dev`, `netlify dev`, `firebase emulators:start`, nginx…); vidimus starts it
+instead. Examples per host are in [Serving the build](./serving).
+
 The server:
 
 - maps `/about/` to `about/index.html`, and `/about` to `about`, `about/index.html` or
@@ -119,6 +126,10 @@ export default defineConfig({
   },
 });
 ```
+
+With `server.command` set, vidimus runs that command instead of the built-in server, waits for
+`port` to answer, and stops it at the end. Audits then behave as with `--origin`. See
+[Serving the build](./serving).
 
 With `--origin <url>` no server is started. Server audits open pages under that origin
 instead, which can be a preview server (`astro preview`, `vite preview`) or the deployed site.

@@ -57,6 +57,11 @@ export const RENDERED_HEADER = 'x-vidimus-rendered';
 
 type Snapshot = (pathname: string) => string | undefined;
 
+type ServeOptions = Pick<
+  VidimusConfig['server'],
+  'gzip' | 'headers' | 'fallback' | 'fallbackStatus'
+>;
+
 export interface StaticServer {
   port: number;
   close: () => Promise<void>;
@@ -66,7 +71,7 @@ const handle = (
   req: IncomingMessage,
   res: ServerResponse,
   dist: string,
-  options: VidimusConfig['server'],
+  options: ServeOptions,
   siteUrl: string,
   snapshot: Snapshot,
 ) => {
@@ -117,7 +122,7 @@ const handle = (
 export const serve = (
   dist: string,
   port: number,
-  options: VidimusConfig['server'],
+  options: ServeOptions,
   siteUrl = '',
   snapshot: Snapshot = () => undefined,
 ) =>
