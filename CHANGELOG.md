@@ -1,5 +1,11 @@
 # vidimus
 
+## 0.11.0
+
+### Minor Changes
+
+- e9759c5: `a11y` and `r12s` accept `sample`, like `privacy`, `shots` and `lighthouse`: pages matching a pattern are reduced to one per template. `a11y.concurrency` now defaults to half the cores instead of `1`.
+
 ## 0.10.0
 
 ### Minor Changes
