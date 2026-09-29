@@ -142,7 +142,7 @@ On a small CI runner that can mean many pages loading at once.
 
 | Audit | Page timeout | Parallel tabs |
 | --- | --- | --- |
-| `a11y` | `a11y.timeout`, `60000` | `a11y.concurrency`, `1` |
+| `a11y` | `a11y.timeout`, `60000` | `a11y.concurrency`, half the cores |
 | `r12s` | `r12s.timeout`, `60000` | `r12s.concurrency`, half the cores |
 | `privacy` | `privacy.timeout`, `60000` | `privacy.concurrency`, half the cores |
 | `links` | `links.timeout`, `20000` per request | `links.concurrency`, `25` |
@@ -153,7 +153,7 @@ Half the cores means between 2 and 8. When pages time out:
 - lower the concurrency of the browser audits, or run them in separate steps
   (`npx vidimus a11y`, then `npx vidimus r12s`)
 - raise the audit's timeout
-- use `sample` (`shots`, `privacy`, `lighthouse`) to open one page per template
+- use `sample` (`a11y`, `r12s`, `privacy`, `shots`, `lighthouse`) to open one page per template
 - leave heavy sections out with the audit's `exclude`
 
 In `a11y`, `privacy` and `r12s` a page that fails to load becomes a finding (`failed to

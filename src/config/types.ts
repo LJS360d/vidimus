@@ -105,12 +105,14 @@ export interface VidimusConfig {
     concurrency: number;
     timeout: number;
     exclude: Pattern[];
+    sample: Pattern[];
   };
   a11y: {
     standard: 'WCAG2A' | 'WCAG2AA' | 'WCAG2AAA';
     timeout: number;
     concurrency: number;
     exclude: Pattern[];
+    sample: Pattern[];
     hideElements: string;
     ignore: string[];
   };

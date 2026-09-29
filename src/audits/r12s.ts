@@ -1,6 +1,6 @@
 import type { Page } from '../core/peer-types.ts';
 import type { Audit, Finding } from '../core/types.ts';
-import { inParallelTabs, navigate, pathOf, viewport } from '../core/util.ts';
+import { inParallelTabs, navigate, onePagePerTemplate, pathOf, viewport } from '../core/util.ts';
 
 interface LayoutDefect {
   rule: string;
@@ -163,8 +163,8 @@ export const r12s: Audit = {
   name: 'r12s',
   description: 'no horizontal overflow, small tap targets, small text or locked zoom',
   async run({ config, origin, pageUrls, launchBrowser }) {
-    const { viewports, concurrency, exclude, timeout, minTarget, minFont } = config.r12s;
-    const urls = pageUrls({ exclude, allLocales: true });
+    const { viewports, concurrency, exclude, sample, timeout, minTarget, minFont } = config.r12s;
+    const urls = onePagePerTemplate(pageUrls({ exclude, allLocales: true }), sample, origin);
     const browser = await launchBrowser();
     const failures: (LayoutDefect & { url: string; width: number })[] = [];
     const unloaded = new Map<string, { widths: number[]; error: string }>();

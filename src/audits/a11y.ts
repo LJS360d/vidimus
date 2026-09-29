@@ -1,5 +1,5 @@
 import type { Audit, Finding } from '../core/types.ts';
-import { inParallel, pathOf } from '../core/util.ts';
+import { inParallel, onePagePerTemplate, pathOf } from '../core/util.ts';
 
 interface Pa11yIssue {
   code: string;
@@ -41,10 +41,10 @@ export const a11y: Audit = {
   name: 'a11y',
   description: 'pa11y (HTML_CodeSniffer) finds no WCAG violations',
   async run({ config, origin, pageUrls, importPeer, launchBrowser, log }) {
-    const { standard, timeout, concurrency, hideElements, ignore, exclude } = config.a11y;
+    const { standard, timeout, concurrency, hideElements, ignore, exclude, sample } = config.a11y;
     await importPeer('puppeteer');
     const { default: pa11y } = await importPeer<{ default: Pa11y }>('pa11y');
-    const urls = pageUrls({ exclude });
+    const urls = onePagePerTemplate(pageUrls({ exclude }), sample, origin);
     const browser = await launchBrowser();
     const byIssue = new Map<string, Finding & { where: string[] }>();
     const failedToLoad: string[] = [];

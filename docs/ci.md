@@ -251,9 +251,12 @@ export default defineConfig({
 ## Speeding up CI
 
 - Run the zero-dependency audits on every push and the browser audits on pull requests only.
-- `sample` on `shots`, `privacy` and `lighthouse` audits one page per template instead of every
-  page.
-- On small runners, lower `r12s.concurrency`, `privacy.concurrency` and `shots.concurrency`
+- `sample` on `a11y`, `r12s`, `privacy`, `shots` and `lighthouse` audits one page per template
+  instead of every page.
+- Split the audits over parallel jobs (the static audits, the browser audits, `lighthouse`):
+  each job serves the build on its own runner.
+- On small runners, lower `a11y.concurrency`, `r12s.concurrency`, `privacy.concurrency` and
+  `shots.concurrency`
   (default: half the cores, 2 to 8): the non-exclusive audits run at the same time.
 - `links.checkExternal: false` keeps a pull request job independent of other sites; check
   external links in a scheduled job instead.

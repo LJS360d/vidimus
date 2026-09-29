@@ -4,6 +4,8 @@ import nav from './nav.json' with { type: 'json' };
 
 const path = (url: string) => url.slice(base.length - 1);
 const apps = flavors.filter(({ id }) => id === 'react' || id === 'angular');
+// The 13 audit pages share one layout per flavor: the browser audits load one of them each.
+const auditPages = flavors.map(({ path: dir }) => `^/${dir}audits/[^/]`);
 
 export default defineConfig({
   distDir: 'dist',
@@ -63,7 +65,10 @@ export default defineConfig({
     },
   ],
   html: { rules: { 'attribute-misuse': 'off' } },
-  // Not in `audits`: CI runs `shots` on its own against a baseline it keeps in its cache.
+  a11y: { sample: auditPages },
+  r12s: { sample: auditPages },
+  privacy: { sample: auditPages },
+  // Not in `audits`: main records the baseline on every deploy, pull requests compare with it.
   shots: { exclude: ['^(?!.*showcase)'], viewports: [375, 1280], motion: false },
   links: {
     skip: ['^mailto:', '^tel:', '^https://github\\.com/LJS360d/vidimus/edit/'],
