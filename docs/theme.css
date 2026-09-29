@@ -228,6 +228,19 @@ main {
   max-width: 48rem;
 }
 
+.doc img,
+.doc video,
+.doc svg,
+.doc iframe {
+  max-width: 100%;
+}
+
+.doc img,
+.doc video,
+.doc svg {
+  height: auto;
+}
+
 table {
   display: block;
   overflow-x: auto;
