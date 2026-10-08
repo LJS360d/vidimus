@@ -26,6 +26,7 @@
       { "text": "budget", "link": "audits/budget" },
       { "text": "assets", "link": "audits/assets" },
       { "text": "privacy", "link": "audits/privacy" },
+      { "text": "forms", "link": "audits/forms" },
       { "text": "shots", "link": "audits/shots" },
       { "text": "lighthouse", "link": "audits/lighthouse" }
     ]

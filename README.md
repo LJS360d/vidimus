@@ -29,7 +29,7 @@ npm run build && npx vidimus
 | | |
 | --- | --- |
 | `i18n` `csp` `seo` `security` `budget` `assets` | read the build, no extra dependencies |
-| `a11y` `links` `r12s` `privacy` `html` `shots` `lighthouse` | run the tools you install next to vidimus (puppeteer, pa11y, linkinator, html-validate, lighthouse, sharp) |
+| `a11y` `links` `r12s` `privacy` `forms` `html` `shots` `lighthouse` | run the tools you install next to vidimus (puppeteer, pa11y, linkinator, html-validate, lighthouse, sharp) |
 
 `i18n`, `csp`, `a11y`, `links` and `r12s` run by default; `npx vidimus all` runs everything,
 `npx vidimus seo budget` runs just those. The default set needs puppeteer, pa11y and

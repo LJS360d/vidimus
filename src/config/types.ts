@@ -107,6 +107,20 @@ export interface VidimusConfig {
     exclude: Pattern[];
     sample: Pattern[];
   };
+  forms: {
+    concurrency: number;
+    timeout: number;
+    settle: number;
+    exclude: Pattern[];
+    sample: Pattern[];
+    skip: string[];
+    maxCases: number;
+    values: Record<string, string>;
+    allowRequests: Pattern[];
+    stub: 'abort' | 'ok';
+    allowRemote: boolean;
+    outDir: string;
+  };
   a11y: {
     standard: 'WCAG2A' | 'WCAG2AA' | 'WCAG2AAA';
     timeout: number;

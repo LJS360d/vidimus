@@ -19,7 +19,7 @@ others still run, and the run exits `1`.
 | --- | --- |
 | `a11y` | `puppeteer`, `pa11y` |
 | `links` | `linkinator` |
-| `r12s`, `privacy` | `puppeteer` |
+| `r12s`, `privacy`, `forms` | `puppeteer` |
 | `html` | `html-validate` |
 | `shots` | `puppeteer`, and `sharp` for motion GIFs |
 | `lighthouse` | `lighthouse`, `puppeteer` |
@@ -145,6 +145,7 @@ On a small CI runner that can mean many pages loading at once.
 | `a11y` | `a11y.timeout`, `60000` | `a11y.concurrency`, half the cores |
 | `r12s` | `r12s.timeout`, `60000` | `r12s.concurrency`, half the cores |
 | `privacy` | `privacy.timeout`, `60000` | `privacy.concurrency`, half the cores |
+| `forms` | `forms.timeout`, `60000` | `forms.concurrency`, half the cores |
 | `links` | `links.timeout`, `20000` per request | `links.concurrency`, `25` |
 | `shots` | `shots.settleTimeout`, `10000`; `shots.protocolTimeout`, `600000` | `shots.concurrency`, half the cores |
 

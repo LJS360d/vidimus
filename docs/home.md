@@ -3,7 +3,7 @@ title: Home
 description: Checks a static website's build before it goes public, and tells you how to fix what it finds.
 ---
 
-## One command, thirteen audits
+## One command, every audit
 
 Accessibility, broken links, responsiveness, SEO, security headers, privacy, HTML validity,
 page weight, CSP, i18n, visual regression and Lighthouse. [The audits](./audits/).

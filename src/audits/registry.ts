@@ -3,6 +3,7 @@ import { a11y } from './a11y.ts';
 import { assets } from './assets.ts';
 import { budget } from './budget.ts';
 import { csp } from './csp.ts';
+import { forms } from './forms/index.ts';
 import { html } from './html.ts';
 import { i18n } from './i18n.ts';
 import { lighthouse } from './lighthouse.ts';
@@ -25,6 +26,7 @@ export const builtinAudits: Audit[] = [
   budget,
   assets,
   privacy,
+  forms,
   shots,
   lighthouse,
 ];

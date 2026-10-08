@@ -2,6 +2,7 @@ export { a11y } from './audits/a11y.ts';
 export { assets } from './audits/assets.ts';
 export { budget } from './audits/budget.ts';
 export { csp } from './audits/csp.ts';
+export { forms } from './audits/forms/index.ts';
 export { html } from './audits/html.ts';
 export { i18n } from './audits/i18n.ts';
 export { lighthouse } from './audits/lighthouse.ts';

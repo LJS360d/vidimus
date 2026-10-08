@@ -5,7 +5,7 @@ description: What the built-in static server does and does not do, and how to se
 
 # Serving the build
 
-The browser audits (`a11y`, `links`, `r12s`, `privacy`, `shots`, `lighthouse`) open pages over
+The browser audits (`a11y`, `links`, `r12s`, `privacy`, `forms`, `shots`, `lighthouse`) open pages over
 HTTP. What they find depends on what answers those requests: the same build can pass behind one
 server and fail behind another, because redirects, rewrites, headers and 404 pages belong to the
 host, not to the build.

@@ -64,7 +64,7 @@ missing peer.
 
 ```sh
 npx vidimus              # the default set, or config.audits
-npx vidimus all          # all thirteen
+npx vidimus all          # every audit
 npx vidimus seo budget   # just these
 npx vidimus list         # what is available
 ```

@@ -14,8 +14,8 @@ hero:
       text: Audits
       link: /audits/
 features:
-  - title: One command, thirteen audits
-    details: Accessibility, broken links, responsiveness, SEO, security headers, privacy, HTML validity, page weight, CSP, i18n, visual regression and Lighthouse.
+  - title: One command, every audit
+    details: Accessibility, broken links, responsiveness, SEO, security headers, privacy, forms, HTML validity, page weight, CSP, i18n, visual regression and Lighthouse.
   - title: A fix for every finding
     details: Each problem comes with what to do about it, and the config key to silence it when it's intended.
   - title: Adopt it gradually

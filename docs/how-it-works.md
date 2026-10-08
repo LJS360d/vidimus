@@ -53,7 +53,7 @@ Every audit declares what it `requires`:
 | --- | --- | --- |
 | `source` | the project only, no build | `i18n` |
 | `dist` | the build output in `distDir` | `csp`, `seo`, `security`, `html`, `budget`, `assets` |
-| `server` (the default) | the build over HTTP | `a11y`, `links`, `r12s`, `privacy`, `shots`, `lighthouse` |
+| `server` (the default) | the build over HTTP | `a11y`, `links`, `r12s`, `privacy`, `forms`, `shots`, `lighthouse` |
 
 If any selected audit needs `dist` or `server` and `distDir` does not exist, the run stops
 before any audit starts:

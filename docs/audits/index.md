@@ -1,11 +1,11 @@
 ---
 title: Audits
-description: The thirteen built-in audits, how to run them, what they need installed and how their results are reported.
+description: The built-in audits, how to run them, what they need installed and how their results are reported.
 ---
 
 # Audits
 
-vidimus ships thirteen audits. Five run by default; the rest you turn on in `audits` or name on the command line.
+vidimus ships the audits below. Five run by default; the rest you turn on in `audits` or name on the command line.
 
 | Audit | Checks | Needs | Default |
 | --- | --- | --- | --- |
@@ -20,6 +20,7 @@ vidimus ships thirteen audits. Five run by default; the rest you turn on in `aud
 | [`budget`](./budget) | HTML, CSS, JS and total page weight, image size and format, image dimensions | | |
 | [`assets`](./assets) | favicon, web manifest, Open Graph image, 404 page; ads.txt, change-password and app links when the pages show the site needs them | | |
 | [`privacy`](./privacy) | third-party requests and cookies on page load | `puppeteer` | |
+| [`forms`](./forms) | fills every form with valid and invalid values and submits it in a network sandbox | `puppeteer` | |
 | [`shots`](./shots) | screenshots against a recorded baseline | `puppeteer`, `sharp` (motion GIFs) | |
 | [`lighthouse`](./lighthouse) | Lighthouse category scores against thresholds | `lighthouse`, `puppeteer` | |
 

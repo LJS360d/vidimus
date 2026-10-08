@@ -5,6 +5,7 @@ type Tree = Record<string, unknown>;
 
 const OPEN_RECORDS = new Set([
   'lighthouse.thresholds',
+  'forms.values',
   'severity',
   'security.require',
   'html.rules',

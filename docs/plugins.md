@@ -301,7 +301,7 @@ const report = await runAudits(config, audits, reporters);
 | `run`, `runAudits`, `selectAudits`, `auditRegistry` | run audits, see above |
 | `loadConfig`, `defaults(cwd)`, `CONFIG_FILES`, `DEFAULT_AUDITS` | config loading, every default, the file names searched, the default audit list |
 | `createReporters`, `REPORTERS` | build reporters from names, the built-in names |
-| `builtinAudits`, and each audit: `i18n`, `csp`, `a11y`, `links`, `r12s`, `seo`, `security`, `html`, `budget`, `assets`, `privacy`, `shots`, `lighthouse` | the built-in `Audit` objects, to wrap or reuse |
+| `builtinAudits`, and each audit: `i18n`, `csp`, `a11y`, `links`, `r12s`, `seo`, `security`, `html`, `budget`, `assets`, `privacy`, `forms`, `shots`, `lighthouse` | the built-in `Audit` objects, to wrap or reuse |
 | `UsageError`, `MissingPeerError` | error classes; `MissingPeerError` has a `peer` field |
 
 Types: `Audit`, `AuditContext`, `AuditOutcome`, `AuditRequirement`, `AuditResult`,
