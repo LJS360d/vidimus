@@ -72,6 +72,7 @@ such as timing measurements; the built-in `lighthouse` does.
 | `pageUrls(query?)` | absolute URLs of the built pages under `origin` |
 | `builtPages(exclude?)` | the built HTML files as `{ file, rel, path, html }`, minus files matching `exclude` |
 | `log(line?)` | adds lines to the audit's log; multi-line strings are split |
+| `span(name, fn, attrs?)` | times `fn` as a named span in [`--profile`](./profiling) runs; just calls `fn` otherwise |
 | `importPeer(name)` | imports an optional dependency, with an install hint if it is missing |
 | `launchBrowser(options?)` | launches puppeteer with the `browser` config |
 
@@ -278,6 +279,8 @@ code. Its options:
 | `overrides` | a partial config applied last, like CLI flags |
 | `config` | a complete `VidimusConfig`, skipping loading altogether |
 | `reporters` | `Reporter` objects; default: the config's `reporters`, or `pretty` (plus `github` on GitHub Actions) |
+| `profile` | `'spans'` or `'cpu'` to [profile](./profiling) the run, as `--profile` |
+| `serial` | `true` to run audits one at a time, as `--serial` |
 
 Pass `reporters: []` for a silent run. Usage and config problems reject with a `UsageError`;
 audit failures and errors are in the report, not thrown.
@@ -303,9 +306,11 @@ const report = await runAudits(config, audits, reporters);
 | `createReporters`, `REPORTERS` | build reporters from names, the built-in names |
 | `builtinAudits`, and each audit: `i18n`, `csp`, `a11y`, `links`, `r12s`, `seo`, `security`, `html`, `budget`, `assets`, `privacy`, `forms`, `shots`, `lighthouse` | the built-in `Audit` objects, to wrap or reuse |
 | `UsageError`, `MissingPeerError` | error classes; `MissingPeerError` has a `peer` field |
+| `diffProfiles(before, after, top?)` | the lines `vidimus profile diff` prints |
 
 Types: `Audit`, `AuditContext`, `AuditOutcome`, `AuditRequirement`, `AuditResult`,
-`AuditStatus`, `Finding`, `PageQuery`, `RunReport`, `Severity`, `RunOptions`, `Reporter`,
+`AuditStatus`, `Finding`, `PageQuery`, `RunReport`, `Severity`, `RunOptions`, `ProfileOptions`,
+`ProfileLevel`, `ProfileSummary`, `AuditProfile`, `PoolStats`, `Row`, `Reporter`,
 `RunInfo`, `VidimusConfig`, `UserConfig`, `ConfigInput`, `ConfigEnv`, `AuditSeverity`,
 `IgnoreRule`, `HeaderRule`, `Pattern`, `Range`, `ViewportSize`, `LoadConfigOptions`,
 `LoadedConfig`, `AcceptedFinding`, `BaselineFile`, and puppeteer's `Browser`, `Page` and

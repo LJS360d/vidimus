@@ -85,6 +85,7 @@ export const sandbox = async (page: Page, allow: string[], stub: 'abort' | 'ok')
     arm: (on: boolean) => {
       armed = on;
     },
+    pending: () => captured.length,
     take: () => {
       const out = captured;
       captured = [];

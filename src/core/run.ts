@@ -11,16 +11,24 @@ import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } fr
 import { createPageReader } from './html.ts';
 import { createPageUrls, pageUrlOf } from './pages.ts';
 import { importPeer, launchBrowser, sharedBrowser } from './peer.ts';
+import { type ProfileLevel, span, startProfile, stopProfile } from './profile.ts';
 import { createRenderer } from './render.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, PageSource, RunReport } from './types.ts';
 import { basePathOf, matchesAny, pathOf } from './util.ts';
 
-export interface RunOptions extends LoadConfigOptions {
+export interface RunOptions extends LoadConfigOptions, ProfileOptions {
   audits?: string[];
   config?: VidimusConfig;
   reporters?: Reporter[];
+}
+
+export interface ProfileOptions {
+  /** Record where the run spends its time; writes a trace to `<outDir>/profile/`. */
+  profile?: ProfileLevel;
+  /** Run audits one at a time, so each audit's profile is free of the others' load. */
+  serial?: boolean;
 }
 
 export const auditRegistry = (config: VidimusConfig) =>
@@ -71,6 +79,23 @@ export const runAudits = async (
   config: VidimusConfig,
   audits: Audit[],
   reporters: Reporter[],
+  options: ProfileOptions = {},
+): Promise<RunReport> => {
+  if (!options.profile) return execute(config, audits, reporters, options);
+  await startProfile(options.profile);
+  try {
+    return await execute(config, audits, reporters, options);
+  } finally {
+    // Only still recording when the run threw: keep what was measured up to the failure.
+    await stopProfile(resolve(config.root, config.outDir, 'profile'), config.root);
+  }
+};
+
+const execute = async (
+  config: VidimusConfig,
+  audits: Audit[],
+  reporters: Reporter[],
+  options: ProfileOptions,
 ): Promise<RunReport> => {
   const startedAt = new Date();
   const dist = resolve(config.root, config.distDir);
@@ -99,7 +124,9 @@ export const runAudits = async (
   const browser = sharedBrowser(() => launchBrowser(config));
   const renderer = createRenderer(config, browser);
   const server =
-    needsServer && !config.origin ? await startServer(config, dist, renderer.snapshot) : undefined;
+    needsServer && !config.origin
+      ? await span('serve', () => startServer(config, dist, renderer.snapshot))
+      : undefined;
   const origin = (
     config.origin || `http://localhost:${server?.port ?? config.port}${basePathOf(config.siteUrl)}`
   ).replace(/\/$/, '');
@@ -144,13 +171,14 @@ export const runAudits = async (
       renderedPages: (exclude) => renderedPages(exclude, (line) => log.push(line)),
       ...(rendering && { renderPage }),
       log: (line = '') => log.push(...line.split('\n')),
+      span,
       importPeer,
       launchBrowser: (options) => (options ? launchBrowser(config, options) : browser()),
     };
     let settled: Pick<AuditResult, 'status' | 'summary' | 'findings'>;
     let suppressed = 0;
     try {
-      const outcome = await audit.run(context);
+      const outcome = await span(`audit ${audit.name}`, () => audit.run(context));
       const raw = outcome.findings ?? [];
       const kept = applyIgnore(audit.name, raw, config.ignore);
       unsuppressed.set(audit.name, kept);
@@ -195,11 +223,14 @@ export const runAudits = async (
       });
     }
     if (needsServer) {
-      const routes = await resolveRoutes(auditConfig, dist, builtPages, origin, renderer);
+      const routes = await span('routes', () =>
+        resolveRoutes(auditConfig, dist, builtPages, origin, renderer),
+      );
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
-    results.push(...(await Promise.all(audits.filter((audit) => !audit.exclusive).map(runOne))));
-    for (const audit of audits.filter((audit) => audit.exclusive))
+    const parallel = options.serial ? [] : audits.filter((audit) => !audit.exclusive);
+    results.push(...(await Promise.all(parallel.map(runOne))));
+    for (const audit of audits.filter((audit) => !parallel.includes(audit)))
       results.push(await runOne(audit));
   } finally {
     await renderer.close();
@@ -210,12 +241,14 @@ export const runAudits = async (
     writeBaseline(baselineFile, config.root, unsuppressed);
   }
 
+  const profile = await stopProfile(resolve(config.root, config.outDir, 'profile'), config.root);
   const report: RunReport = {
     ok: results.every(({ status }) => status !== 'failed' && status !== 'errored'),
     origin: needsServer ? origin : '',
     startedAt: startedAt.toISOString(),
     durationMs: Date.now() - startedAt.getTime(),
     results,
+    ...(profile && { profile }),
   };
   for (const reporter of reporters) await reporter.onEnd?.(report);
   return report;
@@ -225,6 +258,8 @@ export const run = async ({
   audits = [],
   config: preloaded,
   reporters,
+  profile,
+  serial,
   ...loadOptions
 }: RunOptions = {}) => {
   const config = preloaded ?? (await loadConfig(loadOptions)).config;
@@ -237,5 +272,6 @@ export const run = async ({
         cwd: loadOptions.cwd ?? process.cwd(),
         env: loadOptions.env ?? process.env,
       }),
+    { profile, serial },
   );
 };

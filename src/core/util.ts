@@ -1,6 +1,7 @@
 import { isAbsolute, relative } from 'node:path';
 import type { NavigateOptions, Pattern, ViewportSize } from '../config/types.ts';
 import type { Browser, Page } from './peer-types.ts';
+import { span } from './profile.ts';
 
 export const escapeRegExp = (text: string) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
 
@@ -64,11 +65,27 @@ export const inParallel = async <T>(
   if (!items.length) return;
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(concurrency) || 1), items.length);
-  await Promise.all(
-    Array.from({ length: workers }, async () => {
-      for (const item of queue) await work(item);
-    }),
+  await span(
+    'pool',
+    async () => {
+      const opened = performance.now();
+      await Promise.all(
+        Array.from({ length: workers }, async () => {
+          for (const item of queue)
+            await span('task', () => work(item), taskAttrs(item, performance.now() - opened));
+        }),
+      );
+    },
+    { workers, items: items.length },
   );
+};
+
+// What a pool item is called in a profile: a URL, or an object's id/url/path.
+const taskAttrs = (item: unknown, waitMs: number) => {
+  const named = item as { id?: unknown; url?: unknown; path?: unknown } | undefined;
+  const label =
+    typeof item === 'string' ? item : String(named?.id ?? named?.url ?? named?.path ?? '');
+  return { waitMs, ...(label && { item: label }), ...(/^https?:/.test(label) && { url: label }) };
 };
 
 export const inParallelTabs = async <T>(
@@ -80,14 +97,28 @@ export const inParallelTabs = async <T>(
   if (!items.length) return;
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(tabs) || 1), items.length);
-  await inParallel(workers, Array.from({ length: workers }), async () => {
-    const page = await browser.newPage();
-    try {
-      for (const item of queue) await work(page, item);
-    } finally {
-      await page.close().catch(() => {});
-    }
-  });
+  await span(
+    'pool',
+    async () => {
+      const opened = performance.now();
+      await Promise.all(
+        Array.from({ length: workers }, async () => {
+          const page = await browser.newPage();
+          try {
+            for (const item of queue)
+              await span(
+                'task',
+                () => work(page, item),
+                taskAttrs(item, performance.now() - opened),
+              );
+          } finally {
+            await page.close().catch(() => {});
+          }
+        }),
+      );
+    },
+    { workers, items: items.length },
+  );
 };
 
 export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[], root = '') => {
@@ -121,9 +152,19 @@ export const displayPath = (root: string, path: string) => {
 };
 
 // waitFor is 'load', 'networkidle', a number of milliseconds after load, or a CSS selector.
-export const navigate = async (page: Page, url: string, { waitFor, timeout }: NavigateOptions) => {
-  const wait = typeof waitFor === 'number' || /^\d+$/.test(waitFor) ? Number(waitFor) : waitFor;
-  await page.goto(url, { waitUntil: wait === 'networkidle' ? 'networkidle0' : 'load', timeout });
-  if (typeof wait === 'number') await new Promise((done) => setTimeout(done, wait));
-  else if (wait !== 'load' && wait !== 'networkidle') await page.waitForSelector(wait, { timeout });
-};
+export const navigate = (page: Page, url: string, { waitFor, timeout }: NavigateOptions) =>
+  span(
+    'navigate',
+    async () => {
+      const wait = typeof waitFor === 'number' || /^\d+$/.test(waitFor) ? Number(waitFor) : waitFor;
+      await page.goto(url, {
+        waitUntil: wait === 'networkidle' ? 'networkidle0' : 'load',
+        timeout,
+      });
+      if (typeof wait === 'number')
+        await span(`wait ${wait}ms`, () => new Promise((done) => setTimeout(done, wait)));
+      else if (wait !== 'load' && wait !== 'networkidle')
+        await page.waitForSelector(wait, { timeout });
+    },
+    { url },
+  );

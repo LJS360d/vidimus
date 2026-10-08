@@ -192,4 +192,13 @@ describe('embeds in browser audits', { skip: noBrowser }, () => {
     });
     assert.ok(result.findings.some(({ details }) => details?.some((line) => /H64/.test(line))));
   });
+
+  it('a11y reports a page it could not audit in time', async () => {
+    const result = await audit(
+      'a11y',
+      { 'dist/index.html': page('', '<p>slow</p>') },
+      { a11y: { timeout: 1 } },
+    );
+    assert.match(result.findings[0]?.message ?? '', /^failed to audit \/: /);
+  });
 });

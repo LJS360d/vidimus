@@ -1,6 +1,7 @@
 import type { Pattern, VidimusConfig } from '../config/types.ts';
 import type { BuiltPage } from './html.ts';
 import type { Browser, LaunchOptions } from './peer-types.ts';
+import type { ProfileSummary } from './profile.ts';
 import type { RenderedPage, RenderedRequest } from './render.ts';
 
 export type AuditRequirement = 'source' | 'dist' | 'server';
@@ -42,6 +43,8 @@ export interface AuditContext {
   renderedPages: (exclude?: Pattern[]) => Promise<PageSource[]>;
   renderPage?: (url: string) => Promise<RenderedPage>;
   log: (line?: string) => void;
+  /** Times fn as a named span in `--profile` runs; just calls fn otherwise. */
+  span: <T>(name: string, fn: () => Promise<T>, attrs?: Record<string, unknown>) => Promise<T>;
   importPeer: <T>(name: string) => Promise<T>;
   launchBrowser: (options?: LaunchOptions) => Promise<Browser>;
 }
@@ -72,4 +75,5 @@ export interface RunReport {
   startedAt: string;
   durationMs: number;
   results: AuditResult[];
+  profile?: ProfileSummary;
 }

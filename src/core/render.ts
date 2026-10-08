@@ -1,5 +1,6 @@
 import type { VidimusConfig } from '../config/types.ts';
 import type { Browser } from './peer-types.ts';
+import { span } from './profile.ts';
 import { navigate } from './util.ts';
 
 export interface RenderedRequest {
@@ -23,6 +24,8 @@ export interface Renderer {
 }
 
 // Runs in the page: every URL the rendered DOM points at, and whether it shows a not-found view.
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const collect = (selector: string, text: string) => {
   const absolute = (value: string | null) => {
     try {
@@ -46,6 +49,7 @@ const collect = (selector: string, text: string) => {
     (!!text && new RegExp(text).test(document.body?.innerText ?? ''));
   return { anchors, links: [...new Set(links)].filter(Boolean), notFound };
 };
+/* node:coverage enable */
 
 export const createRenderer = (
   config: VidimusConfig,
@@ -72,7 +76,7 @@ export const createRenderer = (
   };
 
   const load = async (url: string): Promise<RenderedPage> => {
-    await acquire();
+    await span('render.wait', acquire);
     try {
       handle ??= browser();
       const page = await (await handle).newPage();
@@ -100,7 +104,7 @@ export const createRenderer = (
     render: (url) => {
       let rendered = cache.get(url);
       if (!rendered) {
-        rendered = load(url);
+        rendered = span('render', () => load(url), { url });
         cache.set(url, rendered);
       }
       return rendered;

@@ -1,6 +1,7 @@
 import type { VidimusConfig } from '../config/types.ts';
 import { MissingPeerError } from './errors.ts';
 import type { Browser, LaunchOptions } from './peer-types.ts';
+import { instrument, span } from './profile.ts';
 
 const isMissing = (error: unknown, peer: string) =>
   error instanceof Error &&
@@ -14,7 +15,7 @@ export const importPeer = <T>(peer: string): Promise<T> => {
   if (!loaded.has(peer)) {
     loaded.set(
       peer,
-      import(peer).catch((error: unknown) => {
+      span(`import ${peer}`, () => import(peer)).catch((error: unknown) => {
         loaded.delete(peer);
         throw isMissing(error, peer) ? new MissingPeerError(peer) : error;
       }),
@@ -65,9 +66,12 @@ export const launchBrowser = async (
   options: LaunchOptions = {},
 ): Promise<Browser> => {
   const { default: puppeteer } = await importPeer<typeof import('puppeteer')>('puppeteer');
-  return puppeteer.launch({
-    ...(config.browser.executablePath && { executablePath: config.browser.executablePath }),
-    ...options,
-    args: [...config.browser.args, ...(options.args ?? [])],
-  });
+  const browser = await span('browser.launch', () =>
+    puppeteer.launch({
+      ...(config.browser.executablePath && { executablePath: config.browser.executablePath }),
+      ...options,
+      args: [...config.browser.args, ...(options.args ?? [])],
+    }),
+  );
+  return instrument(browser, 'browser');
 };

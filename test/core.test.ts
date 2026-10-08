@@ -4,8 +4,9 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { MissingPeerError } from '../src/core/errors.ts';
 import { decodeEntities, srcsetUrls, stripComments, tags, textOf } from '../src/core/html.ts';
-import { sharedBrowser } from '../src/core/peer.ts';
+import { importPeer, sharedBrowser } from '../src/core/peer.ts';
 import type { Browser, Page } from '../src/core/peer-types.ts';
 import { serve } from '../src/core/server.ts';
 import { inParallel, inParallelTabs } from '../src/core/util.ts';
@@ -135,6 +136,24 @@ describe('parallel helpers', () => {
     assert.equal(closes(), 1);
     await (await shared()).close();
     assert.equal(launches, 2);
+  });
+
+  it('retries a launch that failed, and names a missing peer dependency', async () => {
+    const { browser } = fakeBrowser();
+    let launches = 0;
+    const shared = sharedBrowser(async () => {
+      launches += 1;
+      if (launches === 1) throw new Error('no chrome');
+      return browser;
+    });
+    await assert.rejects(shared(), /no chrome/);
+    await (await shared()).close();
+    assert.equal(launches, 2);
+
+    const missing = await importPeer('vidimus-no-such-package').catch((error: unknown) => error);
+    assert.ok(missing instanceof MissingPeerError);
+    assert.equal(missing.peer, 'vidimus-no-such-package');
+    assert.match(missing.message, /npm i -D vidimus-no-such-package/);
   });
 });
 

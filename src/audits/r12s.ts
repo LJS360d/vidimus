@@ -32,6 +32,8 @@ export const defectFix = (
   return 'Remove user-scalable=no and maximum-scale from the viewport meta so users can pinch-zoom.';
 };
 
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefect[] => {
   const describe = (el: Element) => {
     const cls = (el.getAttribute('class') || '').trim().split(/\s+/).slice(0, 3).join('.');
@@ -142,6 +144,7 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
 
   return findings;
 };
+/* node:coverage enable */
 
 const measureAfterFontsAndRedirects = async (
   page: Page,

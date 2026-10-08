@@ -27,6 +27,8 @@ interface Frame {
   delay: number;
 }
 
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: number) => {
   const decode = (src: string) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
@@ -84,6 +86,7 @@ const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: nu
   });
   return { changed, total: width * height, diffBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) };
 };
+/* node:coverage enable */
 
 const gallery = (
   rows: { name: string; percent: string }[],
@@ -116,6 +119,8 @@ ${[
   .join('\n')}
 `;
 
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const waitForStylesFontsAndImages = async (budget: number) => {
   const deadline = new Promise((done) => setTimeout(done, budget));
   // Eager and sync: a lazy image never loads below the fold, and an async one can be left out
@@ -148,6 +153,7 @@ const waitForStylesFontsAndImages = async (budget: number) => {
   await Promise.race([fonts.then(() => document.fonts.ready), deadline]);
   await Promise.race([Promise.all(pendingImages), deadline]);
 };
+/* node:coverage enable */
 
 const FROZEN_FRAMES = 30;
 
@@ -161,6 +167,8 @@ interface Instrumented {
 
 // Runs before any page script. Records WebGL contexts that fail and, with freeze, makes rAF
 // scenes deterministic: seeded Math.random, a virtual clock, and no frames after the limit.
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const instrument = (freeze: boolean, limit: number) => {
   const describe = (node: Element) =>
     node.tagName.toLowerCase() +
@@ -217,8 +225,11 @@ const instrument = (freeze: boolean, limit: number) => {
   };
   state.settled = () => frames >= limit || clock() - state.lastRequest > 200;
 };
+/* node:coverage enable */
 
 // Stops what freeze cannot reach from script: video frames and endless CSS animations.
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const stillMedia = async () => {
   for (const animation of document.getAnimations()) {
     if (animation.effect?.getComputedTiming().iterations !== Infinity) continue;
@@ -245,8 +256,11 @@ const stillMedia = async () => {
     }),
   );
 };
+/* node:coverage enable */
 
 // Paints masked elements a flat colour in place, so the layout stays as it is.
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const maskElements = (selectors: string[], embeds: boolean) => {
   const invalid: string[] = [];
   const masked: Element[] = [];
@@ -274,7 +288,10 @@ const maskElements = (selectors: string[], embeds: boolean) => {
   }
   return invalid;
 };
+/* node:coverage enable */
 
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 const movingElements = () => {
   const describe = (node: Element) =>
     node.tagName.toLowerCase() +
@@ -292,6 +309,7 @@ const movingElements = () => {
   }
   return [...found].slice(0, 3);
 };
+/* node:coverage enable */
 
 const captureMotion = async (page: Page, { interval, stableFrames, maxFrames }: MotionOptions) => {
   await page.evaluate(() => {

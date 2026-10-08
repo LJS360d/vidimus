@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, Page } from '../../core/peer-types.ts';
+import { span } from '../../core/profile.ts';
 import type { Audit, Finding } from '../../core/types.ts';
 import { inParallel, navigate, onePagePerTemplate, pathOf } from '../../core/util.ts';
 import {
@@ -81,16 +82,6 @@ const observedOf = (fields: FieldInfo[], results: CaseResult[]) =>
   );
 
 const LOOPBACK = /^(localhost|127(\.\d+){3}|\[::1\])$/;
-const DECLARED = new Set([
-  'required',
-  'minLength',
-  'pattern',
-  'type',
-  'min',
-  'max',
-  'step',
-  'equals',
-]);
 const SENT = new Set<Outcome>(['sent', 'navigated']);
 const BLOCKED = /Failed to fetch|ERR_BLOCKED_BY_CLIENT|NetworkError|Network Error|Load failed/i;
 const CSRF = /csrf|xsrf|_token|authenticity|nonce/i;
@@ -110,30 +101,16 @@ const requestLine = (request: Captured, origin: string) =>
     request.body === undefined ? '' : `  ${JSON.stringify(request.body).slice(0, 160)}`
   }`;
 
-const inferredNote = (check: string, field: FieldInfo | undefined) =>
-  field?.inferred?.includes(check) ? ' (rule inferred from the page)' : '';
-
-const describe = (check: string, field: FieldInfo | undefined, other?: string) => {
-  switch (check) {
-    case 'required':
-      return `empty while required${inferredNote(check, field)}`;
-    case 'minLength':
-      return `shorter than minlength ${field?.minLength}${inferredNote(check, field)}`;
-    case 'pattern':
-      return `not matching pattern ${field?.pattern}`;
-    case 'type':
-      return `not a valid ${field?.type}`;
-    case 'min':
-      return `below min ${field?.min}${inferredNote(check, field)}`;
-    case 'max':
-      return `above max ${field?.max}${inferredNote(check, field)}`;
-    case 'step':
-      return `off step ${field?.step}`;
-    case 'equals':
-      return `not matching ${other}`;
-    default:
-      return check;
-  }
+// What a sent value broke, for each rule a field declares (or the audit inferred).
+const BROKE: Record<string, (field: FieldInfo, other: string) => string> = {
+  required: () => 'empty while required',
+  minLength: (f) => `shorter than minlength ${f.minLength}`,
+  pattern: (f) => `not matching pattern ${f.pattern}`,
+  type: (f) => `not a valid ${f.type}`,
+  min: (f) => `below min ${f.min}`,
+  max: (f) => `above max ${f.max}`,
+  step: (f) => `off step ${f.step}`,
+  equals: (_, other) => `not matching ${other}`,
 };
 
 const findingsFor = (form: Exercised, origin: string): Finding[] => {
@@ -159,18 +136,21 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
 
   for (const [key, list] of byFieldCheck) {
     const [name = '', check = ''] = key.split('\u0000');
-    const info = field(name);
+    // Every sent case changed one field (or the whole form, which BROKE never covers).
+    const info = field(name) as FieldInfo;
     const first = list[0] as CaseResult;
-    if (first.expect === 'invalid' && DECLARED.has(check)) {
+    if (first.expect === 'invalid' && Object.hasOwn(BROKE, check)) {
       const novalidate = form.form.novalidate && form.form.adapters.length === 1;
-      add(`${name} sent ${describe(check, info, form.confirms[name])}`, {
+      const broke = (BROKE[check] as (typeof BROKE)[string])(info, form.confirms[name] ?? '');
+      const inferred = info.inferred?.includes(check) ? ' (rule inferred from the page)' : '';
+      add(`${name} sent ${broke}${inferred}`, {
         details: [...evidence(list), `layers: ${layers(first.state)}`],
         fix: novalidate
           ? 'The form has novalidate and no script validation: remove novalidate, or validate in the submit handler before sending. Repeat the check on the server.'
           : 'The rule is declared but the form sends anyway: validate before sending (call checkValidity()/reportValidity() or the form library validator in the submit handler). Repeat the check on the server.',
       });
     } else if (check === 'semantic') {
-      const kind = info ? kindOf(info) : 'value';
+      const kind = kindOf(info);
       add(`${name} accepts an invalid ${kind}`, {
         severity: 'warn',
         details: evidence(list),
@@ -204,7 +184,7 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
   }
 
   for (const c of cases.filter((c) => c.events.canary))
-    add(`${c.field ?? 'a field'} value is rendered as HTML`, {
+    add(`${c.field} value is rendered as HTML`, {
       details: [`${c.label}: ${show(c.value)} became a <i data-vidimus-canary> element`],
       fix: 'Insert user input as text (textContent, framework text bindings), never as HTML (innerHTML, dangerouslySetInnerHTML, v-html, [innerHTML]).',
     });
@@ -293,12 +273,6 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
       fix: 'Set aria-invalid="true" on the field while it is invalid and point aria-describedby at the error text.',
     });
 
-  if (!form.form.submitter && form.form.kind === 'group')
-    add('no submit control found', {
-      severity: 'warn',
-      fix: 'Give the form a <button type="submit">, or wrap it in a <form>, so it can be submitted with the keyboard.',
-    });
-
   // The sandbox aborting the app's own request is expected, not a bug in the page.
   const errors = [
     ...new Set(cases.flatMap((c) => [...c.events.errors, ...(c.error ? [c.error] : [])])),
@@ -363,6 +337,7 @@ export const forms: Audit = {
       return { page, net, load, close: () => context.close().catch(() => {}) };
     };
 
+    type Session = Awaited<ReturnType<typeof open>>;
     const failed: Finding[] = [];
     const found: Found[] = [];
     const exercised: Exercised[] = [];
@@ -399,12 +374,18 @@ export const forms: Audit = {
         }
       });
 
-      // The same form on many pages (a footer newsletter) is exercised once.
+      // The same form on many pages (a footer newsletter) is exercised once. Look-alike forms
+      // on one page stay apart: the n-th of them only matches the n-th on another page.
       const groups = new Map<string, Found[]>();
+      const seen = new Map<string, number>();
       for (const item of found.sort(
         (a, b) => a.path.localeCompare(b.path) || a.form.index - b.form.index,
-      ))
-        groups.set(item.fingerprint, [...(groups.get(item.fingerprint) ?? []), item]);
+      )) {
+        const nth = seen.get(`${item.path} ${item.fingerprint}`) ?? 0;
+        seen.set(`${item.path} ${item.fingerprint}`, nth + 1);
+        const key = `${item.fingerprint}#${nth}`;
+        groups.set(key, [...(groups.get(key) ?? []), item]);
+      }
       const ids = new Map<string, number>();
       const unique = [...groups.values()].map((items) => {
         const first = items[0] as Found;
@@ -420,7 +401,7 @@ export const forms: Audit = {
       await inParallel(options.concurrency, unique, async ({ first, id, pages }) => {
         const { url, form, fingerprint } = first;
         const index = form.index;
-        let session: Awaited<ReturnType<typeof open>> | undefined;
+        let session: Session | undefined;
         try {
           session = await open(url);
           const { page, net } = session;
@@ -432,36 +413,39 @@ export const forms: Audit = {
           const rejected = (state: FieldState | undefined) =>
             !!state &&
             (state.native === 'invalid' || state.framework === 'invalid' || state.ui === 'invalid');
-          for (let round = 0; round < 3; round++) {
-            const { baseline } = casesFor(fields, options.values, known);
-            await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, baseline);
-            await settled(page);
-            let states = await page.evaluate((i) => window.__vidimus.observe(i), index);
-            for (const field of fields.filter((f) => f.usable && !(f.key in known))) {
-              if (!rejected(states[field.key])) continue;
-              for (const value of alternatesFor(field)) {
-                await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, {
-                  [field.key]: value,
-                });
-                await settled(page);
-                states = await page.evaluate((i) => window.__vidimus.observe(i), index);
-                if (rejected(states[field.key])) continue;
-                known[field.key] = value;
-                break;
+          fields = await span('forms.baseline', async () => {
+            for (let round = 0; round < 3; round++) {
+              const { baseline } = casesFor(fields, options.values, known);
+              await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, baseline);
+              await settled(page);
+              let states = await page.evaluate((i) => window.__vidimus.observe(i), index);
+              for (const field of fields.filter((f) => f.usable && !(f.key in known))) {
+                if (!rejected(states[field.key])) continue;
+                for (const value of alternatesFor(field)) {
+                  await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, {
+                    [field.key]: value,
+                  });
+                  await settled(page);
+                  states = await page.evaluate((i) => window.__vidimus.observe(i), index);
+                  if (rejected(states[field.key])) continue;
+                  known[field.key] = value;
+                  break;
+                }
               }
+              const rescanned =
+                (await page.evaluate(() => window.__vidimus.forms()))[index]?.fields ?? fields;
+              const keys = new Set(fields.map((f) => f.key));
+              const added = rescanned.filter((f) => !keys.has(f.key) && f.usable);
+              if (!added.length) break;
+              fields = [...fields, ...added];
             }
-            const rescanned =
-              (await page.evaluate(() => window.__vidimus.forms()))[index]?.fields ?? fields;
-            const keys = new Set(fields.map((f) => f.key));
-            const added = rescanned.filter((f) => !keys.has(f.key) && f.usable);
-            if (!added.length) break;
-            fields = [...fields, ...added];
-          }
+            return fields;
+          });
           // Rules the markup does not declare (Angular Validators, Zod, custom code) are found
           // by probing one field at a time, so their boundaries get cases too.
           const accepted = casesFor(fields, options.values, known).baseline;
           await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, accepted);
-          fields = await inferAll(page, index, fields, accepted);
+          fields = await span('forms.infer', () => inferAll(page, index, fields, accepted));
           const generated = casesFor(fields, options.values, known);
           const cases = generated.cases.slice(0, options.maxCases);
           const results: CaseResult[] = [];
@@ -470,20 +454,26 @@ export const forms: Audit = {
             const { values, ...rest } = c;
             const base = { ...rest, ...(c.field && { value: values[c.field] }) };
             try {
-              if (dirty) await session.load();
-              results.push(
-                await runCase(
-                  page,
-                  net,
-                  index,
-                  c,
-                  fields,
-                  upload,
-                  options.settle,
-                  !!form.submitter || form.kind === 'form',
-                ),
+              const reload = dirty;
+              const ran = await span(
+                'forms.case',
+                async () => {
+                  if (reload) await span('forms.reload', () => (session as Session).load());
+                  return runCase(
+                    page,
+                    net,
+                    index,
+                    c,
+                    fields,
+                    upload,
+                    options.settle,
+                    !!form.submitter || form.kind === 'form',
+                  );
+                },
+                { case: c.label },
               );
-              const last = results.at(-1) as CaseResult;
+              results.push(ran);
+              const last = ran;
               dirty = last.outcome !== 'blocked:native' && last.outcome !== 'not-submitted';
             } catch (error) {
               results.push({
@@ -614,7 +604,13 @@ const runCase = async (
     // Browser validation blocks synchronously; anything else gets the settle window.
     const nativeBlock = after.invalid.length > 0 && after.submits.length === 0;
     if (!nativeBlock) {
-      await sleep(settle);
+      await span('forms.settle', async () => {
+        // Wait up to settle ms for the form to send; once it has, a short grace period catches
+        // a second request (double submit) and the wait ends.
+        const until = performance.now() + settle;
+        while (performance.now() < until && !net.pending()) await sleep(25);
+        if (net.pending()) await sleep(50);
+      });
       const more = await page.evaluate(() => window.__vidimus.drain());
       after = mergeEvents(after, more);
     }

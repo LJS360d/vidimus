@@ -113,6 +113,7 @@ The whole run report, written once at the end, pretty-printed:
 | `startedAt` | ISO 8601 timestamp |
 | `durationMs` | duration of the whole run |
 | `results[]` | one entry per audit, in selection order, `exclusive` audits last |
+| `profile` | with `--profile` only: the [profile summary](./profiling#in-the-json-report) |
 
 Each result:
 

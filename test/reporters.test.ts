@@ -178,6 +178,35 @@ describe('github reporter output', () => {
     assert.match(text(), /::error title=vidimus a11y::pa11y missing/);
     assert.match(readFileSync(summary, 'utf8'), /\| links \| failed \| 1 broken \|/);
   });
+
+  it('writes warnings with file, details, pages and fix, and no summary outside Actions', () => {
+    const { stream, text } = sink();
+    const root = fixture({});
+    const reporter = github(stream, { GITHUB_WORKSPACE: root });
+    reporter.onAuditEnd?.({
+      name: 'seo',
+      status: 'warned',
+      summary: '1 problem',
+      suppressed: 0,
+      log: [],
+      durationMs: 1,
+      findings: [
+        {
+          message: 'title, too long: 70%',
+          severity: 'warn',
+          file: join(root, 'dist', 'index.html'),
+          details: ['line\r\nbreak'],
+          where: ['/'],
+          fix: 'shorten it',
+        },
+      ],
+    });
+    reporter.onEnd?.(report);
+    assert.equal(
+      text(),
+      '::warning file=dist/index.html,title=vidimus seo::title, too long: 70%25%0Aline%0D%0Abreak%0Aon: /%0Afix: shorten it\n',
+    );
+  });
 });
 
 describe('createReporters', () => {

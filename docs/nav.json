@@ -36,6 +36,7 @@
     "items": [
       { "text": "Configuration", "link": "configuration" },
       { "text": "CLI", "link": "cli" },
+      { "text": "Profiling", "link": "profiling" },
       { "text": "Reporters", "link": "reporters" },
       { "text": "Custom audits and API", "link": "plugins" }
     ]

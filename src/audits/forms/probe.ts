@@ -80,6 +80,8 @@ declare global {
   }
 }
 
+// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
+/* node:coverage disable */
 export const probe = (skip: string[]) => {
   const events: PageEvents = {
     submits: [],
@@ -555,3 +557,4 @@ export const probe = (skip: string[]) => {
     },
   };
 };
+/* node:coverage enable */

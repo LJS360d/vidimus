@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
 import { styleText } from 'node:util';
+import { formatProfile } from '../core/profile.ts';
 import type { AuditStatus } from '../core/types.ts';
 import { firstFew } from '../core/util.ts';
 import type { Reporter } from './types.ts';
@@ -46,7 +47,12 @@ export const pretty = (stream: NodeJS.WriteStream = process.stdout): Reporter =>
         `${paint(color, symbol)} ${result.name}: ${result.summary}${known} ${paint('dim', `(${(result.durationMs / 1000).toFixed(1)}s)`)}`,
       );
     },
-    onEnd({ results }) {
+    onEnd({ results, profile }) {
+      if (profile) {
+        out();
+        out(paint('bold', `─── profile ${'─'.repeat(53)}`));
+        for (const line of formatProfile(profile)) out(line);
+      }
       const counted = results.filter(({ status }) => status !== 'skipped');
       const named = (status: AuditStatus[]) =>
         counted.filter((result) => status.includes(result.status)).map(({ name }) => name);

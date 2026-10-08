@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { VidimusConfig } from '../config/types.ts';
+import { addSpans, span } from '../core/profile.ts';
 import type { Audit, AuditContext, Finding } from '../core/types.ts';
 import {
   displayPath,
@@ -18,6 +19,7 @@ interface CategoryRef {
 
 interface LighthouseResult {
   runtimeError?: { code: string; message: string };
+  timing?: { entries?: { name: string; startTime: number; duration: number }[] };
   categories: Record<string, { score: number | null; auditRefs: CategoryRef[] } | undefined>;
   audits: Record<string, { score: number | null; title: string } | undefined>;
 }
@@ -89,12 +91,21 @@ export const lighthouse: Audit = {
         let result: Awaited<ReturnType<Lighthouse>>;
         let thrown = '';
         try {
-          result = await runLighthouse(url, {
-            port,
-            output: 'html',
-            logLevel: 'error',
-            onlyCategories: categories,
-          });
+          result = await span(
+            'lighthouse.run',
+            async () => {
+              const started = performance.now();
+              const ran = await runLighthouse(url, {
+                port,
+                output: 'html',
+                logLevel: 'error',
+                onlyCategories: categories,
+              });
+              addSpans(ran?.lhr.timing?.entries ?? [], started, performance.now());
+              return ran;
+            },
+            { url },
+          );
         } catch (error) {
           thrown = error instanceof Error ? error.message : String(error);
         }

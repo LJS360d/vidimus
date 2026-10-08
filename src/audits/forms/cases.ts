@@ -237,8 +237,9 @@ const baselineFor = (field: FieldInfo, configured: Record<string, string> = {}):
   if (field.type === 'checkbox') return true;
   if (field.type === 'radio' || field.tag === 'select') return firstOption(field);
   if (field.type === 'file') return 'file';
-  const words = `${field.name}\n${field.id}\n${field.label}`;
-  const user = Object.entries(configured).find(([pattern]) => new RegExp(pattern, 'i').test(words));
+  const user = Object.entries(configured).find(([pattern]) =>
+    [field.name, field.id, field.label].some((word) => word && new RegExp(pattern, 'i').test(word)),
+  );
   if (user) return user[1];
   if (field.type === 'textarea') return fit(TYPE_BASELINE.textarea ?? '', field);
   if (field.type in TYPE_BASELINE) return field.min ?? field.max ?? TYPE_BASELINE[field.type] ?? '';

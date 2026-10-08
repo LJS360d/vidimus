@@ -54,7 +54,7 @@
     "build": "node scripts/build.ts",
     "typecheck": "tsc",
     "test": "node --test \"test/**/*.test.ts\"",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.d.ts\" --test-coverage-lines=75 --test-coverage-branches=75 --test-coverage-functions=80 \"test/**/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.d.ts\" --test-coverage-lines=95 --test-coverage-branches=90 --test-coverage-functions=90 \"test/**/*.test.ts\"",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "lint:pkg": "publint --strict && attw --pack . --profile esm-only",

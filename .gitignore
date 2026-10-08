@@ -2,6 +2,7 @@ node_modules
 dist
 .vidimus
 *.tsbuildinfo
+*.log
 legacy
 schema.json
 docs/.vitepress/dist

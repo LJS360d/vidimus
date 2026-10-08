@@ -6,6 +6,7 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 import { CONFIG_FILES, type LoadConfigOptions, loadConfig } from './config/load.ts';
 import type { UserConfig } from './config/types.ts';
 import { UsageError } from './core/errors.ts';
+import { diffProfiles, type ProfileLevel } from './core/profile.ts';
 import { auditRegistry, runAudits, selectAudits } from './core/run.ts';
 import { createReporters, REPORTERS } from './reporters/registry.ts';
 
@@ -29,6 +30,8 @@ interface RunFlags extends ConfigFlags {
   acceptFindings?: boolean;
   strict?: boolean;
   reporter?: string[];
+  profile?: ProfileLevel | true;
+  serial?: boolean;
 }
 
 const collect = (value: string, previous: string[] = []) => [...previous, value];
@@ -128,11 +131,21 @@ withConfigOptions(
   .option('--accept-findings', 'record current findings in the baseline file so only new ones fail')
   .option('--strict', 'fail on warnings too')
   .option('-r, --reporter <name[:file]>', `${REPORTERS.join(' | ')}, repeatable`, collect)
+  .addOption(
+    new Option(
+      '--profile [level]',
+      'record where time goes: spans (default) or cpu (adds a Node CPU profile)',
+    ).choices(['spans', 'cpu']),
+  )
+  .option('--serial', 'run audits one at a time instead of in parallel')
   .action(async (audits: string[], flags: RunFlags) => {
     const { config } = await loadConfig(loadOptions(flags, runOverrides(flags)));
     const selected = selectAudits(auditRegistry(config), audits, config);
     const reporters = createReporters(config.reporters, { cwd: process.cwd(), env: process.env });
-    const report = await runAudits(config, selected, reporters);
+    const report = await runAudits(config, selected, reporters, {
+      profile: flags.profile === true ? 'spans' : flags.profile,
+      serial: flags.serial,
+    });
     process.exitCode = report.ok ? 0 : 1;
   });
 
@@ -165,6 +178,18 @@ withConfigOptions(
   };
   console.log(JSON.stringify(printable, null, 2));
 });
+
+program
+  .command('profile')
+  .description('work with traces written by --profile')
+  .command('diff')
+  .description('compare two traces: self time per audit and span, largest changes first')
+  .argument('<before>', 'trace file from the earlier run')
+  .argument('<after>', 'trace file from the later run')
+  .option('--top <n>', 'rows to print', (value) => Number(value), 15)
+  .action((before: string, after: string, flags: { top: number }) => {
+    for (const line of diffProfiles(before, after, flags.top)) console.log(line);
+  });
 
 program
   .command('init')

@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { imageSize } from '../src/audits/image-size.ts';
+import { imageSize, imageSizeOf } from '../src/audits/image-size.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -81,6 +81,23 @@ describe('imageSize', () => {
     const boxed = Buffer.from('<?xml version="1.0"?><svg width="100%" viewBox="0 0 512 256">');
     assert.deepEqual(imageSize(boxed), { width: 512, height: 256, type: 'svg' });
     assert.equal(imageSize(Buffer.from('not an image')), undefined);
+  });
+
+  it('walks JPEG markers and rejects truncated or malformed files', () => {
+    // SOI, a fill byte, a restart marker, an APP0 segment, then the frame header.
+    const jpeg = Buffer.from([
+      0xff, 0xd8, 0xff, 0xff, 0xd0, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc2, 0x00, 0x11,
+      0x08, 0x00, 0x20, 0x00, 0x40, 0x03,
+    ]);
+    assert.deepEqual(imageSize(jpeg), { width: 64, height: 32, type: 'jpeg' });
+    assert.equal(imageSize(Buffer.from([0xff, 0xd8, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0])), undefined);
+    assert.equal(imageSize(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00])), undefined);
+    const riff = Buffer.alloc(30);
+    riff.write('RIFF', 0, 'latin1');
+    riff.write('WEBPVP8?', 8, 'latin1');
+    assert.equal(imageSize(riff), undefined);
+    assert.equal(imageSize(Buffer.from('<svg viewBox="0 0 1">')), undefined);
+    assert.equal(imageSizeOf('/no/such/file.png'), undefined);
   });
 });
 

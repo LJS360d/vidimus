@@ -110,7 +110,6 @@ Requests sent from inside web workers are outside the sandbox; pages that start 
 | `<field> looks like a password but is type="text"` | warn |
 | `personal-data field(s) without autocomplete` (WCAG 1.3.5) | warn |
 | `<fields> shows an error without aria-invalid` | warn |
-| `no submit control found` (formless forms) | warn |
 | `script errors while filling or submitting` | warn |
 | `page starts web workers, whose requests the sandbox cannot see` | warn |
 | `<n> cases not run` (`forms.maxCases` reached) | warn |

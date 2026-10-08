@@ -64,6 +64,38 @@ describe('shots audit', () => {
     assert.equal(partial.findings[0]?.message, '1 screenshot(s) have no baseline');
     assert.equal(partial.findings[0]?.severity, 'warn');
   });
+
+  it('refuses a baseline inside its own output, and keeps the baseline when a capture fails', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({ 'dist/index.html': page });
+    const shots = async (overrides: UserConfig) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: { port: await freePort(), ...overrides },
+      });
+      return results[0];
+    };
+    const inside = await shots({ shots: { baselineDir: '.vidimus/shots', motion: false } });
+    assert.equal(inside?.status, 'errored');
+    assert.match(inside?.summary ?? '', /shots\.baselineDir must not be/);
+
+    const broken = { waitFor: '#never', timeout: 300 };
+    const refused = await shots({
+      render: broken,
+      shots: { viewports: [320], motion: false, updateBaseline: true },
+    });
+    assert.equal(refused?.status, 'failed');
+    assert.equal(refused?.summary, 'baseline not updated: 1 screenshot(s) failed');
+    const failed = await shots({ render: broken, shots: { viewports: [320], motion: false } });
+    assert.ok(
+      failed?.findings.some((f) => /^failed to capture /.test(f.message)),
+      failed?.findings.map((f) => f.message).join('\n'),
+    );
+  });
 });
 
 // A canvas redrawn every frame from the clock and Math.random, next to a cross-origin iframe whose

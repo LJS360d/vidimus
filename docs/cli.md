@@ -49,8 +49,11 @@ An unknown audit name is an error that lists the known ones.
 | `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, repeatable |
 | `--strict` | fail on warnings too |
 | `--accept-findings` | write the current findings to the [baseline file](./configuration#severity-ignores-and-the-findings-baseline) |
+| `--profile [level]` | record where the run spends its time: `spans` (default) or `cpu`, see [Profiling](./profiling) |
+| `--serial` | run audits one at a time instead of in parallel |
 
-Each flag sets a config key and wins over every other source:
+Except `--profile` and `--serial`, which change how the run is measured and scheduled, each
+flag sets a config key and wins over every other source:
 
 | Flag | Config key |
 | --- | --- |
@@ -104,6 +107,16 @@ npx vidimus config --set port=5000 > resolved.json
 
 Plugins and reporter objects are printed by name. `config` accepts `-c`, `--no-config` and
 `--set`; the run flags such as `--dist` are not available here, use `--set distDir=…`.
+
+## `profile diff`
+
+```sh
+npx vidimus profile diff before.trace.json after.trace.json
+npx vidimus profile diff before.trace.json after.trace.json --top 30
+```
+
+Compares two traces written by `--profile`: self time per audit and span, largest changes
+first. See [Profiling](./profiling#comparing-runs).
 
 ## `init`
 
