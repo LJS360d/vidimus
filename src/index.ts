@@ -71,4 +71,4 @@ export type {
   Severity,
 } from './core/types.ts';
 export { createReporters, REPORTERS } from './reporters/registry.ts';
-export type { Reporter, RunInfo } from './reporters/types.ts';
+export type { Progress, Reporter, RunInfo } from './reporters/types.ts';

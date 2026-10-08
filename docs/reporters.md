@@ -73,6 +73,11 @@ finding, and a summary line.
 A finding shows its message, its detail lines, `in:` with its file relative to the working
 directory, `on:` with up to three pages, and `→` with the fix. The last line of the run counts
 the audits that passed, not counting skipped ones, and names those that warned or failed.
+
+While audits run, a terminal shows one line, redrawn in place, with each running audit, how many
+of its pages are done and an estimate of the time left:
+`… shots 34/120, ~2m10s left · a11y 12/40, ~40s left (1m5s)`. When the output is not a terminal,
+or `CI` is set, the same line is printed every 30 seconds instead.
 Colours come from Node's `styleText`, which drops them when the stream is not a terminal or
 `NO_COLOR` is set.
 
@@ -197,11 +202,17 @@ Every hook is optional and may be async; hooks are awaited one reporter after th
 | Hook | Called | Receives |
 | --- | --- | --- |
 | `onStart(info)` | once, before the first audit | `{ audits, origin, serving }` |
+| `onProgress(running)` | as work starts, advances and ends; not awaited | `{ name, done, total, since }[]` |
 | `onAuditEnd(result)` | as each audit finishes, in finishing order | an `AuditResult`, as in `results[]` above |
 | `onEnd(report)` | once, after every audit | the `RunReport`, as in the JSON above |
 
 In `onStart`, `audits` are the selected names, `origin` is `''` when no audit needs a server,
 and `serving` is `distDir` when the built-in server is used and `undefined` otherwise.
+
+`onProgress` gets every task still running: each running audit, and `routes` while
+client-rendered routes are found. `total` is `0` until the task knows how many pages it works
+through, `done` counts the finished ones, and `since` is when that count started, in ms since
+the epoch. The last call, when the run ends or fails, gets an empty list.
 
 Reporter objects can only be given in a config file or to [`run()`](./plugins#programmatic-use),
 not on the command line, and `-r` replaces the config's list, objects included. An error thrown

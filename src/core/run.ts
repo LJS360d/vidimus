@@ -4,7 +4,7 @@ import { builtinAudits } from '../audits/registry.ts';
 import { type LoadConfigOptions, loadConfig } from '../config/load.ts';
 import type { VidimusConfig } from '../config/types.ts';
 import { createReporters } from '../reporters/registry.ts';
-import type { Reporter } from '../reporters/types.ts';
+import type { Progress, Reporter } from '../reporters/types.ts';
 import { serveCommand } from './command-server.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
 import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
@@ -16,7 +16,7 @@ import { createRenderer } from './render.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
 import type { Audit, AuditContext, AuditResult, Finding, PageSource, RunReport } from './types.ts';
-import { basePathOf, matchesAny, pathOf } from './util.ts';
+import { basePathOf, matchesAny, pathOf, progressScope, track } from './util.ts';
 
 export interface RunOptions extends LoadConfigOptions, ProfileOptions {
   audits?: string[];
@@ -121,6 +121,25 @@ const execute = async (
     : { version: 1 as const, findings: [] };
   const unsuppressed = new Map<string, Finding[]>();
 
+  const running = new Map<string, Progress>();
+  const publish = () => {
+    for (const reporter of reporters) reporter.onProgress?.([...running.values()]);
+  };
+  const task = async <T>(name: string, fn: () => Promise<T>) => {
+    const update = (done: number, total: number) => {
+      const since = (done && running.get(name)?.since) || Date.now();
+      running.set(name, { name, done, total, since });
+      publish();
+    };
+    update(0, 0);
+    try {
+      return await progressScope.run(update, fn);
+    } finally {
+      running.delete(name);
+      publish();
+    }
+  };
+
   const browser = sharedBrowser(() => launchBrowser(config));
   const renderer = createRenderer(config, browser);
   const server =
@@ -143,6 +162,7 @@ const execute = async (
   const renderedPages = async (exclude: string[] = [], log: (line: string) => void) => {
     const pages = builtPages(exclude);
     if (!rendering) return pages;
+    const tick = track(pages.length);
     return Promise.all(
       pages.map(async (page): Promise<PageSource> => {
         if (!included(page.path)) return page;
@@ -152,6 +172,8 @@ const execute = async (
         } catch (error) {
           log(`could not render ${page.path}, read the built file: ${(error as Error).message}`);
           return page;
+        } finally {
+          tick();
         }
       }),
     );
@@ -178,7 +200,9 @@ const execute = async (
     let settled: Pick<AuditResult, 'status' | 'summary' | 'findings'>;
     let suppressed = 0;
     try {
-      const outcome = await span(`audit ${audit.name}`, () => audit.run(context));
+      const outcome = await span(`audit ${audit.name}`, () =>
+        task(audit.name, () => audit.run(context)),
+      );
       const raw = outcome.findings ?? [];
       const kept = applyIgnore(audit.name, raw, config.ignore);
       unsuppressed.set(audit.name, kept);
@@ -224,7 +248,7 @@ const execute = async (
     }
     if (needsServer) {
       const routes = await span('routes', () =>
-        resolveRoutes(auditConfig, dist, builtPages, origin, renderer),
+        task('routes', () => resolveRoutes(auditConfig, dist, builtPages, origin, renderer)),
       );
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
@@ -233,6 +257,8 @@ const execute = async (
     for (const audit of audits.filter((audit) => !parallel.includes(audit)))
       results.push(await runOne(audit));
   } finally {
+    running.clear();
+    publish();
     await renderer.close();
     await server?.close();
   }

@@ -41,23 +41,30 @@ const tail = (file: string) => {
   }
 };
 
-const stop = async (child: ChildProcess) => {
-  if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
-  const exited = new Promise((resolve) => child.once('exit', resolve));
-  // Kill the whole process tree: wrangler, firebase and friends start servers of their own.
-  if (process.platform === 'win32') {
+const signalGroup = (pid: number, signal: NodeJS.Signals | 0) => {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Kill the whole process tree: wrangler, firebase and friends start servers of their own, and
+// those can outlive the shell that started them, so the group is signalled even then.
+const killTree = (child: ChildProcess) => {
+  if (!child.pid) return;
+  if (process.platform !== 'win32') signalGroup(child.pid, 'SIGTERM');
+  else if (child.exitCode === null && child.signalCode === null)
     spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-  } else {
-    try {
-      process.kill(-child.pid, 'SIGTERM');
-    } catch {}
-  }
-  const killed = await Promise.race([exited.then(() => true), sleep(5000).then(() => false)]);
-  if (!killed && process.platform !== 'win32') {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {}
-  }
+};
+
+const stop = async (child: ChildProcess) => {
+  killTree(child);
+  if (!child.pid || process.platform === 'win32') return;
+  const deadline = Date.now() + 5000;
+  while (signalGroup(child.pid, 0) && Date.now() < deadline) await sleep(100);
+  signalGroup(child.pid, 'SIGKILL');
 };
 
 export const serveCommand = async ({
@@ -93,7 +100,18 @@ export const serveCommand = async ({
     failure ??= new Error(`exited with ${signal ?? `code ${code}`}`);
   });
 
+  // Ctrl+C or a crash skips the caller's cleanup, and a detached group never sees the signal.
+  const onExit = () => killTree(child);
+  const onSignal = (signal: NodeJS.Signals) => {
+    void close().finally(() => process.kill(process.pid, signal));
+  };
+  process.once('exit', onExit);
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
   const close = async () => {
+    process.off('exit', onExit);
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
     await stop(child);
     await new Promise((resolve) => output.end(resolve));
   };

@@ -51,7 +51,9 @@ your host provides.
 ## Serving with the host's tool
 
 `server.command` is a shell command that serves the build. vidimus starts it before the audits,
-waits until the port answers, and stops it (and every process it started) at the end:
+waits until the port answers, and stops it (and every process it started) at the end, also
+when the run is interrupted with Ctrl+C or crashes, and also processes still running after the
+command itself exited:
 
 ```ts
 export default defineConfig({

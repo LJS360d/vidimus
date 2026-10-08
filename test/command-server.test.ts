@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { serveCommand } from '../src/core/command-server.ts';
+import { inParallel } from '../src/core/util.ts';
 import { type Audit, run, UsageError } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -63,6 +65,63 @@ describe('server.command', () => {
       }),
       (error) => error instanceof UsageError && /within 300 ms/.test(error.message),
     );
+  });
+
+  it('stops servers the command left running after the shell exited', async () => {
+    const root = fixture({ 'dist/index.html': 'home', 'serve.mjs': SERVE });
+    const port = await new Promise<number>((resolve) => {
+      const probe = createServer().listen(0, () => {
+        const { port } = probe.address() as { port: number };
+        probe.close(() => resolve(port));
+      });
+    });
+    const server = await serveCommand({
+      command: `${node} serve.mjs {dist} & sleep 1`,
+      cwd: root,
+      dist: join(root, 'dist'),
+      port,
+      timeout: 10000,
+      log: join(root, 'server.log'),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await server.close();
+    await assert.rejects(fetch(`http://localhost:${port}/`));
+  });
+
+  it('reports progress of pooled work to reporters', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    const seen: string[] = [];
+    const probe: Audit = {
+      name: 'probe',
+      description: 'works through a pool',
+      requires: 'dist',
+      run: async () => {
+        await inParallel(2, [1, 2, 3], async () => {});
+        return { summary: 'ok' };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [
+        {
+          name: 'spy',
+          onProgress: (running) =>
+            seen.push(running.map(({ name, done, total }) => `${name} ${done}/${total}`).join()),
+        },
+      ],
+      overrides: { plugins: [probe] },
+    });
+    assert.deepEqual(seen, [
+      'probe 0/0',
+      'probe 0/3',
+      'probe 1/3',
+      'probe 2/3',
+      'probe 3/3',
+      '',
+      '',
+    ]);
   });
 
   it('points audits at the command server and treats it as the origin', async () => {

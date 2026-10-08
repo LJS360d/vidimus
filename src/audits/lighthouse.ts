@@ -10,6 +10,7 @@ import {
   pathOf,
   regex,
   slug,
+  track,
 } from '../core/util.ts';
 
 interface CategoryRef {
@@ -84,6 +85,7 @@ export const lighthouse: Audit = {
     const scores: Record<string, string | number | null>[] = [];
     const findings: Finding[] = [];
 
+    const tick = track(urls.length);
     try {
       for (const url of urls) {
         const path = pathOf(url, origin);
@@ -109,6 +111,7 @@ export const lighthouse: Audit = {
         } catch (error) {
           thrown = error instanceof Error ? error.message : String(error);
         }
+        tick();
         if (thrown || !result || result.lhr.runtimeError) {
           const error = result?.lhr.runtimeError;
           findings.push({

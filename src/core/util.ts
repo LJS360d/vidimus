@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, relative } from 'node:path';
 import type { NavigateOptions, Pattern, ViewportSize } from '../config/types.ts';
 import type { Browser, Page } from './peer-types.ts';
@@ -57,6 +58,16 @@ export const viewport = (size: number | ViewportSize) => {
   return { width, height, isMobile: width < 768, hasTouch: width < 768 };
 };
 
+export const progressScope = new AsyncLocalStorage<(done: number, total: number) => void>();
+
+// Counts finished items towards the progress of the audit it runs in.
+export const track = (total: number) => {
+  const report = progressScope.getStore();
+  let done = 0;
+  report?.(0, total);
+  return () => report?.(++done, total);
+};
+
 export const inParallel = async <T>(
   concurrency: number,
   items: T[],
@@ -65,14 +76,17 @@ export const inParallel = async <T>(
   if (!items.length) return;
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(concurrency) || 1), items.length);
+  const tick = track(items.length);
   await span(
     'pool',
     async () => {
       const opened = performance.now();
       await Promise.all(
         Array.from({ length: workers }, async () => {
-          for (const item of queue)
+          for (const item of queue) {
             await span('task', () => work(item), taskAttrs(item, performance.now() - opened));
+            tick();
+          }
         }),
       );
     },
@@ -97,6 +111,7 @@ export const inParallelTabs = async <T>(
   if (!items.length) return;
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(tabs) || 1), items.length);
+  const tick = track(items.length);
   await span(
     'pool',
     async () => {
@@ -105,12 +120,14 @@ export const inParallelTabs = async <T>(
         Array.from({ length: workers }, async () => {
           const page = await browser.newPage();
           try {
-            for (const item of queue)
+            for (const item of queue) {
               await span(
                 'task',
                 () => work(page, item),
                 taskAttrs(item, performance.now() - opened),
               );
+              tick();
+            }
           } finally {
             await page.close().catch(() => {});
           }

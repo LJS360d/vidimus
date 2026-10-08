@@ -245,7 +245,7 @@ export default defineConfig({ plugins: [noConsoleErrors] });
 
 ## Custom reporters
 
-`reporters` also accepts objects with `onStart`, `onAuditEnd` and `onEnd` hooks. See
+`reporters` also accepts objects with `onStart`, `onProgress`, `onAuditEnd` and `onEnd` hooks. See
 [Reporters](./reporters#custom-reporters).
 
 ## Programmatic use

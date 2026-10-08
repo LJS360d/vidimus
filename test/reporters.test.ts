@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import { createReporters, type RunReport } from '../src/index.ts';
 import { annotation, github } from '../src/reporters/github.ts';
 import { toJUnit } from '../src/reporters/junit.ts';
-import { pretty } from '../src/reporters/pretty.ts';
+import { pretty, progressLine } from '../src/reporters/pretty.ts';
 import { fixture } from './helpers.ts';
 
 const report: RunReport = {
@@ -119,10 +119,11 @@ describe('github reporter', () => {
   });
 });
 
-const sink = () => {
+const sink = (isTTY = false) => {
   const chunks: string[] = [];
   const stream = Object.assign(new PassThrough(), {
-    isTTY: false,
+    isTTY,
+    columns: 80,
   }) as unknown as NodeJS.WriteStream;
   stream.write = ((chunk: string) => chunks.push(String(chunk)) > 0) as NodeJS.WriteStream['write'];
   return { stream, text: () => chunks.join('') };
@@ -164,6 +165,34 @@ describe('pretty reporter', () => {
     assert.match(output, /→ shorten the <title>/);
     assert.match(output, /2 ignored or accepted/);
     assert.match(output, /failed: links, a11y/);
+  });
+});
+
+describe('progress', () => {
+  it('counts items and estimates the time left', () => {
+    const line = progressLine(
+      [
+        { name: 'routes', done: 0, total: 0, since: 0 },
+        { name: 'shots', done: 10, total: 40, since: 0 },
+        { name: 'a11y', done: 5, total: 5, since: 0 },
+      ],
+      20_000,
+    );
+    assert.equal(line, 'routes · shots 10/40, ~1m0s left · a11y 5/5');
+  });
+
+  it('pretty redraws one line on a terminal and clears it before printing', async () => {
+    const { stream, text } = sink(true);
+    const reporter = pretty(stream, {});
+    await reporter.onStart?.({ audits: ['shots'], origin: '', serving: undefined, notes: [] });
+    reporter.onProgress?.([{ name: 'shots', done: 1, total: 4, since: Date.now() }]);
+    await reporter.onAuditEnd?.(report.results[0] as RunReport['results'][number]);
+    reporter.onProgress?.([]);
+    const output = text();
+    const clear = '\r\x1b[2K';
+    assert.ok(output.startsWith(clear));
+    assert.match(output, /shots 1\/4/);
+    assert.ok(output.includes(`${clear}\n`));
   });
 });
 
