@@ -1,5 +1,12 @@
 # vidimus
 
+## 0.12.0
+
+### Minor Changes
+
+- cdc55f9: New `forms` audit: finds every form (native, formless, react-hook-form, Angular), fills each field with an accepted value and every boundary and violation of its declared or inferred rules, and submits it in a network sandbox so nothing reaches a server. Reports invalid values that get sent, missing validation, input rendered as HTML, passwords in URLs, double submits and accessibility gaps, and writes what each form would have sent to `.vidimus/forms/`.
+- 8ccc0ba: `--profile` records where a run spends its time: every audit, page, browser call (`page.goto`, each `page.evaluate` by function), Node request, pool queueing, Lighthouse phase and forms step, plus CPU, heap, event loop and GC samples. Prints a summary with hints, writes a Chrome trace to `.vidimus/profile/` (Perfetto, speedscope), adds `profile` to the JSON report, and `--profile cpu` adds a Node CPU profile. `vidimus profile diff` compares two traces, `--serial` runs audits one at a time, and audits get `context.span()` for their own spans. The `forms` audit stops waiting as soon as a submit sends a request.
+
 ## 0.11.0
 
 ### Minor Changes
