@@ -502,6 +502,13 @@ form.addEventListener('submit', (e) => {
     // A urlencoded POST carries only the file name; multipart would carry the file.
     assert.equal(baseline.requests[0].body.cv, 'vidimus.png');
     assert.deepEqual(sink.observed.plan.accepted, ['""', '"pro"']);
+    // Failing cases keep a screenshot of the form before submit; passing ones do not.
+    const qty = sink.cases.find((c: { label: string }) => c.label.startsWith('qty=min-1'));
+    assert.ok(qty.before && existsSync(join(cwd, '.vidimus/forms', qty.before)));
+    assert.equal(baseline.before, undefined);
+    // Case requests show only what differs from the baseline request.
+    const html = readFileSync(join(cwd, '.vidimus/forms/index.html'), 'utf8');
+    assert.match(html, /qty: &quot;0\.5&quot;<\/pre><small>\+ \d+ field\(s\) as baseline/);
   });
 
   it('flags credentials in URLs, plain HTTP, workers, script errors; honours options', {
@@ -555,6 +562,10 @@ document.getElementById('work').addEventListener('submit', (e) => {
       messages.join('\n'),
     );
     assert.ok(!messages.some((m) => m.startsWith('skipme')));
+    const html = readFileSync(join(cwd, '.vidimus/forms/index.html'), 'utf8');
+    assert.match(html, /<section id="login">/);
+    assert.match(html, /<tr class="(pass|fail|info)">/);
+    assert.ok(existsSync(join(cwd, '.vidimus/forms/login.jpg')));
     const login = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/login.json'), 'utf8'));
     assert.match(login.cases[0].requests[0].url, /user=alice/);
   });

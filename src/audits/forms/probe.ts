@@ -69,6 +69,7 @@ interface Probe {
   focus(index: number, key: string): void;
   blur(index: number, key: string): void;
   element(index: number, key: string): Element | null;
+  root(index: number): Element;
   observe(index: number): Record<string, FieldState>;
   submit(index: number, times: number): boolean;
   drain(): PageEvents;
@@ -480,6 +481,7 @@ export const probe = (skip: string[]) => {
       el?.blur();
     },
     element: (index, key) => fieldEls(index).get(key)?.[0] ?? null,
+    root: (index) => rootAt(index),
     observe(index) {
       const out: Record<string, FieldState> = {};
       const fields = fieldEls(index);

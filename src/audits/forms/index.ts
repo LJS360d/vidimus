@@ -22,6 +22,7 @@ import {
   probe,
   type Value,
 } from './probe.ts';
+import { reportHtml, verdictOf } from './report.ts';
 import { type Captured, sandbox } from './sandbox.ts';
 
 type Outcome =
@@ -33,7 +34,7 @@ type Outcome =
   | 'not-submitted'
   | 'error';
 
-interface CaseResult extends Omit<Case, 'values'> {
+export interface CaseResult extends Omit<Case, 'values'> {
   value?: Value;
   outcome: Outcome;
   requests: Captured[];
@@ -41,6 +42,7 @@ interface CaseResult extends Omit<Case, 'values'> {
   invalid: string[];
   events: Omit<PageEvents, 'submits' | 'invalid'>;
   error?: string;
+  before?: string;
 }
 
 interface Found {
@@ -51,7 +53,7 @@ interface Found {
   fingerprint: string;
 }
 
-interface Exercised {
+export interface Exercised {
   id: string;
   fingerprint: string;
   pages: string[];
@@ -61,6 +63,7 @@ interface Exercised {
   cases: CaseResult[];
   skippedCases: number;
   observed: Record<string, { accepted: string[]; rejected: string[] }>;
+  shot?: string;
 }
 
 // Per field: which tried values the form let through and which it stopped.
@@ -298,6 +301,23 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
   return out;
 };
 
+const slug = (id: string) => id.replace(/[^\w.~-]+/g, '_');
+
+// ponytail: JPEG of the form element only, no full page; a hidden or zero-size form has none.
+const shotOf = async (page: Page, index: number) => {
+  const handle = await page.evaluateHandle((i) => window.__vidimus.root(i), index);
+  try {
+    const el = handle.asElement() as unknown as {
+      screenshot(o: object): Promise<Uint8Array>;
+    } | null;
+    return await el?.screenshot({ type: 'jpeg', quality: 60, optimizeForSpeed: true });
+  } catch {
+    return undefined;
+  } finally {
+    await handle.dispose();
+  }
+};
+
 const layers = (state: FieldState | undefined) =>
   state ? `browser ${state.native}, framework ${state.framework}, ui ${state.ui}` : 'n/a';
 
@@ -446,6 +466,9 @@ export const forms: Audit = {
           const accepted = casesFor(fields, options.values, known).baseline;
           await page.evaluate((i, v) => window.__vidimus.fill(i, v, null), index, accepted);
           fields = await span('forms.infer', () => inferAll(page, index, fields, accepted));
+          // The form as filled with accepted values, for the HTML report.
+          const shot = await span('forms.shot', () => shotOf(page, index));
+          if (shot) writeFileSync(join(out, `${slug(id)}.jpg`), shot);
           const generated = casesFor(fields, options.values, known);
           const cases = generated.cases.slice(0, options.maxCases);
           const results: CaseResult[] = [];
@@ -472,8 +495,14 @@ export const forms: Audit = {
                 },
                 { case: c.label },
               );
-              results.push(ran);
-              const last = ran;
+              // The form as the user saw it before pressing submit: kept for failures only.
+              const { snap, ...last } = ran;
+              const before = `${slug(id)}-${results.length + 1}.jpg`;
+              if (snap && verdictOf(last) === 'fail') {
+                writeFileSync(join(out, before), snap);
+                last.before = before;
+              }
+              results.push(last);
               dirty = last.outcome !== 'blocked:native' && last.outcome !== 'not-submitted';
             } catch (error) {
               results.push({
@@ -497,6 +526,7 @@ export const forms: Audit = {
             cases: results,
             skippedCases: generated.cases.length - cases.length,
             observed: observedOf(fields, results),
+            ...(shot && { shot: `${slug(id)}.jpg` }),
           });
         } catch (error) {
           failed.push({
@@ -515,7 +545,7 @@ export const forms: Audit = {
     }
 
     exercised.sort((a, b) => a.id.localeCompare(b.id));
-    const file = (id: string) => `${id.replace(/[^\w.~-]+/g, '_')}.json`;
+    const file = (id: string) => `${slug(id)}.json`;
     for (const form of exercised)
       writeFileSync(join(out, file(form.id)), `${JSON.stringify(form, null, 2)}\n`);
     writeFileSync(
@@ -532,9 +562,18 @@ export const forms: Audit = {
         2,
       )}\n`,
     );
-    log(`forms: wrote ${exercised.length} report(s) to ${out}`);
+    log(`forms: wrote ${exercised.length} report(s) to ${out}, open ${join(out, 'index.html')}`);
 
-    const findings = [...exercised.flatMap((form) => findingsFor(form, origin)), ...failed];
+    const perForm = exercised.map((form) => findingsFor(form, origin));
+    writeFileSync(
+      join(out, 'index.html'),
+      reportHtml(
+        exercised.map((form, i) => ({ ...form, findings: perForm[i] ?? [] })),
+        failed,
+        origin,
+      ),
+    );
+    const findings = [...perForm.flat(), ...failed];
     const caseCount = exercised.reduce((sum, form) => sum + form.cases.length, 0);
     const pagesWithForms = new Set(exercised.flatMap((form) => form.pages)).size;
     return {
@@ -555,7 +594,7 @@ const runCase = async (
   upload: string,
   settle: number,
   submittable: boolean,
-): Promise<CaseResult> => {
+): Promise<CaseResult & { snap?: Uint8Array }> => {
   const { values, ...original } = c;
   let rest = original;
   const tail = await page.evaluate(
@@ -583,6 +622,7 @@ const runCase = async (
   }
   await settled(page);
   const states = await page.evaluate((i) => window.__vidimus.observe(i), index);
+  const snap = await span('forms.shot', () => shotOf(page, index));
   // The browser may refuse input (typing past maxlength, sanitising email or number values):
   // then the case did not test what it meant to and proves nothing either way.
   const intended = c.field ? values[c.field] : undefined;
@@ -625,9 +665,9 @@ const runCase = async (
           : after.submits.some((s) => s.prevented)
             ? 'blocked:script'
             : 'none';
-    return result(rest, values, outcome, requests, states, invalid, events);
+    return { ...result(rest, values, outcome, requests, states, invalid, events), snap };
   }
-  return result(rest, values, outcome, net.take(), states, invalid, events);
+  return { ...result(rest, values, outcome, net.take(), states, invalid, events), snap };
 };
 
 const TEXTUAL = new Set(['text', 'name']);

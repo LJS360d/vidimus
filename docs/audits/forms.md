@@ -121,6 +121,8 @@ Errors from the sandbox stopping the page's own request (`Failed to fetch`) are 
 
 `.vidimus/forms/<id>.json` per form holds its fields with declared and inferred rules, every case with the values, each layer's state, the outcome and the requests the form tried to make (method, URL, parsed body), and per field the values the form `accepted` and `rejected`. `.vidimus/forms/index.json` lists the forms.
 
+`.vidimus/forms/index.html` is one human-readable report for the whole audit: per form a screenshot of it filled with accepted values (`<id>.jpg`, the form element only), its fields with declared and inferred rules, its findings, and every case in order with a verdict: **pass** (invalid value stopped, valid value sent), **fail** (invalid value sent, valid value stopped, input rendered as HTML, double submit sent twice, error) or **info** (no expectation, such as unicode or a 10 000-character value, or nothing to submit). A failing case also shows the form as it looked right before submit (`<id>-<case>.jpg`), with whatever error the page displayed. Each request lists only the fields that differ from the baseline request, so the value under test stands out. Static HTML, no scripts: open it from disk.
+
 ## Example output
 
 An Angular reactive form with `Validators.required`, `Validators.email`, `Validators.minLength(3)` and `Validators.min(18)`, none of them visible in the HTML:
