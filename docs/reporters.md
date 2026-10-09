@@ -75,8 +75,7 @@ directory, `on:` with up to three pages, and `→` with the fix. The last line o
 the audits that passed, not counting skipped ones, and names those that warned or failed.
 
 While audits run, a terminal shows one line, redrawn in place, with each running audit, how many
-of its pages are done and an estimate of the time left:
-`… shots 34/120, ~2m10s left · a11y 12/40, ~40s left (1m5s)`. When the output is not a terminal,
+of its pages are done, and the time elapsed: `… shots 34/120 · a11y 12/40 (1m5s)`. When the output is not a terminal,
 or `CI` is set, the same line is printed every 30 seconds instead.
 Colours come from Node's `styleText`, which drops them when the stream is not a terminal or
 `NO_COLOR` is set.

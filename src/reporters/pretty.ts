@@ -20,15 +20,8 @@ const duration = (ms: number) => {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 };
 
-export const progressLine = (running: Progress[], now: number) =>
-  running
-    .map(({ name, done, total, since }) => {
-      if (!total) return name;
-      const eta =
-        done && done < total ? `, ~${duration(((now - since) / done) * (total - done))} left` : '';
-      return `${name} ${done}/${total}${eta}`;
-    })
-    .join(' · ');
+export const progressLine = (running: Progress[]) =>
+  running.map(({ name, done, total }) => (total ? `${name} ${done}/${total}` : name)).join(' · ');
 
 export const pretty = (
   stream: NodeJS.WriteStream = process.stdout,
@@ -41,7 +34,7 @@ export const pretty = (
   let started = Date.now();
   let drawn = false;
   let timer: NodeJS.Timeout | undefined;
-  const status = () => `${progressLine(running, Date.now())} (${duration(Date.now() - started)})`;
+  const status = () => `${progressLine(running)} (${duration(Date.now() - started)})`;
   const draw = () => {
     if (!live || !running.length) return;
     const line = `… ${status()}`.slice(0, (stream.columns || 80) - 1);

@@ -169,16 +169,13 @@ describe('pretty reporter', () => {
 });
 
 describe('progress', () => {
-  it('counts items and estimates the time left', () => {
-    const line = progressLine(
-      [
-        { name: 'routes', done: 0, total: 0, since: 0 },
-        { name: 'shots', done: 10, total: 40, since: 0 },
-        { name: 'a11y', done: 5, total: 5, since: 0 },
-      ],
-      20_000,
-    );
-    assert.equal(line, 'routes · shots 10/40, ~1m0s left · a11y 5/5');
+  it('counts items', () => {
+    const line = progressLine([
+      { name: 'routes', done: 0, total: 0, since: 0 },
+      { name: 'shots', done: 10, total: 40, since: 0 },
+      { name: 'a11y', done: 5, total: 5, since: 0 },
+    ]);
+    assert.equal(line, 'routes · shots 10/40 · a11y 5/5');
   });
 
   it('pretty redraws one line on a terminal and clears it before printing', async () => {
