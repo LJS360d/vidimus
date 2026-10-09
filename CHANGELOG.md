@@ -1,5 +1,11 @@
 # vidimus
 
+## 0.13.1
+
+### Patch Changes
+
+- 59ef965: The pretty reporter's progress line no longer estimates the time left for each audit; it was unreliable.
+
 ## 0.13.0
 
 ### Minor Changes
