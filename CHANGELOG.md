@@ -1,5 +1,50 @@
 # vidimus
 
+## 0.17.0
+
+### Minor Changes
+
+- 4ca3978: Cross-origin `<script>` and stylesheet links with `integrity` but no `crossorigin` attribute are now errors, since browsers block them.
+- 4ca3978: The security mixed-content check now also finds http:// URLs in inline CSS, style attributes, imagesrcset and SVG images.
+- 4ca3978: The forms audit abandons a case that never settles after `forms.caseTimeout` (default 30 s), reports it as a finding and carries on with the remaining cases.
+- 4ca3978: The r12s audit now skips absolutely or fixed positioned screen-reader-only elements clipped with `clip: rect(1px, 1px, 1px, 1px)` and elements clipped with `clip-path: inset(100%)`.
+- 4ca3978: The seo audit reports JSON-LD structured data blocks that do not parse as JSON, including empty blocks, on indexable pages.
+- 4ca3978: The privacy audit now reports `localStorage`, `sessionStorage` and IndexedDB names written on page load, before any consent.
+- 4ca3978: The privacy audit warns about `<link rel="preconnect">` and `<link rel="dns-prefetch">` hints to third-party hosts, since the browser contacts them before consent.
+- 4ca3978: The privacy audit can click the consent banner reject button (`privacy.rejectSelector`) and report cookies, storage and third-party requests that remain after rejection.
+- 4ca3978: Config files are now discovered in parent directories (up to the repository root), so running vidimus from a subdirectory still uses the project config.
+- 4ca3978: The shots audit can capture every page and viewport in dark mode too with the new `shots.colorSchemes` option, writing `<name>.dark.png` baselines and leaving light baseline names unchanged.
+- 4ca3978: `shots --update-baseline` now replaces only the baselines of the shots captured in that run instead of clearing the whole baseline directory.
+- 4ca3978: The lighthouse audit applies `browser.state` (cookies, storage, script) to every Lighthouse run.
+- 4ca3978: The new `routes.hash` option makes `routes.discover: 'crawl'` follow hash-router links such as `#/about` as routes audited in rendered mode.
+- 4ca3978: Add an `html` reporter (and `reports: ['html']`) that writes a single self-contained HTML report.
+- 4ca3978: HTML files in other encodings (a BOM or `<meta charset>` such as windows-1252, shift_jis or UTF-16) are decoded correctly by the audits and served with their detected charset.
+
+### Patch Changes
+
+- 4ca3978: Quote `{dist}` in `server.command` so a dist path containing spaces is passed as one argument.
+- 4ca3978: The GitHub step summary keeps multi-line errored audit messages on one table row by rendering newlines as `<br>`.
+- 4ca3978: The JUnit reporter now counts `failures` from the `<failure>` elements it renders, so the attribute matches them, including for audits that errored with a finding.
+- 4ca3978: `profile diff --top` now rejects values that are not positive integers (such as `abc`, `-3` or `1.5`) with a usage error and exit code 2, instead of crashing or misbehaving.
+- 4ca3978: A run whose `dist` holds no HTML file now stops up front with a usage error (exit `2`) instead of auditing zero pages and passing.
+- 4ca3978: Fix `RangeError` crash when profiling runs with very large timing lists by replacing spread `Math.min`/`Math.max` calls with reductions.
+- 4ca3978: Budget audit now shows exceeded sizes so they never read as equal to their limit, and prints sizes of 1 MB or more as one-decimal MB (e.g. "1.0 MB").
+- 4ca3978: The security audit flags a `Server` header only when it discloses a product version (such as `nginx/1.18.0`), no longer warning on bare CDN names like `cloudflare` or `ECS (dcb/7F83)`.
+- 4ca3978: The security audit no longer counts a `frame-ancestors` source list with a bare `*` or scheme-only source as clickjacking protection.
+- 4ca3978: Forms audit tests a `type="tel"` field for meaning (semantic) instead of browser type validation, since browsers do not validate tel format.
+- 4ca3978: Forms findings group cases by their own expectation, so a group mixing valid and invalid cases no longer takes its verdict from the first one.
+- 4ca3978: The forms audit now refuses to clear its output folder unless it resolves to a subfolder of the output root, so a misconfigured `forms.outDir` can no longer delete the project or other user files.
+- 4ca3978: The forms audit now sends `browser.state` cookies and stops waiting after `forms.timeout` when it fetches each page source.
+- 4ca3978: The image-size audit swaps JPEG width and height for EXIF orientations 5 to 8, matching how browsers display rotated photos.
+- 4ca3978: Read AVIF dimensions from the primary item's ispe box and recognise AVIF files whose major brand is mif1.
+- 4ca3978: Command-mode audits no longer append the `siteUrl` base path to the server origin, fixing 404s on tools that serve `dist` at `/`.
+- 4ca3978: The built-in server is audited through `127.0.0.1`, the address it listens on, so runs no longer fail where `localhost` resolves to `::1` first.
+- 4ca3978: `--set` and env values starting with `[` now parse as a JSON array for `server.fallback`, so rules can be passed without a config file, instead of becoming a file name.
+- 4ca3978: forms audit no longer sends a `minlength`-1 case for a field with `minlength=1`, which was a false error since browsers never apply `minlength` to an empty value.
+- 4ca3978: A profiled run that fails before creating `.vidimus/` now still writes its `.gitignore`, so run artifacts stay out of git.
+- 4ca3978: r12s no longer treats a whitespace-only first text node as text, so `font-size:0` inline-block layouts stop producing false small-text errors.
+- 4ca3978: links audit skips rendered hrefs the URL parser rejects instead of failing the whole audit.
+
 ## 0.16.0
 
 ### Minor Changes
