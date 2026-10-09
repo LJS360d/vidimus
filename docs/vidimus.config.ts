@@ -35,6 +35,7 @@ export default defineConfig({
     'a11y',
     'r12s',
     'privacy',
+    'forms',
     'lighthouse',
   ],
   ignore: [
@@ -63,11 +64,20 @@ export default defineConfig({
       message: '^third-party (embed from|request to) \\S*openstreetmap\\.org$',
       where: 'showcase',
     },
+    // The showcase feedback form leaves the message unbounded on purpose, to show the finding.
+    { audit: 'forms', message: '^showcase-feedback: message has no length limit$' },
   ],
   html: { rules: { 'attribute-misuse': 'off' } },
   a11y: { sample: auditPages },
   r12s: { sample: auditPages },
   privacy: { sample: auditPages },
+  // Only the showcase has a form of its own. The themes' search boxes, Starlight's theme
+  // picker and mdBook's sidebar toggle are widgets, not forms.
+  forms: {
+    exclude: ['^(?!.*showcase)'],
+    skip: ['#mdbook-searchbar-outer', '#mdbook-sidebar-toggle-anchor', 'starlight-theme-select'],
+    values: { '^message$': 'Clearer than most docs I have read.' },
+  },
   // Not in `audits`: main records the baseline on every deploy, pull requests compare with it.
   shots: { exclude: ['^(?!.*showcase)'], viewports: [375, 1280], motion: false },
   links: {
@@ -78,13 +88,18 @@ export default defineConfig({
     urls: flavors.flatMap(({ id }) =>
       ['', 'audits/seo', 'showcase'].map((slug) => path(pageUrl(id, slug))),
     ),
-    thresholds: { accessibility: 0.98 },
+    // Total blocking time under Lighthouse's 4x CPU throttling swings by a few hundred ms from
+    // run to run: the same VitePress page scored 0.8 and 0.96 on one machine.
+    thresholds: { performance: 0.8, accessibility: 0.98 },
     overrides: [
-      // Angular boots in one ~500 ms task under Lighthouse's 4x CPU throttling (React: ~190 ms),
-      // whatever the page; it lands around 0.9 and would fail every other run.
-      { match: '^/angular/', thresholds: { performance: 0.85 } },
       // The showcase carries a WebGL scene, video and embeds on purpose.
       { match: 'showcase', thresholds: { performance: 0.75 } },
+      // Angular boots in one ~0.9 s task under that throttling (React: ~190 ms), whatever the
+      // page, showcase included; it lands between 0.73 and 0.9 and would fail every other run.
+      { match: '^/angular/', thresholds: { performance: 0.7 } },
+      // Starlight spends 3 s on style and layout under that throttling, text pages included
+      // (Hugo: 1 s); it lands between 0.74 and 0.92.
+      { match: '^/astro/', thresholds: { performance: 0.7 } },
     ],
   },
 });

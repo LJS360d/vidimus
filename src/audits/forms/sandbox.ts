@@ -66,13 +66,23 @@ export const sandbox = async (page: Page, allow: string[], stub: 'abort' | 'ok')
       request.continue().catch(() => {});
       return;
     }
-    captured.push({
-      method,
-      url,
-      type,
-      navigation,
-      body: parseBody(request.headers()['content-type'] ?? '', request.postData()),
-    });
+    // A GET without a query string, same-origin or from an embed, carries no field value: the
+    // page reading its own data (a lazy model, map tiles), not the form sending. Stopped, not
+    // recorded.
+    const target = new URL(url);
+    const own =
+      method === 'GET' &&
+      !navigation &&
+      !target.search &&
+      (target.origin === new URL(page.url()).origin || request.frame() !== page.mainFrame());
+    if (!own)
+      captured.push({
+        method,
+        url,
+        type,
+        navigation,
+        body: parseBody(request.headers()['content-type'] ?? '', request.postData()),
+      });
     // 204 keeps the page where it is; an aborted navigation would load Chrome's error page.
     const answer = navigation
       ? request.respond({ status: 204 })

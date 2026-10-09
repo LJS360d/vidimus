@@ -35,6 +35,7 @@ type Page = {
   description: string;
   body: string;
   script: string;
+  style: string;
   csp: string;
 };
 type Engine = Exclude<FlavorId, 'vitepress'>;
@@ -55,6 +56,7 @@ const parse = (file: string): Page => {
     title: field('title'),
     description: field('description'),
     script: field('script'),
+    style: field('style'),
     csp: field('csp'),
     body: source.slice(match?.[0].length ?? 0).replace(/^(\r?\n)+/, ''),
   };
@@ -119,12 +121,19 @@ const common = (engine: Engine, page: Page) => ({
   edit: editUrl(page),
   flavors: flavorLinks(engine, page.slug),
   ...(page.csp && { csp: page.csp }),
+  // The hand-written themes load a page's stylesheet in <head>: linked from the body it holds
+  // back the rest of <main>, and on phones the sidebar below it paints first, then jumps.
+  ...(page.style && { style: `${base}${page.style}` }),
 });
 
 // Pages with a `script` in their frontmatter load it as a module; VitePress does it in its config.
 // VitePress adds the base to /showcase/ URLs in raw HTML in its config; the other flavors get it here.
-const withScript = (page: Page, markdown: string) => {
-  const body = markdown.replace(/(["\s,])\/showcase\//g, `$1${base}showcase/`);
+const withScript = (page: Page, markdown: string, styled = false) => {
+  const body = (
+    styled && page.style
+      ? markdown.replace(`<link rel="stylesheet" href="/${page.style}">\n`, '')
+      : markdown
+  ).replace(/(["\s,])\/showcase\//g, `$1${base}showcase/`);
   return page.script
     ? `${body.trimEnd()}\n\n<script type="module" src="${base}${page.script}"></script>\n`
     : body;
@@ -244,7 +253,7 @@ const engines: Record<Engine, (all: Page[]) => void> = {
       const file = page.slug ? page.file.replace(/(^|\/)index\.md$/, '$1_index.md') : '_index.md';
       write(
         join(dir, file),
-        `${yaml({ title: page.slug ? page.title : home.title, description: describe('hugo', page), tagline: home.tagline, ...common('hugo', page) })}\n${withScript(page, rewriteLinks('hugo', page, page.body))}`,
+        `${yaml({ title: page.slug ? page.title : home.title, description: describe('hugo', page), tagline: home.tagline, ...common('hugo', page) })}\n${withScript(page, rewriteLinks('hugo', page, page.body), true)}`,
       );
     }
     write(join(docs, 'hugo', 'data', 'nav.json'), JSON.stringify(navFor('hugo')));
@@ -257,7 +266,7 @@ const engines: Record<Engine, (all: Page[]) => void> = {
     for (const page of all) {
       write(
         join(dir, page.slug ? page.file : 'index.md'),
-        `${yaml({ title: page.slug ? page.title : home.title, description: describe('eleventy', page), tagline: home.tagline, layout: page.slug ? 'doc.njk' : 'home.njk', ...common('eleventy', page) })}\n${withScript(page, rewriteLinks('eleventy', page, page.body))}`,
+        `${yaml({ title: page.slug ? page.title : home.title, description: describe('eleventy', page), tagline: home.tagline, layout: page.slug ? 'doc.njk' : 'home.njk', ...common('eleventy', page) })}\n${withScript(page, rewriteLinks('eleventy', page, page.body), true)}`,
       );
     }
     write(join(docs, 'eleventy', 'data', 'nav.json'), JSON.stringify(navFor('eleventy')));
@@ -278,7 +287,7 @@ const engines: Record<Engine, (all: Page[]) => void> = {
           .map(([key, value]) => `${key} = ${toml(value)}`)
           .join(
             '\n',
-          )}\n+++\n\n{% raw %}\n${withScript(page, rewriteLinks('zola', page, page.body))}\n{% endraw %}\n`,
+          )}\n+++\n\n{% raw %}\n${withScript(page, rewriteLinks('zola', page, page.body), true)}\n{% endraw %}\n`,
       );
     }
     write(join(docs, 'zola', 'nav.json'), JSON.stringify(navFor('zola')));

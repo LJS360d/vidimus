@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -290,6 +290,7 @@ describe('forms audit', () => {
 <form id="get" action="${api}/get"><input name="q"><button>Go</button></form>
 <form id="blank" action="${api}/blank" method="post" target="_blank"><input name="q"><button>Go</button></form>
 <form id="scripted"><input name="q"><button>Go</button></form>
+<iframe srcdoc="<script>onmessage = () => fetch('${api}/tile')</script>"></iframe>
 <script>
 document.getElementById('scripted').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -298,6 +299,8 @@ document.getElementById('scripted').addEventListener('submit', (event) => {
   navigator.sendBeacon('${api}/beacon', 'x');
   new WebSocket('${api.replace('http', 'ws')}/ws');
   window.open('${api}/open');
+  // An embed reading its own data (map tiles) is stopped, but is not the form sending.
+  frames[0].postMessage('', '*');
 });
 </script>`),
       });
@@ -502,12 +505,18 @@ form.addEventListener('submit', (e) => {
     // A urlencoded POST carries only the file name; multipart would carry the file.
     assert.equal(baseline.requests[0].body.cv, 'vidimus.png');
     assert.deepEqual(sink.observed.plan.accepted, ['""', '"pro"']);
-    // Failing cases keep a screenshot of the form before submit; passing ones do not.
-    const qty = sink.cases.find((c: { label: string }) => c.label.startsWith('qty=min-1'));
-    assert.ok(qty.before && existsSync(join(cwd, '.vidimus/forms', qty.before)));
+    // Screenshots are embedded in the HTML report only, never in JSON or beside it.
     assert.equal(baseline.before, undefined);
-    // Case requests show only what differs from the baseline request.
+    assert.equal(sink.shot, undefined);
     const html = readFileSync(join(cwd, '.vidimus/forms/index.html'), 'utf8');
+    // Failing cases keep a screenshot of the form before submit; passing ones do not.
+    assert.match(
+      html,
+      /<tr class="fail">(?:(?!<\/tr>).)*<img class="before" src="data:image\/jpeg;base64,/,
+    );
+    assert.doesNotMatch(html, /<tr class="pass">(?:(?!<\/tr>).)*<img class="before"/);
+    assert.ok(!readdirSync(join(cwd, '.vidimus/forms')).some((f) => f.endsWith('.jpg')));
+    // Case requests show only what differs from the baseline request.
     assert.match(html, /qty: &quot;0\.5&quot;<\/pre><small>\+ \d+ field\(s\) as baseline/);
   });
 
@@ -522,6 +531,8 @@ form.addEventListener('submit', (e) => {
 <form id="err"><input name="q" aria-label="Q" oninput="notDefined()"><button>Go</button></form>
 <form id="skipme"><input name="q" aria-label="Q"><button>Go</button></form>
 <form><input name="a" aria-label="A"><input name="b" aria-label="B"><button>Go</button></form>
+<form id="noisy"><input name="term" aria-label="Term" oninput="fetch('/data.json')"><button>Go</button></form>
+<div><select class="widget" aria-label="Theme"><option>dark</option></select><button type="button">Menu</button></div>
 <script>
 document.getElementById('work').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -529,10 +540,12 @@ document.getElementById('work').addEventListener('submit', (e) => {
 });
 </script>`),
     });
-    // Another page with a different form under the same id.
+    // Another page with a different form under the same id, and the same action-less form.
     writeFileSync(
       join(cwd, 'dist/other.html'),
-      page('<form id="login"><input name="code" aria-label="Code"><button>Go</button></form>'),
+      page(
+        '<form id="login"><input name="code" aria-label="Code"><button>Go</button></form><form id="noisy"><input name="term" aria-label="Term"><button>Go</button></form>',
+      ),
     );
     const { results } = await run({
       cwd,
@@ -541,13 +554,26 @@ document.getElementById('work').addEventListener('submit', (e) => {
       reporters: [],
       overrides: {
         port: await freePort(),
-        forms: { settle: 50, skip: ['#skipme'], maxCases: 4, values: { '^user$': 'alice' } },
+        forms: {
+          settle: 50,
+          skip: ['#skipme', '.widget'],
+          maxCases: 4,
+          values: { '^user$': 'alice' },
+        },
       },
     });
     const index = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/index.json'), 'utf8'));
     const ids = index.map((f: { id: string }) => f.id);
     assert.ok(ids.includes('login~2'), ids.join(' '));
     assert.ok(ids.includes('index_form_L10'), ids.join(' '));
+    // Fields matching forms.skip are left out of formless groups too.
+    assert.ok(!ids.some((id: string) => id.startsWith('index_form_') && id !== 'index_form_L10'));
+    // Without an action attribute a form posts to its own page: still one form on both.
+    const noisy = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/noisy.json'), 'utf8'));
+    assert.deepEqual(noisy.pages, ['/', '/other.html']);
+    // The page's own query-less fetch while typing is stopped but is not the form sending.
+    for (const c of noisy.cases)
+      assert.ok(!c.requests.some((r: { url: string }) => r.url.endsWith('/data.json')));
     const messages = results[0]?.findings.map(({ message }) => message) ?? [];
     for (const expected of [
       'login: password sent in the URL',
@@ -565,7 +591,7 @@ document.getElementById('work').addEventListener('submit', (e) => {
     const html = readFileSync(join(cwd, '.vidimus/forms/index.html'), 'utf8');
     assert.match(html, /<section id="login">/);
     assert.match(html, /<tr class="(pass|fail|info)">/);
-    assert.ok(existsSync(join(cwd, '.vidimus/forms/login.jpg')));
+    assert.match(html, /<img src="data:image\/jpeg;base64,[^"]+" alt="login filled/);
     const login = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/login.json'), 'utf8'));
     assert.match(login.cases[0].requests[0].url, /user=alice/);
   });

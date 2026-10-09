@@ -105,7 +105,7 @@ const caseRow = (
   ]
     .filter(Boolean)
     .join('<br>');
-  return `<tr class="${v}"><td>${i + 1}</td><td><b class="v">${v}</b></td><td>${esc(c.label)}<br><small>${esc(c.check)}</small></td><td><code>${esc(c.field === null ? '—' : value(c.value))}</code></td><td>${c.expect}</td><td>${c.outcome}</td><td>${layer(c.state)}${c.before ? `<br><a href="${esc(c.before)}"><img class="before" src="${esc(c.before)}" alt="form before submit" loading="lazy"></a>` : ''}</td><td>${reqs}${extra && `<small>${extra}</small>`}</td></tr>`;
+  return `<tr class="${v}"><td>${i + 1}</td><td><b class="v">${v}</b></td><td>${esc(c.label)}<br><small>${esc(c.check)}</small></td><td><code>${esc(c.field === null ? '—' : value(c.value))}</code></td><td>${c.expect}</td><td>${c.outcome}</td><td>${layer(c.state)}${c.before ? `<br><img class="before" src="${esc(c.before)}" alt="form before submit" loading="lazy">` : ''}</td><td>${reqs}${extra && `<small>${extra}</small>`}</td></tr>`;
 };
 
 const formSection = (form: Exercised & { findings: Finding[] }, origin: string) => {

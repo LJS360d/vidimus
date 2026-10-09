@@ -12,6 +12,7 @@
   <link rel="icon" href="{{ '/favicon.svg' | url }}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ '/apple-touch-icon.png' | url }}">
   <link rel="stylesheet" href="{{ '/main.css' | url }}">
+  {% if style %}<link rel="stylesheet" href="{{ style }}">{% endif %}
   <meta property="og:title" content="{{ fullTitle }}">
   <meta property="og:description" content="{{ description }}">
   <meta property="og:url" content="{{ canonical }}">

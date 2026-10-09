@@ -303,6 +303,12 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
 
 const slug = (id: string) => id.replace(/[^\w.~-]+/g, '_');
 
+// Screenshots live only in the HTML report, embedded, so it stays one file to open or attach.
+const dataUri = (jpeg: Uint8Array) =>
+  `data:image/jpeg;base64,${Buffer.from(jpeg).toString('base64')}`;
+const withoutShots = (key: string, value: unknown) =>
+  key === 'shot' || key === 'before' ? undefined : value;
+
 // ponytail: JPEG of the form element only, no full page; a hidden or zero-size form has none.
 const shotOf = async (page: Page, index: number) => {
   const handle = await page.evaluateHandle((i) => window.__vidimus.root(i), index);
@@ -468,7 +474,6 @@ export const forms: Audit = {
           fields = await span('forms.infer', () => inferAll(page, index, fields, accepted));
           // The form as filled with accepted values, for the HTML report.
           const shot = await span('forms.shot', () => shotOf(page, index));
-          if (shot) writeFileSync(join(out, `${slug(id)}.jpg`), shot);
           const generated = casesFor(fields, options.values, known);
           const cases = generated.cases.slice(0, options.maxCases);
           const results: CaseResult[] = [];
@@ -497,11 +502,7 @@ export const forms: Audit = {
               );
               // The form as the user saw it before pressing submit: kept for failures only.
               const { snap, ...last } = ran;
-              const before = `${slug(id)}-${results.length + 1}.jpg`;
-              if (snap && verdictOf(last) === 'fail') {
-                writeFileSync(join(out, before), snap);
-                last.before = before;
-              }
+              if (snap && verdictOf(last) === 'fail') last.before = dataUri(snap);
               results.push(last);
               dirty = last.outcome !== 'blocked:native' && last.outcome !== 'not-submitted';
             } catch (error) {
@@ -526,7 +527,7 @@ export const forms: Audit = {
             cases: results,
             skippedCases: generated.cases.length - cases.length,
             observed: observedOf(fields, results),
-            ...(shot && { shot: `${slug(id)}.jpg` }),
+            ...(shot && { shot: dataUri(shot) }),
           });
         } catch (error) {
           failed.push({
@@ -547,7 +548,7 @@ export const forms: Audit = {
     exercised.sort((a, b) => a.id.localeCompare(b.id));
     const file = (id: string) => `${slug(id)}.json`;
     for (const form of exercised)
-      writeFileSync(join(out, file(form.id)), `${JSON.stringify(form, null, 2)}\n`);
+      writeFileSync(join(out, file(form.id)), `${JSON.stringify(form, withoutShots, 2)}\n`);
     writeFileSync(
       join(out, 'index.json'),
       `${JSON.stringify(

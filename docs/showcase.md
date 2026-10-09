@@ -2,6 +2,7 @@
 title: Showcase
 description: A WebGL scene, the first YouTube video, art-directed images, a live in-page audit and a script-filled table, audited in eight site generators.
 script: showcase/showcase.js
+style: showcase/showcase.css
 csp: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; frame-src https://www.youtube-nocookie.com https://www.openstreetmap.org https://stackblitz.com; base-uri 'none'; form-action 'none'"
 ---
 
@@ -58,8 +59,8 @@ viewport. The live audit is a taste of it, running where there is no server and 
 <figcaption>Every page of these docs, coloured by section, with a line per link between two pages. Drag it to spin it. The graph is written as <code>graph.glb</code> when the docs are built.</figcaption>
 </figure>
 
-The scene loads [three.js](https://threejs.org) from this site, bundled with the page's own
-script, not from a CDN. It reads its model from a `.glb` file, spins only while it is on
+The scene loads [three.js](https://threejs.org) from this site, not from a CDN, and only when
+it is about to scroll into view: until then the page shows the poster. It reads its model from a `.glb` file, spins only while it is on
 screen, renders a single frame under `prefers-reduced-motion: reduce`, and leaves the static
 SVG poster in place when WebGL is not available. The whole block is one `role="img"` with a
 text alternative, and the script is an external module, so a strict CSP needs `script-src
@@ -67,14 +68,15 @@ text alternative, and the script is an external module, so a strict CSP needs `s
 
 What vidimus reports here:
 
-- `budget` measures what the browser fetched, because `render.include` covers this page: the
-  three.js bundle is the heaviest file.
+- `budget` measures what the browser fetched, because `render.include` covers this page. The
+  page's script is 12 kB: three.js, 530 kB of it, is a separate chunk the script imports only
+  when the scene nears the viewport, so it is not part of the load and the web fonts lead.
 
   ```
-  ✖ page 521 kB total > 300 kB budget
-      144 kB /showcase/showcase.js
+  ✖ page 383 kB total > 300 kB budget
       84 kB /assets/inter-roman-symbols.CQZtw9ew.woff2
       80 kB /assets/inter-italic-latin.Duvr4T3O.woff2
+      73 kB /assets/inter-roman-latin.q5rAVC0E.woff2
   ```
 
   That is with the page budget lowered to 300 kB to make it speak; the default is 2 MB.
@@ -86,8 +88,9 @@ What vidimus reports here:
   react_showcase@1280x800.png  0.01% changed -> diff/react_showcase@1280x800.png
   ```
 
-- `lighthouse` scores this page lower than the text pages, 76 to 97 on performance depending on
-  the flavor, so it has its own threshold in `docs/vidimus.config.ts`:
+- `lighthouse` scores this page 74 to 99 on performance depending on the flavor, about as
+  well as the text pages now that three.js waits for the scene. It keeps its own threshold in
+  `docs/vidimus.config.ts`, for the video, embeds and WebGL:
   `overrides: [{ match: 'showcase', thresholds: { performance: 0.75 } }]`.
 - `csp`, on the flavors with a strict meta CSP, finds nothing: the page's policy allows
   `script-src 'self'` and the script is a file.
@@ -204,6 +207,57 @@ What vidimus reports here:
   the same in every run. It waits for lazy images, which it switches to eager loading.
 - The captions are a `.vtt` file, which the built-in server sends as `text/vtt`, as a host
   would.
+
+## A form with rules the markup does not show
+
+Tell us what you think. Only the name and email rules are in the HTML: the 1 to 5 rating, the
+20-character minimum on the message and the blank-name check live in the page's script, as they
+would in an app validating with Zod or Angular `Validators`.
+
+<form class="showcase-form" id="showcase-feedback" data-feedback="">
+<label for="feedback-author">Name</label>
+<input id="feedback-author" name="author" type="text" autocomplete="name" maxlength="100" required aria-describedby="feedback-author-error">
+<p class="field-error" id="feedback-author-error"></p>
+<label for="feedback-email">Email</label>
+<input id="feedback-email" name="email" type="email" autocomplete="email" required>
+<label for="feedback-rating">Rating, 1 to 5</label>
+<input id="feedback-rating" name="rating" type="number" inputmode="numeric" required aria-describedby="feedback-rating-error">
+<p class="field-error" id="feedback-rating-error"></p>
+<label for="feedback-message">Message</label>
+<textarea id="feedback-message" name="message" rows="4" required aria-describedby="feedback-message-error"></textarea>
+<p class="field-error" id="feedback-message-error"></p>
+<button type="submit">Send feedback</button>
+<p data-feedback-status="" role="status"></p>
+</form>
+
+GitHub Pages has no backend: the form posts to the site, which answers `405`, and nothing is
+stored.
+
+What vidimus reports here:
+
+- `forms` finds this form in all eight flavors, from the static HTML of Hugo to the page React
+  and Angular render in the browser, recognises it as one form and exercises it once. Every
+  request it makes is stopped in a network sandbox, so even a site with a real backend would
+  receive nothing.
+- It reads `required` and `type="email"` from the markup, then probes each field with values
+  around the one it accepts and watches `aria-invalid` and the error text: it infers `min=1`,
+  `max=5` on the rating and `minlength=20` on the message by binary search, and tests their
+  boundaries like declared ones.
+- The message needs 20 characters, longer than any value vidimus makes up, so the config gives
+  it one: `forms: { values: { '^message$': '…' } }`.
+- A double click sends one request: the script disables the button while it is in flight.
+- The message has no length limit, which `forms` reports; this site accepts it on purpose,
+  scoped to this page in `docs/vidimus.config.ts`:
+
+  ```
+  ⚠ showcase-feedback: message has no length limit
+      message=long: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…(10000 chars)" → POST /vidimus/showcase/feedback
+      on: /angular/showcase /astro/showcase/ /eleventy/showcase/ +5 more
+      → Add maxlength (and enforce the same limit on the server).
+  ```
+
+- `.vidimus/forms/index.html` holds every case with its verdict and, for each failure, a
+  screenshot of the form right before submit, embedded in the file.
 
 ## A table filled by a script
 

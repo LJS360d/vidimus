@@ -63,7 +63,7 @@ jobs:
           - group: static
             audits: seo security html budget assets csp links
           - group: browser
-            audits: a11y r12s privacy
+            audits: a11y r12s privacy forms
           - group: lighthouse
             audits: lighthouse
     name: audit (${{ matrix.group }})

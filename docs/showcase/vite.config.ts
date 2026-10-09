@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite';
 
-// Bundles three.js with the showcase script, so the page loads no code from a CDN.
+// Bundles the three.js showcase script, so the page loads no code from a CDN. three.js is its own
+// chunk, imported only when the scene nears the viewport.
 export default defineConfig({
   root: import.meta.dirname,
+  base: '/vidimus/showcase/',
   build: {
     outDir: '../public/showcase',
     emptyOutDir: false,
-    lib: { entry: 'showcase.ts', formats: ['es'], fileName: () => 'showcase.js' },
+    modulePreload: false,
+    rolldownOptions: {
+      input: 'showcase.ts',
+      preserveEntrySignatures: 'allow-extension',
+      output: { entryFileNames: 'showcase.js', chunkFileNames: '[name].[hash].js' },
+    },
     chunkSizeWarningLimit: 1000,
   },
 });

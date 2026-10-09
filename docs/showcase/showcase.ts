@@ -1,137 +1,8 @@
-import {
-  BufferAttribute,
-  BufferGeometry,
-  LineBasicMaterial,
-  LineSegments,
-  PerspectiveCamera,
-  Points,
-  PointsMaterial,
-  Scene,
-  WebGLRenderer,
-} from 'three';
 import { PAGE_EVENT } from '../app-shell';
 
 const base = '/vidimus/showcase/';
 
-interface Accessor {
-  bufferView: number;
-  componentType: number;
-  count: number;
-  type: 'SCALAR' | 'VEC3';
-}
-
-interface Gltf {
-  accessors: Accessor[];
-  bufferViews: { byteOffset?: number; byteLength: number }[];
-  meshes: {
-    primitives: { attributes: Record<string, number>; indices?: number; mode: number }[];
-  }[];
-}
-
-// A minimal GLB reader: one mesh, float positions and colours, 16-bit indices. That is all the
-// page graph written by scripts/docs.ts uses, and it keeps GLTFLoader out of the bundle.
-const readGlb = (buffer: ArrayBuffer) => {
-  const view = new DataView(buffer);
-  if (view.getUint32(0, true) !== 0x46546c67) throw new Error('not a GLB file');
-  const jsonLength = view.getUint32(12, true);
-  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, jsonLength))) as Gltf;
-  const bin = 20 + jsonLength + 8;
-  const read = (index: number) => {
-    const accessor = json.accessors[index];
-    const bufferView = accessor && json.bufferViews[accessor.bufferView];
-    if (!accessor || !bufferView) throw new Error(`no accessor ${index}`);
-    const offset = bin + (bufferView.byteOffset ?? 0);
-    const size = accessor.type === 'VEC3' ? 3 : 1;
-    return accessor.componentType === 5123
-      ? new BufferAttribute(new Uint16Array(buffer, offset, accessor.count), 1)
-      : new BufferAttribute(new Float32Array(buffer, offset, accessor.count * size), size);
-  };
-  return (json.meshes[0]?.primitives ?? []).map(({ attributes, indices, mode }) => {
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', read(attributes.POSITION ?? 0));
-    geometry.setAttribute('color', read(attributes.COLOR_0 ?? 1));
-    if (indices !== undefined) geometry.setIndex(read(indices));
-    return { geometry, mode };
-  });
-};
-
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-
-const startScene = async (holder: HTMLElement) => {
-  if (holder.dataset.started) return;
-  holder.dataset.started = '';
-  let renderer: WebGLRenderer;
-  try {
-    renderer = new WebGLRenderer({ antialias: true, alpha: true });
-  } catch {
-    return; // no WebGL: the poster image stays
-  }
-  const primitives = readGlb(await (await fetch(`${base}graph.glb`)).arrayBuffer());
-  const scene = new Scene();
-  for (const { geometry, mode } of primitives) {
-    scene.add(
-      mode === 0
-        ? new Points(geometry, new PointsMaterial({ size: 0.09, vertexColors: true }))
-        : new LineSegments(
-            geometry,
-            new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.35 }),
-          ),
-    );
-  }
-  const camera = new PerspectiveCamera(45, 16 / 9, 0.1, 100);
-  camera.position.set(0, 0.4, 3.4);
-  camera.lookAt(0, 0, 0);
-  const resize = () => {
-    const width = holder.clientWidth;
-    renderer.setSize(width, (width * 9) / 16, false);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  };
-  resize();
-  new ResizeObserver(resize).observe(holder);
-  renderer.domElement.setAttribute('aria-hidden', 'true');
-  holder.append(renderer.domElement);
-  holder.classList.add('is-live');
-
-  let visible = true;
-  let last = 0;
-  let spin = 0.0002;
-  const frame = (time: number) => {
-    scene.rotation.y += Math.min(time - last, 50) * spin;
-    spin += (0.0002 - spin) * 0.02;
-    last = time;
-    renderer.render(scene, camera);
-    if (visible && !reducedMotion.matches) requestAnimationFrame(frame);
-  };
-  // Drag to fling the graph around; it eases back to its idle spin.
-  let drag: { x: number; y: number } | undefined;
-  holder.addEventListener('pointerdown', (event) => {
-    drag = { x: event.clientX, y: event.clientY };
-    holder.setPointerCapture(event.pointerId);
-  });
-  holder.addEventListener('pointermove', (event) => {
-    if (!drag) return;
-    const dx = event.clientX - drag.x;
-    scene.rotation.y += dx * 0.01;
-    scene.rotation.x = Math.max(
-      -1,
-      Math.min(1, scene.rotation.x + (event.clientY - drag.y) * 0.01),
-    );
-    spin = Math.max(-0.02, Math.min(0.02, dx * 0.0005));
-    drag = { x: event.clientX, y: event.clientY };
-    if (reducedMotion.matches) renderer.render(scene, camera);
-  });
-  holder.addEventListener('pointerup', () => {
-    drag = undefined;
-  });
-  // One frame under reduced motion; otherwise spin only while the scene is on screen.
-  renderer.render(scene, camera);
-  new IntersectionObserver(([entry]) => {
-    const was = visible;
-    visible = !!entry?.isIntersecting;
-    if (visible && !was && !reducedMotion.matches) requestAnimationFrame(frame);
-  }).observe(holder);
-  if (!reducedMotion.matches) requestAnimationFrame(frame);
-};
 
 // Click-to-load: nothing from the embed's host loads until the visitor asks for it.
 const startFacades = () => {
@@ -150,6 +21,50 @@ const startFacades = () => {
       frame.className = 'showcase-frame';
       button.replaceWith(frame);
       frame.focus();
+    });
+  }
+};
+
+// Rules the markup does not declare: the forms audit infers them by probing, as it would in an
+// app validating with Zod or Angular Validators.
+const feedbackRules: Record<string, (value: string) => string> = {
+  author: (value) => (value.trim() ? '' : 'Enter your name.'),
+  rating: (value) => (/^[1-5]$/.test(value) ? '' : 'Rate from 1 to 5.'),
+  message: (value) => (value.trim().length >= 20 ? '' : 'Write at least 20 characters.'),
+};
+
+const startFeedback = () => {
+  for (const form of document.querySelectorAll<HTMLFormElement>('form[data-feedback]')) {
+    if (form.dataset.bound) continue;
+    form.dataset.bound = '';
+    const button = form.querySelector('button');
+    const status = form.querySelector('[data-feedback-status]');
+    const check = (field: HTMLInputElement | HTMLTextAreaElement) => {
+      const message = feedbackRules[field.name]?.(field.value) ?? '';
+      field.setAttribute('aria-invalid', String(!!message));
+      const error = document.getElementById(field.getAttribute('aria-describedby') ?? '');
+      if (error) error.textContent = message;
+      return !message;
+    };
+    form.addEventListener('input', (event) => check(event.target as HTMLInputElement));
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const fields = [...form.querySelectorAll<HTMLInputElement>('input, textarea')];
+      if (!fields.map(check).every(Boolean) || !button || !status) return;
+      // One request per press: a double click must not send the feedback twice.
+      button.disabled = true;
+      try {
+        const response = await fetch(`${base}feedback`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+        });
+        status.textContent = `The site answered ${response.status}: it has no backend, nothing was stored.`;
+      } catch {
+        status.textContent = 'The site could not be reached.';
+      } finally {
+        button.disabled = false;
+      }
     });
   }
 };
@@ -185,15 +100,20 @@ const startResults = async () => {
   }
 };
 
+// One formatter, made on first use: toLocaleString builds a new one on every call, on every
+// frame, and the first one costs ~80 ms of locale data under Lighthouse's CPU throttling.
+let formatter: Intl.NumberFormat | undefined;
+
 const countUp = (element: HTMLElement, to: number) => {
+  formatter ??= new Intl.NumberFormat('en');
   if (reducedMotion.matches) {
-    element.textContent = to.toLocaleString('en');
+    element.textContent = formatter.format(to);
     return;
   }
   const start = performance.now();
   const step = (time: number) => {
     const progress = Math.min((time - start) / 1200, 1);
-    element.textContent = Math.round(to * (1 - (1 - progress) ** 3)).toLocaleString('en');
+    element.textContent = formatter.format(Math.round(to * (1 - (1 - progress) ** 3)));
     if (progress < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -216,10 +136,16 @@ const startStats = async () => {
       audits: all.length,
       passed: all.filter(({ status }) => status === 'passed').length,
     };
-    for (const element of holder.querySelectorAll<HTMLElement>('[data-stat]')) {
-      const value = values[element.dataset.stat ?? ''];
-      if (value) countUp(element, value);
-    }
+    // Count up when the numbers come into view, not while the page is still loading.
+    const seen = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      seen.disconnect();
+      for (const element of holder.querySelectorAll<HTMLElement>('[data-stat]')) {
+        const value = values[element.dataset.stat ?? ''];
+        if (value) countUp(element, value);
+      }
+    });
+    seen.observe(holder);
   }
 };
 
@@ -598,8 +524,22 @@ const startLive = () => {
 
 const start = () => {
   const scene = document.getElementById('showcase-scene');
-  if (scene) void startScene(scene);
+  // three.js is 500 kB of script: fetch and run it only when the scene is about to be seen,
+  // not while the page is still loading.
+  if (scene && !scene.dataset.watched) {
+    scene.dataset.watched = '';
+    const near = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        near.disconnect();
+        void import('./scene.ts').then(({ startScene }) => startScene(scene));
+      },
+      { rootMargin: '200px' },
+    );
+    near.observe(scene);
+  }
   startFacades();
+  startFeedback();
   startLive();
   void startStats();
   void startResults();

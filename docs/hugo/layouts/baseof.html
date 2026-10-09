@@ -17,6 +17,7 @@
   <meta name="twitter:card" content="summary_large_image">
   {{- $css := slice (resources.Get "css/main.css") (resources.Get "css/chroma.css") | resources.Concat "main.css" | minify | fingerprint }}
   <link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+  {{ with .Params.style }}<link rel="stylesheet" href="{{ . }}">{{ end }}
 </head>
 <body>
   <a class="skip" href="#content">Skip to content</a>

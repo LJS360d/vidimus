@@ -187,7 +187,8 @@ export const probe = (skip: string[]) => {
     const forms = deepAll('form').filter((form) => !skipped(form));
     const groups = new Map<Element, true>();
     for (const control of deepAll(CONTROLS)) {
-      if ((control as HTMLInputElement).form || control.closest('form')) continue;
+      if ((control as HTMLInputElement).form || control.closest('form') || skipped(control))
+        continue;
       if (SKIPPED_TYPES.has((control as HTMLInputElement).type)) continue;
       // ponytail: nearest ancestor holding a button is the group; misgroups pages with one
       // global "Save" for unrelated widgets. Adapters can supply exact roots if that bites.
@@ -200,7 +201,13 @@ export const probe = (skip: string[]) => {
       }
     }
     const nested = [...groups.keys()];
-    roots = [...forms, ...nested.filter((g) => !nested.some((o) => o !== g && o.contains(g)))];
+    const next = [...forms, ...nested.filter((g) => !nested.some((o) => o !== g && o.contains(g)))];
+    // A form the page adds later (a search dialog) goes last, so indexes already handed out
+    // keep pointing at the same element.
+    roots =
+      roots.length && roots.every((r) => next.includes(r))
+        ? [...roots, ...next.filter((r) => !roots.includes(r))]
+        : next;
     return roots;
   };
   const rootAt = (index: number) => {
@@ -446,7 +453,8 @@ export const probe = (skip: string[]) => {
           id: root.id,
           name: root.getAttribute('name') ?? '',
           method: form ? form.method : '',
-          action: form ? form.action : '',
+          // No action attribute: the form posts to whatever page it is on, the same form everywhere.
+          action: form?.hasAttribute('action') ? form.action : '',
           ordinal: form && staticForms.has(form) ? [...staticForms].indexOf(form) : null,
           novalidate: !!form?.noValidate,
           submitter: submitter

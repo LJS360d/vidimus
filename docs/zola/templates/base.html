@@ -12,6 +12,7 @@
   <link rel="icon" href="{{ config.extra.root }}favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ config.extra.root }}apple-touch-icon.png">
   <link rel="stylesheet" href="{{ config.extra.root }}main.css">
+  {% if doc.extra.style %}<link rel="stylesheet" href="{{ doc.extra.style }}">{% endif %}
   <meta property="og:title" content="{{ full_title }}">
   <meta property="og:description" content="{{ doc.description }}">
   <meta property="og:url" content="{{ doc.extra.canonical }}">
