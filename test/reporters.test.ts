@@ -268,4 +268,21 @@ describe('createReporters', () => {
     assert.equal(JSON.parse(readFileSync(join(cwd, 'reports/r.json'), 'utf8')).ok, false);
     assert.match(readFileSync(join(cwd, 'reports/r.xml'), 'utf8'), /<testsuites/);
   });
+
+  it('adds reports in outDir next to the default pretty reporter', async () => {
+    const cwd = fixture({});
+    const outDir = join(cwd, '.vidimus');
+    const reporters = createReporters([], { cwd, env: {}, reports: ['json', 'junit'], outDir });
+    assert.deepEqual(
+      reporters.map(({ name }) => name),
+      ['pretty', 'json', 'junit'],
+    );
+    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
+    assert.equal(JSON.parse(readFileSync(join(outDir, 'report.json'), 'utf8')).ok, false);
+    assert.match(readFileSync(join(outDir, 'report.xml'), 'utf8'), /<testsuites/);
+    assert.throws(
+      () => createReporters([], { cwd, env: {}, reports: ['pretty'], outDir }),
+      /unknown report "pretty"/,
+    );
+  });
 });

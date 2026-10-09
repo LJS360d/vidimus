@@ -11,7 +11,25 @@ export const REPORTERS = ['pretty', 'json', 'github', 'junit'];
 export interface ReporterEnv {
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** `json` or `junit`: also written to `<outDir>/report.json` / `report.xml`, whatever `specs` is. */
+  reports?: string[];
+  outDir?: string;
 }
+
+const REPORT_FILES = new Map([
+  ['json', 'report.json'],
+  ['junit', 'report.xml'],
+]);
+
+const reportSpecs = (reports: string[], outDir: string) =>
+  reports.map((name) => {
+    const file = REPORT_FILES.get(name);
+    if (!file)
+      throw new UsageError(
+        `unknown report "${name}". Known: ${[...REPORT_FILES.keys()].join(', ')}`,
+      );
+    return `${name}:${resolve(outDir, file)}`;
+  });
 
 const writer = (target: string | undefined, cwd: string) => (content: string) => {
   if (!target) {
@@ -53,9 +71,9 @@ const withGithub = (specs: (string | Reporter)[], env: NodeJS.ProcessEnv) => {
 
 export const createReporters = (
   specs: (string | Reporter)[],
-  { cwd, env }: ReporterEnv,
+  { cwd, env, reports = [], outDir = cwd }: ReporterEnv,
 ): Reporter[] => {
-  const parsed = withGithub(specs, env).map((spec) =>
+  const parsed = [...withGithub(specs, env), ...reportSpecs(reports, outDir)].map((spec) =>
     typeof spec === 'string' ? parse(spec) : spec,
   );
   const onStdout = parsed.filter(

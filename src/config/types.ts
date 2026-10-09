@@ -79,6 +79,8 @@ export interface VidimusConfig {
   };
   plugins: Audit[];
   reporters: (string | Reporter)[];
+  /** Reports always written to `outDir` next to the reporters: `json`, `junit`. */
+  reports: string[];
   browser: {
     args: string[];
     executablePath: string;

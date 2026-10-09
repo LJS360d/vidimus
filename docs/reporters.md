@@ -53,6 +53,25 @@ npx vidimus -r pretty -r json > report.json
 The `github` reporter moves to stderr in the same case, where the Actions runner still reads
 its annotations, so `-r json > report.json` stays valid JSON on Actions too.
 
+## Reports in `outDir`
+
+`reports` in the config keeps file reports on every run, whatever the reporters are. Each
+name is written into `outDir` (`.vidimus` by default), next to the terminal output:
+
+```ts
+export default defineConfig({
+  reports: ['json', 'junit'], // .vidimus/report.json and .vidimus/report.xml
+});
+```
+
+| Name | File |
+| --- | --- |
+| `json` | `<outDir>/report.json` |
+| `junit` | `<outDir>/report.xml` |
+
+`-r` does not replace `reports`, and `pretty` stays the default reporter. Any other name is an
+error: `unknown report "pretty". Known: json, junit`.
+
 ## `pretty`
 
 The terminal output. Before the audits it prints

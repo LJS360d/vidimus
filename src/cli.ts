@@ -7,8 +7,8 @@ import { CONFIG_FILES, type LoadConfigOptions, loadConfig } from './config/load.
 import type { UserConfig } from './config/types.ts';
 import { UsageError } from './core/errors.ts';
 import { diffProfiles, type ProfileLevel } from './core/profile.ts';
-import { auditRegistry, runAudits, selectAudits } from './core/run.ts';
-import { createReporters, REPORTERS } from './reporters/registry.ts';
+import { auditRegistry, run } from './core/run.ts';
+import { REPORTERS } from './reporters/registry.ts';
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
 
@@ -140,9 +140,9 @@ withConfigOptions(
   .option('--serial', 'run audits one at a time instead of in parallel')
   .action(async (audits: string[], flags: RunFlags) => {
     const { config } = await loadConfig(loadOptions(flags, runOverrides(flags)));
-    const selected = selectAudits(auditRegistry(config), audits, config);
-    const reporters = createReporters(config.reporters, { cwd: process.cwd(), env: process.env });
-    const report = await runAudits(config, selected, reporters, {
+    const report = await run({
+      audits,
+      config,
       profile: flags.profile === true ? 'spans' : flags.profile,
       serial: flags.serial,
     });

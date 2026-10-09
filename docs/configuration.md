@@ -144,6 +144,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `baseline.file` / `baseline.update` | `vidimus.baseline.json` / `false` | the findings baseline; `''` turns it off |
 | `plugins` | `[]` | custom audits, see [Custom audits and API](./plugins) |
 | `reporters` | `[]` | reporter names, `name:file` or objects, see [Reporters](./reporters) |
+| `reports` | `[]` | `json` and/or `junit`, always written to `<outDir>/report.json` / `report.xml` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `server.command` | `''` | serve the build with this shell command instead of the built-in server; `{port}` and `{dist}` are filled in (`--serve`), see [Serving the build](./serving) |

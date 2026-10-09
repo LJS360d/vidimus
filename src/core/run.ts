@@ -297,6 +297,8 @@ export const run = async ({
       createReporters(config.reporters, {
         cwd: loadOptions.cwd ?? process.cwd(),
         env: loadOptions.env ?? process.env,
+        reports: config.reports,
+        outDir: resolve(config.root, config.outDir),
       }),
     { profile, serial },
   );
