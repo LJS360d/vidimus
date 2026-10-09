@@ -48,7 +48,7 @@ export interface NavigateOptions {
   timeout: number;
 }
 
-export interface StateCookie {
+interface StateCookie {
   name: string;
   value: string;
   /** Defaults to the audited origin. */
