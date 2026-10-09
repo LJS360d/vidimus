@@ -40,6 +40,27 @@ describe('sites under a base path', () => {
     assert.equal(status, 404);
   });
 
+  it('audits the built-in server through the IPv4 literal it listens on', async () => {
+    const cwd = fixture({ 'dist/index.html': '<title>home</title>' });
+    let host = '';
+    const probe: Audit = {
+      name: 'probe',
+      description: 'records the origin host',
+      async run({ origin }) {
+        host = new URL(origin).hostname;
+        return { summary: 'ok' };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [],
+      overrides: { port: 0, plugins: [probe] },
+    });
+    assert.equal(host, '127.0.0.1');
+  });
+
   it('finds sitemap entries and assets published under the base path', async () => {
     const head = (path: string) => `<link rel="canonical" href="${SITE}${path}">
 <meta name="description" content="A description that is comfortably long enough for the check of ${path}.">
@@ -89,8 +110,8 @@ describe('sites under a base path', () => {
       overrides: { siteUrl: SITE, port: 4391, plugins: [probe] },
     });
     assert.deepEqual(seen, [
-      '200 http://localhost:4391/project/guide/ /guide/',
-      '200 http://localhost:4391/project/ /',
+      '200 http://127.0.0.1:4391/project/guide/ /guide/',
+      '200 http://127.0.0.1:4391/project/ /',
     ]);
   });
 });

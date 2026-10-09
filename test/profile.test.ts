@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -234,6 +234,12 @@ describe('profile', () => {
     assert.ok(JSON.parse(readFileSync(join(out, written), 'utf8')).nodes.length > 0);
   });
 
+  it('ignores the output directory when a profiled run fails before creating it', async () => {
+    const cwd = fixture({});
+    await assert.rejects(run({ cwd, env: {}, audits: ['seo'], reporters: [], profile: 'spans' }));
+    assert.equal(readFileSync(join(cwd, '.vidimus', '.gitignore'), 'utf8'), '*\n');
+  });
+
   it('stops recording when a run throws, runs audits serially, prints with pretty', async () => {
     const empty = fixture({});
     await assert.rejects(
@@ -318,6 +324,19 @@ describe('profile', () => {
     assert.match(text, /^cpu +x\.cpuprofile/m);
   });
 
+  it('rejects a --top that is not a positive integer as a usage error', () => {
+    const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+    for (const top of ['abc', '-3', '1.5']) {
+      const run = spawnSync(
+        process.execPath,
+        [cli, 'profile', 'diff', 'a.trace.json', 'b.trace.json', '--top', top],
+        { encoding: 'utf8' },
+      );
+      assert.equal(run.status, 2);
+      assert.match(run.stderr, new RegExp(`--top: "${top}" is not a positive integer`));
+    }
+  });
+
   it('diffs traces and rejects other files', () => {
     const out = fixture({ 'other.json': '{}' });
     assert.throws(
@@ -347,7 +366,7 @@ describe('profile', () => {
       trace.vidimus.spans.find((s: { name: string }) => s.name === 'broken').error,
       true,
     );
-    assert.match(formatProfile(summary as ProfileSummary).join('\n'), /slowest pages +\/a\/ /);
+    assert.match(formatProfile(summary as ProfileSummary).join('\n'), /slowest pages .*\/a\/ \d/);
   });
 
   it('hints at saturated pools, garbage collection and a CPU-bound process', () => {
@@ -383,5 +402,18 @@ describe('profile', () => {
       'garbage collection took 100ms (10% of the run)',
       'the Node process was CPU bound: try --profile cpu',
     ]);
+  });
+
+  it('takes very large timing lists without spreading them into arguments', async () => {
+    const out = fixture({});
+    await startProfile('spans');
+    const entries = Array.from({ length: 200_000 }, (_, i) => ({
+      name: 'lighthouse',
+      startTime: i,
+      duration: 0.5,
+    }));
+    addSpans(entries, 0, 1e9);
+    const summary = await stopProfile(join(out, 'profile'), out);
+    assert.equal(summary?.spans, 200_000);
   });
 });

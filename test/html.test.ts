@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { isNoindex, localFile, meta, textOf } from '../src/core/html.ts';
+import { createPageReader, isNoindex, localFile, meta, textOf } from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -140,9 +140,8 @@ describe('html audit', () => {
     assert.equal(result.status, 'passed');
   });
 
-  it('is skipped without pages', async () => {
-    const result = await audit({ 'dist/asset.txt': 'x' });
-    assert.equal(result.status, 'skipped');
+  it('stops before the audit when dist has no HTML', async () => {
+    await assert.rejects(audit({ 'dist/asset.txt': 'x' }), /no HTML files found in/);
   });
 
   it('gives every finding a fix', async () => {
@@ -189,5 +188,21 @@ describe('textOf within', () => {
       textOf('<html><title>x</title><body><svg><title>no</title></svg>', 'title', 'head'),
       'x',
     );
+  });
+
+  it('decodes non-UTF-8 files by BOM or meta charset', () => {
+    const latin = Buffer.concat([
+      Buffer.from('<!doctype html><meta charset="windows-1252"><title>caf'),
+      Buffer.from([0xe9]),
+      Buffer.from('</title>'),
+    ]);
+    const utf16 = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('<title>caf\u00e9</title>', 'utf16le'),
+    ]);
+    const dist = join(fixture({ 'dist/a.html': latin, 'dist/b.html': utf16 }), 'dist');
+    const pages = createPageReader(dist)();
+    assert.match(pages[0]?.html ?? '', /<title>café<\/title>/);
+    assert.match(pages[1]?.html ?? '', /<title>café<\/title>/);
   });
 });

@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream';
 import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
 import { UsageError } from './errors.ts';
-import { localFile } from './html.ts';
+import { fileCharset, localFile } from './html.ts';
 import { fallbackFor, regex, stripBase, underBase } from './util.ts';
 
 const TYPES: Record<string, string> = {
@@ -99,7 +99,11 @@ const handle = (
     res.writeHead(301, { location: `${pathname}/${url.search}` }).end();
     return;
   }
-  const type = TYPES[extname(file)] ?? 'application/octet-stream';
+  const ext = extname(file);
+  const type =
+    ext === '.html'
+      ? `text/html; charset=${fileCharset(file)}`
+      : (TYPES[ext] ?? 'application/octet-stream');
   const gzip =
     options.gzip &&
     COMPRESSIBLE.test(type) &&

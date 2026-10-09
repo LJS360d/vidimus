@@ -153,8 +153,8 @@ describe('embeds in browser audits', { skip: noBrowser }, () => {
   before(
     () =>
       new Promise<void>((resolve) =>
-        upstream.listen(0, '127.0.0.1', () => {
-          external = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+        upstream.listen(0, '127.0.0.2', () => {
+          external = `http://127.0.0.2:${(upstream.address() as AddressInfo).port}`;
           resolve();
         }),
       ),
@@ -166,7 +166,7 @@ describe('embeds in browser audits', { skip: noBrowser }, () => {
       'dist/index.html': page('', `<iframe src="${external}/embed" title="Video"></iframe>`),
     });
     const [finding] = result.findings;
-    assert.equal(finding?.message, 'third-party embed from 127.0.0.1');
+    assert.equal(finding?.message, 'third-party embed from 127.0.0.2');
     assert.equal(finding?.details?.[0], 'loaded in an <iframe> on page load');
     assert.ok(finding?.details?.includes(`${external}/tracker.js`));
     assert.match(finding?.fix ?? '', /click-to-load facade/);

@@ -83,6 +83,8 @@ export interface VidimusConfig {
     paths: string[];
     discover: RouteDiscovery;
     limit: number;
+    /** With `discover: 'crawl'` and rendering on, also follow hash-router links (`#/about`, `#!/docs`) as routes of the page they were found on; plain anchors such as `#top` are ignored. */
+    hash: boolean;
   };
   render: NavigateOptions & {
     mode: RenderMode;
@@ -105,7 +107,7 @@ export interface VidimusConfig {
   };
   plugins: Audit[];
   reporters: (string | Reporter)[];
-  /** Reports always written to `outDir` next to the reporters: `json`, `junit`, `sarif`. */
+  /** Reports always written to `outDir` next to the reporters: `json`, `junit`, `sarif`, `html`. */
   reports: string[];
   browser: {
     args: string[];
@@ -139,6 +141,8 @@ export interface VidimusConfig {
   forms: {
     concurrency: number;
     timeout: number;
+    /** Longest a single probe case (fill, submit, wait for the outcome) may run, in ms, before it is abandoned and reported as a finding. `0` means no limit. */
+    caseTimeout: number;
     settle: number;
     exclude: Pattern[];
     sample: Pattern[];
@@ -169,6 +173,8 @@ export interface VidimusConfig {
     outDir: string;
     baselineDir: string;
     viewports: (number | ViewportSize)[];
+    /** Colour schemes to capture each page and viewport in, emulated with `prefers-color-scheme`. `light` keeps the plain screenshot names; `dark` adds a `.dark` suffix (`index@1280x800.dark.png`). */
+    colorSchemes: ('light' | 'dark')[];
     exclude: Pattern[];
     sample: Pattern[];
     allLocales: boolean;
@@ -245,6 +251,8 @@ export interface VidimusConfig {
     allLocales: boolean;
     cookies: boolean;
     wait: number;
+    /** CSS selector of the consent banner's reject button. When set, the audit clicks it and reports cookies, storage and third-party requests that remain after rejection. Empty disables the check. */
+    rejectSelector: string;
     concurrency: number;
     timeout: number;
   };

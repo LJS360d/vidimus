@@ -67,7 +67,7 @@ such as timing measurements; the built-in `lighthouse` does.
 | `config` | the resolved `VidimusConfig`, every key filled in |
 | `root` | absolute project root |
 | `dist` | absolute path of the build output (`distDir` resolved from `root`) |
-| `origin` | where the build is served, without a trailing slash, base path included (`http://localhost:4322/project`) |
+| `origin` | where the build is served, without a trailing slash, base path included (`http://127.0.0.1:4322/project`) |
 | `resolve(...segments)` | resolves a path from `root` |
 | `pageUrls(query?)` | absolute URLs of the built pages under `origin` |
 | `builtPages(exclude?)` | the built HTML files as `{ file, rel, path, html }`, minus files matching `exclude` |

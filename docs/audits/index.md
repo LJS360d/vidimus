@@ -76,7 +76,7 @@ Each audit declares what it needs, and vidimus prepares only that:
 | build | `csp`, `seo`, `security`, `html`, `budget`, `assets` | reads the HTML files in `distDir` (default `dist`) |
 | server | `a11y`, `links`, `r12s`, `privacy`, `shots`, `lighthouse` | loads pages over HTTP |
 
-If any selected audit needs the build and `distDir` does not exist, the run stops with `no build output at <dir>. Run the build first.` For server audits vidimus serves `distDir` on `http://localhost:4322` (`port`), with the base path of `siteUrl` if it has one, unless you pass `--origin` to audit a server that is already running. See [How it works](../how-it-works).
+If any selected audit needs the build and `distDir` does not exist, the run stops with `no build output at <dir>. Run the build first.` For server audits vidimus serves `distDir` on `http://127.0.0.1:4322` (`port`), with the base path of `siteUrl` if it has one, unless you pass `--origin` to audit a server that is already running. See [How it works](../how-it-works).
 
 Audits run in parallel, except `lighthouse`, which runs alone after the others.
 

@@ -209,6 +209,7 @@ const unsafeSources = (policy: Policy) => {
 };
 
 const META_IGNORED = ['frame-ancestors', 'report-uri', 'sandbox'];
+const ANY_ANCESTOR = /^(\*|[a-z][a-z\d+.-]*:)$/;
 
 const weakCsp = (policy: Policy, meta: boolean): [string, string][] => {
   const scripts = policy.get('script-src') ?? policy.get('default-src');
@@ -250,6 +251,7 @@ const RESOURCES: Record<string, string[]> = {
   object: ['data'],
   embed: ['src'],
   form: ['action'],
+  image: ['href', 'xlink:href'],
 };
 
 const LINK_RESOURCES = ['stylesheet', 'icon', 'preload', 'modulepreload', 'manifest'];
@@ -257,16 +259,26 @@ const LINK_RESOURCES = ['stylesheet', 'icon', 'preload', 'modulepreload', 'manif
 const urlsIn = (tag: Tag, attr: string) => {
   const value = tag.attrs[attr];
   if (!value) return [];
-  return attr === 'srcset' ? srcsetUrls(value) : [value.trim()];
+  return attr === 'srcset' || attr === 'imagesrcset' ? srcsetUrls(value) : [value.trim()];
 };
+
+const cssUrls = (css: string) => [
+  ...Array.from(css.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi), (m) => (m[2] ?? '').trim()),
+  ...Array.from(css.matchAll(/@import\s*(["'])(.*?)\1/gi), (m) => (m[2] ?? '').trim()),
+];
 
 const insecureResources = (html: string) => {
   const found: string[] = [];
+  const css = [
+    ...Array.from(html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi), (m) => m[1] ?? ''),
+    ...tags(html).map((tag) => tag.attrs.style ?? ''),
+  ];
+  for (const url of css.flatMap(cssUrls)) if (/^http:\/\//i.test(url)) found.push(url);
   for (const tag of tags(html, 'link', ...Object.keys(RESOURCES))) {
     const attrs =
       tag.name === 'link'
         ? relTokens(tag).some((rel) => LINK_RESOURCES.includes(rel))
-          ? ['href']
+          ? ['href', 'imagesrcset']
           : []
         : (RESOURCES[tag.name] ?? []);
     for (const attr of attrs) {
@@ -276,7 +288,7 @@ const insecureResources = (html: string) => {
   return found;
 };
 
-const crossOriginWithoutIntegrity = (page: BuiltPage, siteUrl: string) => {
+const crossOriginResources = (page: BuiltPage, siteUrl: string) => {
   const candidates = [
     ...tags(page.html, 'script').map((tag) => ({ tag, href: tag.attrs.src })),
     ...tags(page.html, 'link')
@@ -284,15 +296,22 @@ const crossOriginWithoutIntegrity = (page: BuiltPage, siteUrl: string) => {
       .map((tag) => ({ tag, href: tag.attrs.href })),
   ];
   return candidates.flatMap(({ tag, href }) => {
-    if (!href || tag.attrs.integrity) return [];
+    if (!href) return [];
     const target = resolveHref(href, page.path, siteUrl);
     if (!target || target.internal || !target.absolute) return [];
     if (!/^https?:$/.test(target.url.protocol)) return [];
-    return [{ kind: tag.name, url: target.href }];
+    return [
+      {
+        kind: tag.name,
+        url: target.href,
+        integrity: Boolean(tag.attrs.integrity),
+        crossorigin: tag.attrs.crossorigin !== undefined,
+      },
+    ];
   });
 };
 
-const VERSION = /\d+\.\d+|\/\s*\d/;
+const VERSION = /[A-Za-z][\w.-]*(?:\/\d+(?:\.\d+)*\b|\s\d+\.\d+)/;
 
 const RECOMMENDED: Record<string, string> = {
   'strict-transport-security': 'Strict-Transport-Security: max-age=31536000; includeSubDomains',
@@ -482,16 +501,21 @@ export const security: Audit = {
         }
 
         if (options.clickjacking) {
-          const framed = headerPolicies(received).some((policy) =>
-            parsePolicy(policy).has('frame-ancestors'),
-          );
+          const ancestors = headerPolicies(received)
+            .map((policy) => parsePolicy(policy).get('frame-ancestors'))
+            .filter((sources) => sources !== undefined);
+          const framed = ancestors.some((sources) => !sources.some((s) => ANY_ANCESTOR.test(s)));
           const xfo = /^\s*(deny|sameorigin)\s*$/i.test(received['x-frame-options'] ?? '');
           if (!framed && !xfo) {
             report(
-              'no clickjacking protection: add CSP frame-ancestors or X-Frame-Options',
+              ancestors.length
+                ? 'no clickjacking protection: frame-ancestors allows any origin'
+                : 'no clickjacking protection: add CSP frame-ancestors or X-Frame-Options',
               where,
               {
-                fix: `Send "Content-Security-Policy: frame-ancestors 'self'" (or X-Frame-Options: DENY) as a header; a <meta> CSP can't set frame-ancestors.`,
+                fix: ancestors.length
+                  ? `Replace the "*" or scheme source in frame-ancestors with 'self' or explicit hosts, or send X-Frame-Options: DENY as a header.`
+                  : `Send "Content-Security-Policy: frame-ancestors 'self'" (or X-Frame-Options: DENY) as a header; a <meta> CSP can't set frame-ancestors.`,
               },
             );
           }
@@ -545,11 +569,20 @@ export const security: Audit = {
       }
 
       if (options.sri) {
-        for (const { kind, url } of crossOriginWithoutIntegrity(page, config.siteUrl)) {
-          report(`cross-origin <${kind}> without integrity: ${url}`, where, {
-            severity: 'warn',
-            fix: 'Add integrity="sha384-…" and crossorigin="anonymous", or self-host the file.',
-          });
+        for (const { kind, url, integrity, crossorigin } of crossOriginResources(
+          page,
+          config.siteUrl,
+        )) {
+          if (!integrity) {
+            report(`cross-origin <${kind}> without integrity: ${url}`, where, {
+              severity: 'warn',
+              fix: 'Add integrity="sha384-…" and crossorigin="anonymous", or self-host the file.',
+            });
+          } else if (!crossorigin) {
+            report(`cross-origin <${kind}> with integrity but no crossorigin: ${url}`, where, {
+              fix: 'Add crossorigin="anonymous" to the tag, or the browser blocks the file.',
+            });
+          }
         }
       }
     }

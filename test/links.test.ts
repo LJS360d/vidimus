@@ -17,7 +17,7 @@ describe('links skip', () => {
     });
     assert.deepEqual(
       results[0]?.findings.map(({ message }) => message.replace(/:\d+/, '')),
-      ['404 http://localhost/old/'],
+      ['404 http://127.0.0.1/old/'],
     );
   });
 });

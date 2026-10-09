@@ -53,7 +53,7 @@ export const github = (
       if (!env.GITHUB_STEP_SUMMARY) return;
       const rows = results.map(
         ({ name, status, summary }) =>
-          `| ${name} | ${status} | ${summary.replaceAll('|', '\\|')} |`,
+          `| ${name} | ${status} | ${summary.replaceAll('|', '\\|').replaceAll(/\r?\n/g, '<br>')} |`,
       );
       appendFileSync(
         env.GITHUB_STEP_SUMMARY,

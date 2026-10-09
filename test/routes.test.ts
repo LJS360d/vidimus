@@ -196,6 +196,31 @@ describe('routes', () => {
     assert.deepEqual(limited.paths, ['/', '/a']);
   });
 
+  it('crawls hash routes only when routes.hash is set', { skip: noBrowser }, async () => {
+    const hashApp = `
+setTimeout(() => {
+  const root = document.getElementById('root');
+  for (const href of ['#/about', '#!/docs', '#top', '#']) {
+    const link = document.createElement('a');
+    link.href = href;
+    root.append(link);
+  }
+  root.dataset.ready = '';
+}, 50);
+`;
+    const files = { 'dist/index.html': SHELL, 'dist/app.js': hashApp };
+    const overrides = {
+      server: { fallback: 'index.html' },
+      render: { mode: 'on', waitFor: '#root[data-ready]' },
+      routes: { discover: 'crawl' },
+    };
+    assert.deepEqual((await collect(files, overrides)).paths, ['/']);
+    const hash = { ...overrides, routes: { discover: 'crawl', hash: true } };
+    assert.deepEqual((await collect(files, hash)).paths, ['/', '/#/about', '/#!/docs']);
+    const limited = { ...overrides, routes: { discover: 'crawl', hash: true, limit: 1 } };
+    assert.deepEqual((await collect(files, limited)).paths, ['/', '/#/about']);
+  });
+
   it('hints at routes for a single page with a large script', async () => {
     const files = { 'dist/index.html': SHELL, 'dist/app.js': 'x'.repeat(150_000) };
     const [hint] = (await collect(files, {})).notes;

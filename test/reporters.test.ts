@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import { subtractBaseline } from '../src/core/findings.ts';
 import { createReporters, type RunReport } from '../src/index.ts';
 import { annotation, github } from '../src/reporters/github.ts';
+import { toHtml } from '../src/reporters/html.ts';
 import { toJUnit } from '../src/reporters/junit.ts';
 import { pretty, progressLine } from '../src/reporters/pretty.ts';
 import { toSarif } from '../src/reporters/sarif.ts';
@@ -56,6 +57,39 @@ const report: RunReport = {
   ],
 };
 
+describe('html reporter', () => {
+  it('escapes untrusted text and lists audits and fixes', () => {
+    const out = toHtml({
+      ...report,
+      results: [
+        ...report.results,
+        {
+          name: 'evil',
+          status: 'failed',
+          summary: 's',
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+          findings: [
+            {
+              message: '<script>alert("x")</script> & \'q\'',
+              where: ['/a?x=<b>&y="1"'],
+              fix: 'do the fix',
+            },
+          ],
+        },
+      ],
+    });
+    assert.match(out, /^<!doctype html>/);
+    assert.ok(!out.includes('<script>'));
+    assert.ok(!out.includes('<b>'));
+    assert.match(out, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt; &amp; &#39;q&#39;/);
+    assert.match(out, /\/a\?x=&lt;b&gt;&amp;y=&quot;1&quot;/);
+    assert.match(out, /do the fix/);
+    for (const { name } of report.results) assert.ok(out.includes(name));
+  });
+});
+
 describe('sarif reporter', () => {
   it('maps findings to results with levels and locations', () => {
     const withFiles: RunReport = {
@@ -98,6 +132,27 @@ describe('junit reporter', () => {
     assert.match(xml, /404 &lt;https:\/\/x\.test\/\?a=1&amp;b=2&gt;/);
     assert.match(xml, /<error message="pa11y missing"\/>/);
     assert.match(xml, /<skipped message="not configured"\/>/);
+  });
+
+  it('counts failure elements as rendered', () => {
+    const xml = toJUnit({
+      ...report,
+      results: [
+        {
+          name: 'a11y',
+          status: 'errored',
+          summary: 'did not finish',
+          findings: [{ message: 'did not finish' }],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    const rendered = xml.match(/<failure\b/g)?.length ?? 0;
+    assert.equal(rendered, 1);
+    assert.match(xml, /<testsuites [^>]*failures="1"/);
+    assert.match(xml, /<testsuite name="a11y" [^>]*failures="1"/);
   });
 });
 
@@ -242,6 +297,30 @@ describe('github reporter output', () => {
     assert.match(readFileSync(summary, 'utf8'), /\| links \| failed \| 1 broken \|/);
   });
 
+  it('keeps multi-line step summary cells on one table row', () => {
+    const { stream } = sink();
+    const summary = join(fixture({}), 'summary.md');
+    const reporter = github(stream, { GITHUB_STEP_SUMMARY: summary });
+    reporter.onEnd?.({
+      ...report,
+      results: [
+        {
+          name: 'seo',
+          status: 'errored',
+          summary: 'Error: bad input | x\nat line 2\r\nat line 3',
+          findings: [],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    assert.match(
+      readFileSync(summary, 'utf8'),
+      /\| seo \| errored \| Error: bad input \\\| x<br>at line 2<br>at line 3 \|\n/,
+    );
+  });
+
   it('writes warnings with file, details, pages and fix, and no summary outside Actions', () => {
     const { stream, text } = sink();
     const root = fixture({});
@@ -304,6 +383,8 @@ describe('createReporters', () => {
     assert.throws(() => names(['json', 'junit']), /both write to stdout/);
     assert.deepEqual(names(['sarif:r.sarif']), ['sarif']);
     assert.throws(() => names(['json', 'sarif']), /both write to stdout/);
+    assert.deepEqual(names(['html:r.html']), ['html']);
+    assert.throws(() => names(['json', 'html']), /both write to stdout/);
   });
 
   it('passes custom reporters through even when they have a target field', () => {
@@ -321,6 +402,14 @@ describe('createReporters', () => {
     for (const reporter of reporters) await reporter.onEnd?.(report);
     assert.equal(JSON.parse(readFileSync(join(cwd, 'reports/r.json'), 'utf8')).ok, false);
     assert.match(readFileSync(join(cwd, 'reports/r.xml'), 'utf8'), /<testsuites/);
+  });
+
+  it('writes the html report to outDir', async () => {
+    const cwd = fixture({});
+    const outDir = join(cwd, '.vidimus');
+    const reporters = createReporters([], { cwd, env: {}, reports: ['html'], outDir });
+    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
+    assert.match(readFileSync(join(outDir, 'report.html'), 'utf8'), /<!doctype html>/);
   });
 
   it('writes the sarif report to outDir', async () => {

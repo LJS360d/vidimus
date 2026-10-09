@@ -55,6 +55,27 @@ describe('r12s audit', () => {
     assert.deepEqual(results[0]?.findings, []);
   });
 
+  it('skips screen-reader-only text clipped with rect(1px) or clip-path inset(100%)', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(1px, 1px, 1px, 1px);font-size:8px">sr</span>' +
+          '<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(100%);font-size:8px">sr2</span>' +
+          '<p>visible</p>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    assert.deepEqual(results[0]?.findings, []);
+  });
+
   it('reports small text, crowded standalone links and locked zoom', {
     skip: noBrowser,
   }, async () => {
@@ -84,6 +105,25 @@ describe('r12s audit', () => {
       messages.some((message) => message.startsWith('target-size')),
       messages.join('\n'),
     );
+  });
+
+  it('skips font-size:0 layouts whose first child is whitespace text', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<div style="font-size:0"> <span style="display:inline-block;font-size:16px">Hi</span></div>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    assert.deepEqual(results[0]?.findings, []);
   });
 
   it('reports pages that fail to load instead of erroring', { skip: noBrowser }, async () => {

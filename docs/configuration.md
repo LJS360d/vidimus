@@ -8,7 +8,9 @@ description: Config files, environment variables, JSON Schema, top-level keys, s
 Sources, lowest to highest precedence:
 
 1. defaults
-2. the first config file found in the working directory:
+2. the first config file found in the working directory, or else in the nearest parent directory
+   that has one (the search stops after a directory containing `.git`, or at the filesystem root;
+   the config's directory becomes the project root):
    `vidimus.config.{ts,mts,js,mjs,cjs,json}`, `.vidimusrc`, `.vidimusrc.json`, or the
    `"vidimus"` field of `package.json` (or the file given by `--config` / `VIDIMUS_CONFIG`)
 3. environment variables: `VIDIMUS_<KEY>`, nesting with `__`
@@ -88,7 +90,7 @@ Conversion follows the type of the default value:
 
 | Current value | Accepted input |
 | --- | --- |
-| string | taken as is |
+| string | taken as is; `server.fallback` also takes a JSON array of rules |
 | number | any number; anything else is an error |
 | boolean | `1`, `true`, `yes`, `on` / `0`, `false`, `no`, `off`, empty |
 | array | a comma list (`a,b`), or a JSON array (`["a","b"]`) |
@@ -132,6 +134,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `routes.paths` | `[]` | extra page paths to audit, relative to the `siteUrl` base path |
 | `routes.discover` | `'off'` | `'sitemap'` or `'crawl'`: find more pages, for client-rendered apps |
 | `routes.limit` | `200` | most new routes `'crawl'` adds |
+| `routes.hash` | `false` | with `'crawl'` and `render` on, also follow `#/path` and `#!/path` links of hash-routed apps |
 | `render.mode` | `'off'` | `'on'` or `'auto'`: `dist` audits read the DOM a browser renders, see [How it works](./how-it-works#client-rendered-sites) |
 | `render.include` | `[]` | URL path patterns of the pages to render; empty renders every page |
 | `render.waitFor` | `'load'` | when an opened page is ready: `'load'`, `'networkidle'`, milliseconds after load or a CSS selector |
@@ -147,7 +150,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `baseline.matchWhere` | `false` | also match accepted findings by page list (`where`) |
 | `plugins` | `[]` | custom audits, see [Custom audits and API](./plugins) |
 | `reporters` | `[]` | reporter names, `name:file` or objects, see [Reporters](./reporters) |
-| `reports` | `[]` | `json`, `junit` and/or `sarif`, always written to `<outDir>/report.json` / `report.xml` / `report.sarif` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
+| `reports` | `[]` | `json`, `junit`, `sarif` and/or `html`, always written to `<outDir>/report.json` / `report.xml` / `report.sarif` / `report.html` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `browser.state` | `{}` | `localStorage`, `sessionStorage`, `cookies` and a `script` seeded into every page a browser audit opens, see [below](#browser-state) |

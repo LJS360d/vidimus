@@ -72,7 +72,8 @@ one at a time, so their measurements are not disturbed by the others.
 
 When at least one selected audit requires `server` and no `origin` is set, vidimus starts a
 static server on `127.0.0.1` at `port` (default `4322`) and stops it at the end of the run. The
-audit origin is `http://localhost:<port>` followed by the base path of `siteUrl`.
+audit origin is `http://127.0.0.1:<port>` followed by the base path of `siteUrl`; with
+`server.command` it is `http://localhost:<port>` alone, since host tools serve `dist` at `/`.
 
 The built-in server is a stand-in: it does not apply `_headers`, `_redirects`, `vercel.json`,
 `firebase.json` or any other host config, and does not copy any host's redirect and 404
@@ -85,7 +86,7 @@ The server:
 - maps `/about/` to `about/index.html`, and `/about` to `about`, `about/index.html` or
   `about.html`, whichever exists
 - answers anything else with a plain `404 Not found`, unless `server.fallback` is set
-- sets `content-type` from the file extension and gzips text, JSON, XML, SVG and manifests when
+- sets `content-type` from the file extension (HTML files get the charset they declare: a BOM or a `<meta charset>` in the first 1024 bytes, else `utf-8`) and gzips text, JSON, XML, SVG and manifests when
   the client accepts it (`server.gzip`)
 - adds the headers of every `server.headers` rule whose `match` regex matches the request path
 
@@ -148,7 +149,7 @@ export default defineConfig({ siteUrl: 'https://user.github.io/project' });
 
 Then:
 
-- the audit origin becomes `http://localhost:4322/project`, and pages are opened there
+- the audit origin becomes `http://127.0.0.1:4322/project`, and pages are opened there
 - the server answers both `/project/about/` and `/about/`, so a build written with the prefix
   and a build written without it both load
 - absolute links to `https://user.github.io/project/…` are rewritten onto the audit origin by
@@ -158,6 +159,8 @@ Then:
 
 `server.headers` rules match the full request path, base path included: `^/_astro/` does not
 match `/project/_astro/app.js`; `/_astro/` does.
+
+With `server.command` the origin has no base path: the command is expected to serve `dist` at `/`.
 
 With `--origin`, give the base path as part of the URL: `--origin http://localhost:4173/project`.
 
@@ -193,7 +196,9 @@ export default defineConfig({
 - `routes.discover: 'crawl'` opens the built pages and `routes.paths` in the browser, waits for
   `render.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
   first, until `routes.limit` new routes are found. Links to files with an extension other
-  than `.html` are not routes.
+  than `.html` are not routes. With `routes.hash` and `render` on, links such as `#/about`,
+  `#!/docs` or `/index.html#/about` also become routes, each audited as the page URL plus its
+  fragment; plain anchors such as `#top` are ignored. They count towards `routes.limit`.
 
 A route that matches a built file is already in the list and is dropped. The rest have no
 file, so the built-in server answers them through

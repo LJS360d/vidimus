@@ -46,6 +46,13 @@ const toPort = (value: string) => {
   return port;
 };
 
+const toTop = (value: string) => {
+  const top = Number(value);
+  if (!Number.isInteger(top) || top < 1)
+    throw new UsageError(`--top: "${value}" is not a positive integer`);
+  return top;
+};
+
 const withConfigOptions = (command: Command) =>
   command
     .option('-c, --config <file>', 'config file (default: search the working directory)')
@@ -196,7 +203,7 @@ program
   .description('compare two traces: self time per audit and span, largest changes first')
   .argument('<before>', 'trace file from the earlier run')
   .argument('<after>', 'trace file from the later run')
-  .option('--top <n>', 'rows to print', (value) => Number(value), 15)
+  .option('--top <n>', 'rows to print', toTop, 15)
   .action((before: string, after: string, flags: { top: number }) => {
     for (const line of diffProfiles(before, after, flags.top)) console.log(line);
   });

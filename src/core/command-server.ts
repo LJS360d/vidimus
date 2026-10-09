@@ -67,6 +67,11 @@ const stop = async (child: ChildProcess) => {
   signalGroup(child.pid, 'SIGKILL');
 };
 
+const quote = (value: string) =>
+  process.platform === 'win32'
+    ? `"${value.replaceAll('"', '""')}"`
+    : `'${value.replaceAll("'", "'\\''")}'`;
+
 export const serveCommand = async ({
   command,
   cwd,
@@ -81,7 +86,7 @@ export const serveCommand = async ({
       `port ${port} is in use; stop what is running there or pick another with --port`,
     );
   }
-  const line = command.replaceAll('{port}', String(port)).replaceAll('{dist}', dist);
+  const line = command.replaceAll('{port}', String(port)).replaceAll('{dist}', quote(dist));
   const output = createWriteStream(log);
   const child = spawn(line, {
     cwd,

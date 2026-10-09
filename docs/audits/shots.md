@@ -52,7 +52,7 @@ For each page and each entry in `shots.viewports`, vidimus:
 
 A screenshot that fails (the page does not load, or the browser times out) is a failing finding, `failed to capture <name>`, with the browser error as detail; the other screenshots are still taken.
 
-Screenshots are named after the URL path and viewport: `index@375x667.png`, `blog_first-post@1280x800.png`.
+Screenshots are named after the URL path and viewport: `index@375x667.png`, `blog_first-post@1280x800.png`. With `shots.colorSchemes` including `dark`, each page and viewport is also captured with `prefers-color-scheme: dark` emulated, named with a `.dark` suffix: `index@375x667.dark.png`. Dark shots are compared, updated and overridden like any other; a light name never ends in `.dark`, so the two cannot collide.
 
 ### Comparing
 
@@ -77,7 +77,7 @@ export default defineConfig({
 
 Screenshots with no baseline, such as new pages, are listed as `no baseline` and reported as a warning (`2 screenshot(s) have no baseline`). With no baseline at all nothing was compared, and the audit fails (`no baseline in .vidimus/shots/baseline: nothing was compared`): record one with `--update-baseline`. In CI, see [Sharing the baseline](#sharing-the-baseline).
 
-`--update-baseline` skips the comparison, deletes the PNG files in the baseline directory and copies the current screenshots in, so baselines of pages that no longer exist are removed. Other files in that directory are left alone. If any screenshot fails, the baseline is left as it was.
+`--update-baseline` skips the comparison, copies the current screenshots into the baseline directory, replacing only the baselines of the shots captured in that run. Baselines of other pages, such as those left out by `shots.exclude`, are never touched; delete the PNG of a page that no longer exists by hand. If any screenshot fails, the baseline is left as it was.
 
 ### Sharing the baseline
 
@@ -149,6 +149,7 @@ side-by-side gallery at .vidimus/shots/diff.html
 | Key | Default | Description |
 | --- | --- | --- |
 | `shots.viewports` | `[{ width: 375, height: 667 }, 1280]` | a width in px (height 800) or `{ width, height }` |
+| `shots.colorSchemes` | `['light']` | `light` and/or `dark`: capture every page and viewport in each colour scheme |
 | `shots.sample` | `[]` | URL path patterns: screenshot one page per matching template |
 | `shots.allLocales` | `false` | also capture pages of translated locales |
 | `shots.tolerance` | `12` | per-channel colour difference (0 to 255) a pixel may have and still count as unchanged |

@@ -34,12 +34,14 @@ export const fallbackFor = (fallback: string | { match: Pattern; file: string }[
 
 export const pathOf = (url: string, root = '') => stripBase(new URL(url).pathname, root);
 
-export const slug = (url: string, root = '') =>
-  pathOf(url, root)
-    .replace(/^\/|\/$/g, '')
-    .replaceAll('%', '%25')
-    .replaceAll('_', '%5F')
-    .replaceAll('/', '_') || 'index';
+const escaped = (text: string) =>
+  text.replaceAll('%', '%25').replaceAll('_', '%5F').replaceAll('/', '_');
+
+export const slug = (url: string, root = '') => {
+  const { hash } = new URL(url);
+  const path = escaped(pathOf(url, root).replace(/^\/|\/$/g, '')) || 'index';
+  return hash ? `${path}%23${escaped(hash.slice(1))}` : path;
+};
 
 const compiled = new Map<Pattern, RegExp>();
 

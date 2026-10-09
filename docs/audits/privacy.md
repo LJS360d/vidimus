@@ -47,7 +47,7 @@ Requests made by iframes count too, including cross-origin iframes the browser r
 
 Every `http`, `https`, `ws` and `wss` request is classified. `data:` and `blob:` URLs are ignored.
 
-- **first-party**: the host of the audit origin or of `siteUrl`. Ports are not compared, so a local server on `localhost:4322` is first-party.
+- **first-party**: the host of the audit origin or of `siteUrl`. Ports are not compared, so a local server on `127.0.0.1:4322` is first-party.
 - **allowed**: the full URL matches a pattern in `privacy.allow`.
 - **third-party**: everything else. Each host is one failing finding, with up to three example URLs and every page that requested it.
 
@@ -75,6 +75,10 @@ For well-known services the finding adds a hint and a specific fix:
 
 A host matches an entry when it equals it or is a subdomain of it (`www.youtube.com` matches `youtube.com`).
 
+### Resource hints
+
+After the wait, each loaded page's `<link rel="preconnect">` and `<link rel="dns-prefetch">` tags are checked. A hint opens a connection to its host before any request is made, so a third-party hint contacts that host before consent. Hrefs are resolved against the page, so `//host` takes the page's protocol. A hint whose host is first-party, or whose full URL matches `privacy.allow`, is ignored, the same as requests. Each third-party host is one warning, `third-party resource hint to <host>`, with the hint and an example URL and the pages it appears on. The fix is to remove the hint or add it only after consent.
+
 ### Cookies
 
 With `privacy.cookies` on, every cookie present in the browser context after the wait is reported with its name and domain:
@@ -83,6 +87,19 @@ With `privacy.cookies` on, every cookie present in the browser context after the
 - A cookie on any other domain fails.
 
 A script from a third party can set a cookie on your own domain (Google Analytics sets `_ga` this way), so such cookies show up as first-party warnings together with a failing request to the script's host.
+
+### Client-side storage
+
+With `privacy.cookies` on, the keys of `localStorage` and `sessionStorage` and the names of IndexedDB databases (`indexedDB.databases()`) present after the wait are reported, one warning per storage kind with the key or database names (the first 10, then `and N more`) and the pages. Only names are read, never values. Storage written by first-party or third-party scripts on load counts alike, because both land in your origin. Browsers without `indexedDB.databases()` report no databases. Defer the writes until the visitor consents, or document them in your privacy notice if they are strictly necessary. `privacy.allow` does not apply to storage.
+
+### After rejecting consent
+
+Set `privacy.rejectSelector` to the CSS selector of your consent banner's reject button to also check the state after a visitor refuses. After the initial checks, vidimus clicks the button, waits `privacy.wait` ms, and reports as failures:
+
+- every third-party request made since the click (`privacy.allow` applies as above),
+- every cookie present after the click, and every `localStorage`, `sessionStorage` and IndexedDB key present (with `privacy.cookies` on).
+
+Items that were already present before the click are included, so a tracker that survives rejection is reported here as well as in the pre-consent findings. If the selector matches nothing on a page, a warning `reject button not found: <selector>` lists those pages. The check is off while the selector is empty.
 
 ### Load failures
 
@@ -104,7 +121,7 @@ A page that does not load within `privacy.timeout` becomes a failing finding (`f
     on: /talks/
     → Self-host the resource, load it only after consent, or add a pattern to privacy.allow if it is covered by your privacy policy.
 
-⚠ cookie lang set on load (localhost)
+⚠ cookie lang set on load (127.0.0.1)
     on: /
     → Set it only after consent, or add it to your cookie notice if it is strictly necessary.
 
@@ -114,7 +131,7 @@ A page that does not load within `privacy.timeout` becomes a failing finding (`f
 The privacy-enhanced `youtube-nocookie.com` domain is not in the table, so it gets the generic fix, but it is still a request to another host and fails like any other. A passing run:
 
 ```
-✔ privacy: 12 pages, no third-party requests or cookies (6.1s)
+✔ privacy: 12 pages, no third-party requests, cookies or storage writes (6.1s)
 ```
 
 ## Options
@@ -124,9 +141,10 @@ The privacy-enhanced `youtube-nocookie.com` domain is not in the table, so it ge
 | `privacy.allow` | `[]` | regular expressions matched against the full request URL |
 | `privacy.sample` | `[]` | URL path patterns: load one page per matching template |
 | `privacy.allLocales` | `false` | also load pages of translated locales |
-| `privacy.cookies` | `true` | report cookies set on load |
+| `privacy.cookies` | `true` | report cookies and client-side storage written on load |
 | `privacy.wait` | `1500` | ms to wait after `load` for late requests |
 | `privacy.timeout` | `60000` | ms to wait for a page's `load` event |
+| `privacy.rejectSelector` | `''` | CSS selector of the reject button to click, then check what remains |
 | `privacy.concurrency` | half the cores (2 to 8) | pages loaded at the same time |
 | `privacy.exclude` | `[]` | URL path patterns to skip |
 

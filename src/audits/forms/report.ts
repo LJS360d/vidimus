@@ -15,7 +15,7 @@ const sent = (c: CaseResult) => c.outcome === 'sent' || c.outcome === 'navigated
 
 // Did the form do what the case expected: stop an invalid value, send a valid one.
 export const verdictOf = (c: CaseResult): Verdict => {
-  if (c.outcome === 'error' || c.events.canary) return 'fail';
+  if (c.outcome === 'error' || c.outcome === 'timeout' || c.events.canary) return 'fail';
   if (c.check === 'double-submit') return c.requests.length > 1 ? 'fail' : 'pass';
   if (c.outcome === 'not-submitted' || c.expect === 'unknown') return 'info';
   if (c.expect === 'invalid') return sent(c) ? 'fail' : 'pass';

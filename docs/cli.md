@@ -37,7 +37,7 @@ An unknown audit name is an error that lists the known ones.
 
 | Flag | |
 | --- | --- |
-| `-c, --config <file>` / `--no-config` | pick a config file / ignore config files |
+| `-c, --config <file>` / `--no-config` | pick a config file (otherwise searched upward from the working directory) / ignore config files |
 | `--set <key=value>` | override any config value, repeatable (`--set lighthouse.thresholds.seo=0.8`) |
 | `--root`, `--dist`, `--out-dir` | project root, build output, report output |
 | `--origin <url>` | audit a running server instead of serving the build, including any base path (`http://localhost:4173/project`) |
@@ -46,7 +46,7 @@ An unknown audit name is an error that lists the known ones.
 | `--port <n>` | port the build is served on |
 | `--all-locales` | include translated pages too |
 | `--update-baseline` | `shots`: record the current screenshots as the baseline |
-| `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, `sarif`, repeatable |
+| `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, `sarif`, `html`, repeatable |
 | `--strict` | fail on warnings too |
 | `--accept-findings` | write the current findings to the [baseline file](./configuration#severity-ignores-and-the-findings-baseline) |
 | `--profile [level]` | record where the run spends its time: `spans` (default) or `cpu`, see [Profiling](./profiling) |
@@ -163,7 +163,7 @@ vidimus: 2/3 passed — warnings: budget — failed: links
 
 Skipped audits are not counted in the last line.
 
-`-r` replaces the default reporters (on GitHub Actions `github` is added back). `json`, `junit` or `sarif` without a file writes to stdout, and
+`-r` replaces the default reporters (on GitHub Actions `github` is added back). `json`, `junit`, `sarif` or `html` without a file writes to stdout, and
 `pretty` moves to stderr, so the output can be piped:
 
 ```sh

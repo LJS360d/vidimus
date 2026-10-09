@@ -1,6 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path';
+import type { VidimusConfig } from '../../config/types.ts';
+import { UsageError } from '../../core/errors.ts';
 import type { Browser, Page } from '../../core/peer-types.ts';
 import { span } from '../../core/profile.ts';
 import type { Audit, Finding } from '../../core/types.ts';
@@ -32,6 +34,7 @@ type Outcome =
   | 'blocked:script'
   | 'none'
   | 'not-submitted'
+  | 'timeout'
   | 'error';
 
 export interface CaseResult extends Omit<Case, 'values'> {
@@ -84,6 +87,23 @@ const observedOf = (fields: FieldInfo[], results: CaseResult[]) =>
     }),
   );
 
+const cookieHeader = (
+  url: string,
+  origin: string,
+  cookies: VidimusConfig['browser']['state']['cookies'],
+): Record<string, string> => {
+  const { hostname, pathname, protocol } = new URL(url);
+  const sent = cookies.filter(({ domain = new URL(origin).hostname, path = '/', secure }) => {
+    const host = domain.replace(/^\./, '');
+    return (
+      (hostname === host || hostname.endsWith(`.${host}`)) &&
+      (pathname === path || pathname.startsWith(path.endsWith('/') ? path : `${path}/`)) &&
+      (!secure || protocol === 'https:')
+    );
+  });
+  return sent.length ? { cookie: sent.map((c) => `${c.name}=${c.value}`).join('; ') } : {};
+};
+
 const LOOPBACK = /^(localhost|127(\.\d+){3}|\[::1\])$/;
 const SENT = new Set<Outcome>(['sent', 'navigated']);
 const BLOCKED = /Failed to fetch|ERR_BLOCKED_BY_CLIENT|NetworkError|Network Error|Load failed/i;
@@ -95,6 +115,22 @@ const PNG = Buffer.from(
 );
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const TIMED_OUT = Symbol('timed out');
+const withTimeout = async <T>(ms: number, work: Promise<T>) => {
+  if (!ms) return work;
+  let timer: NodeJS.Timeout | undefined;
+  work.catch(() => {});
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof TIMED_OUT>((done) => {
+        timer = setTimeout(() => done(TIMED_OUT), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 const show = (value: Value | undefined) => {
   const text = JSON.stringify(value ?? null);
   return text.length > 40 ? `${text.slice(0, 30)}…(${String(value).length} chars)` : text;
@@ -116,7 +152,7 @@ const BROKE: Record<string, (field: FieldInfo, other: string) => string> = {
   equals: (_, other) => `not matching ${other}`,
 };
 
-const findingsFor = (form: Exercised, origin: string): Finding[] => {
+export const findingsFor = (form: Exercised, origin: string): Finding[] => {
   const { id, pages, fields, cases } = form;
   const where = pages;
   const field = (key: string | null) => fields.find((f) => f.key === key);
@@ -126,7 +162,7 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
   const sent = cases.filter((c) => SENT.has(c.outcome));
   const byFieldCheck = new Map<string, CaseResult[]>();
   for (const c of sent) {
-    const key = `${c.field}\u0000${c.check}`;
+    const key = `${c.field}\u0000${c.check}\u0000${c.expect}`;
     byFieldCheck.set(key, [...(byFieldCheck.get(key) ?? []), c]);
   }
   const evidence = (list: CaseResult[]) =>
@@ -206,7 +242,8 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
     // Formless groups often hold local widgets ("Add", "Filter"): only real forms count here.
     form.form.kind === 'form' &&
     !SENT.has(baseline.outcome) &&
-    baseline.outcome !== 'error'
+    baseline.outcome !== 'error' &&
+    baseline.outcome !== 'timeout'
   )
     add('valid input sent nothing', {
       severity: 'warn',
@@ -284,6 +321,11 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
       details: errors.slice(0, 5),
       fix: 'Fix the errors listed; they can leave the form half-validated for real users too.',
     });
+  for (const c of cases.filter((c) => c.outcome === 'timeout'))
+    add(`form case timed out: ${c.field ?? 'form'}/${c.check}`, {
+      details: [c.label],
+      fix: 'The submit handler never settles: check for blocking dialogs (alert, confirm, beforeunload), infinite loops or a navigation that never commits, or raise forms.caseTimeout.',
+    });
   const workers = [...new Set(cases.flatMap((c) => c.events.workers))];
   if (workers.length)
     add('page starts web workers, whose requests the sandbox cannot see', {
@@ -327,6 +369,16 @@ export const shotOf = async (page: Page, index: number) => {
 const layers = (state: FieldState | undefined) =>
   state ? `browser ${state.native}, framework ${state.framework}, ui ${state.ui}` : 'n/a';
 
+const outDirOf = (root: string, outRoot: string, name: string) => {
+  const out = resolvePath(outRoot, name);
+  const rel = relative(outRoot, out);
+  if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || out === root)
+    throw new UsageError(
+      `forms.outDir "${name}" resolves to ${out}, which is not a folder inside ${outRoot}, so nothing is cleared. Set forms.outDir to a subfolder such as "forms".`,
+    );
+  return out;
+};
+
 export const forms: Audit = {
   name: 'forms',
   description: 'fill every form with valid and invalid values, sandboxed submits',
@@ -339,7 +391,7 @@ export const forms: Audit = {
         summary: `not pressing submit buttons on ${origin}: set forms.allowRemote to audit a remote site`,
       };
     const urls = onePagePerTemplate(pageUrls({ exclude: options.exclude }), options.sample, origin);
-    const out = resolve(config.outDir, options.outDir);
+    const out = outDirOf(config.root, resolve(config.root, config.outDir), options.outDir);
     rmSync(out, { recursive: true, force: true });
     mkdirSync(out, { recursive: true });
     const scratch = mkdtempSync(join(tmpdir(), 'vidimus-forms-'));
@@ -386,7 +438,10 @@ export const forms: Audit = {
           session = await open(url);
           const list = await session.page.evaluate(() => window.__vidimus.forms());
           const html = list.some((f) => f.ordinal !== null)
-            ? await fetch(url).then(
+            ? await fetch(url, {
+                headers: cookieHeader(url, origin, config.browser.state.cookies),
+                signal: AbortSignal.timeout(options.timeout),
+              }).then(
                 (r) => r.text(),
                 () => '',
               )
@@ -444,7 +499,7 @@ export const forms: Audit = {
         let session: Session | undefined;
         try {
           session = await open(url);
-          const { page, net } = session;
+          let { page, net } = session;
           const locate = async () => {
             const loaded = await page.evaluate(() => window.__vidimus.forms());
             index =
@@ -501,24 +556,40 @@ export const forms: Audit = {
             const { values, ...rest } = c;
             const base = { ...rest, ...(c.field && { value: values[c.field] }) };
             try {
-              const ran = await span(
-                'forms.case',
-                async () => {
-                  await span('forms.reload', () => (session as Session).load());
-                  await locate();
-                  return runCase(
-                    page,
-                    net,
-                    index,
-                    c,
-                    fields,
-                    upload,
-                    options.settle,
-                    !!form.submitter || form.kind === 'form',
-                  );
-                },
-                { case: c.label },
+              const ran = await withTimeout(
+                options.caseTimeout,
+                span(
+                  'forms.case',
+                  async () => {
+                    await span('forms.reload', () => (session as Session).load());
+                    await locate();
+                    return runCase(
+                      page,
+                      net,
+                      index,
+                      c,
+                      fields,
+                      upload,
+                      options.settle,
+                      !!form.submitter || form.kind === 'form',
+                    );
+                  },
+                  { case: c.label },
+                ),
               );
+              if (ran === TIMED_OUT) {
+                await session.close();
+                session = await open(url);
+                ({ page, net } = session);
+                results.push({
+                  ...base,
+                  outcome: 'timeout',
+                  requests: [],
+                  invalid: [],
+                  events: { errors: [], sockets: [], opened: [], workers: [], canary: false },
+                });
+                continue;
+              }
               // The form as the user saw it before pressing submit: kept for failures only.
               const { snap, ...last } = ran;
               if (snap && verdictOf(last) === 'fail') last.before = dataUri(snap);

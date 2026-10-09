@@ -297,7 +297,7 @@ describe('runAudits', () => {
       overrides: { port: 0, plugins: [probe('probe', seen)] },
     });
     assert.equal(ok, true);
-    assert.match(seen[0] ?? '', /^http:\/\/localhost:[1-9]\d*$/);
+    assert.match(seen[0] ?? '', /^http:\/\/127\.0\.0\.1:[1-9]\d*$/);
   });
 
   it('ignores a newly created output directory in git, and leaves an existing one alone', async () => {

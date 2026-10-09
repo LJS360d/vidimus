@@ -197,6 +197,21 @@ export const seo: Audit = {
         continue;
       }
 
+      for (const script of tags(html, 'script')) {
+        if ((script.attrs.type ?? '').trim().toLowerCase() !== 'application/ld+json') continue;
+        const start = html.indexOf('>', script.index) + 1;
+        const end = html.indexOf('</script', start);
+        try {
+          JSON.parse(html.slice(start, end < 0 ? html.length : end));
+        } catch (error) {
+          report(
+            `invalid JSON-LD: ${(error as Error).message}`,
+            'Fix the JSON-LD block so it parses: remove trailing commas, escape control characters and drop HTML comments.',
+            path,
+          );
+        }
+      }
+
       const canonicals = linksWithRel(html, 'canonical');
       const canonicalTarget =
         canonicals.length === 1

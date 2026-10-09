@@ -9,10 +9,12 @@ import { fallbackFor, firstFew, matchesAny } from './util.ts';
 
 const SPA_BUNDLE_BYTES = 100_000;
 
+const HASH_ROUTE = /^#!?\//;
+
 const isPagePath = (path: string) => ['', '.html'].includes(extname(path));
 
 // A same-origin link under the base path, as a path relative to that base.
-const routeOf = (href: string, origin: string) => {
+const routeOf = (href: string, origin: string, hash: boolean) => {
   let url: URL;
   try {
     url = new URL(href);
@@ -24,7 +26,8 @@ const routeOf = (href: string, origin: string) => {
   const base = audited.pathname.replace(/\/$/, '');
   if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return null;
   const route = url.pathname.slice(base.length) || '/';
-  return isPagePath(route) ? route : null;
+  if (!isPagePath(route)) return null;
+  return hash && HASH_ROUTE.test(url.hash) ? `${route}${url.hash}` : route;
 };
 
 const fromSitemap = (config: VidimusConfig, dist: string) => {
@@ -43,6 +46,7 @@ const crawl = async (
   seeds: string[],
   config: VidimusConfig,
   keep: (route: string) => boolean,
+  hash: boolean,
 ) => {
   const found = new Set(seeds);
   let level = [...found];
@@ -53,7 +57,7 @@ const crawl = async (
     );
     level = [];
     for (const href of rendered.flatMap((page) => page?.anchors ?? [])) {
-      const next = routeOf(href, origin);
+      const next = routeOf(href, origin, hash);
       if (!next || found.has(next) || !keep(next)) continue;
       if (added >= config.routes.limit) return [...found];
       found.add(next);
@@ -71,16 +75,20 @@ export const resolveRoutes = async (
   pages: PageReader,
   origin: string,
   renderer: Renderer,
+  rendering: boolean,
 ) => {
   const { paths, discover } = config.routes;
   const keep = (route: string) => !matchesAny(config.exclude, route.slice(1));
   let routes = [...paths, ...(discover === 'sitemap' ? fromSitemap(config, dist) : [])];
   if (discover === 'crawl') {
     const seeds = [...pages(config.exclude).map(({ path }) => path), ...routes];
-    routes = await crawl(renderer, origin, seeds, config, keep);
+    routes = await crawl(renderer, origin, seeds, config, keep, config.routes.hash && rendering);
   }
   const fileless = [...new Set(routes)].filter((route) => keep(route) && !localFile(dist, route));
-  const unanswered = fileless.filter((route) => !fallbackFor(config.server.fallback, route));
+  const unanswered = fileless.filter((route) => {
+    const path = route.split('#')[0] ?? route;
+    return !(path !== route && localFile(dist, path)) && !fallbackFor(config.server.fallback, path);
+  });
   if (unanswered.length && !config.origin) {
     throw new UsageError(
       `routes ${firstFew(unanswered)} have no file in ${config.distDir}; set server.fallback ` +

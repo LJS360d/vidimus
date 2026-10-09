@@ -57,6 +57,31 @@ describe('budget compression', () => {
 });
 
 describe('imageSize', () => {
+  it('swaps JPEG dimensions for EXIF orientations 5-8 and ignores malformed EXIF', () => {
+    const jpegWith = (exif: Buffer) => {
+      const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, 0, 0]), exif]);
+      app1.writeUInt16BE(app1.length - 2, 2);
+      const sof = Buffer.from([0xff, 0xc0, 0, 11, 8, 0, 100, 0, 200, 1, 1, 0x11, 0]);
+      return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, sof]);
+    };
+    const exif = (orientation: number) => {
+      const body = Buffer.alloc(8 + 2 + 12 + 4);
+      body.write('MM', 0, 'latin1');
+      body.writeUInt16BE(42, 2);
+      body.writeUInt32BE(8, 4);
+      body.writeUInt16BE(1, 8);
+      body.writeUInt16BE(0x0112, 10);
+      body.writeUInt16BE(3, 12);
+      body.writeUInt32BE(1, 14);
+      body.writeUInt16BE(orientation, 18);
+      return Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), body]);
+    };
+    assert.deepEqual(imageSize(jpegWith(exif(6))), { width: 100, height: 200, type: 'jpeg' });
+    assert.deepEqual(imageSize(jpegWith(exif(1))), { width: 200, height: 100, type: 'jpeg' });
+    const truncated = exif(6).subarray(0, 16);
+    assert.deepEqual(imageSize(jpegWith(truncated)), { width: 200, height: 100, type: 'jpeg' });
+  });
+
   it('reads PNG', () => {
     assert.deepEqual(imageSize(pngBuffer(640, 480)), { width: 640, height: 480, type: 'png' });
   });
@@ -88,6 +113,43 @@ describe('imageSize', () => {
     assert.deepEqual(imageSize(lossless), { width: 100, height: 50, type: 'webp' });
     const extended = riff('VP8X', [0, 0, 0, 0, 0xaf, 0x04, 0x00, 0x75, 0x02, 0x00]);
     assert.deepEqual(imageSize(extended), { width: 1200, height: 630, type: 'webp' });
+  });
+
+  it('reads AVIF dimensions from the primary item and accepts mif1 major brand', () => {
+    const box = (type: string, ...parts: Buffer[]) => {
+      const body = Buffer.concat(parts);
+      const head = Buffer.alloc(8);
+      head.writeUInt32BE(body.length + 8, 0);
+      head.write(type, 4, 'latin1');
+      return Buffer.concat([head, body]);
+    };
+    const u32 = (...values: number[]) => {
+      const out = Buffer.alloc(values.length * 4);
+      for (const [index, value] of values.entries()) out.writeUInt32BE(value, index * 4);
+      return out;
+    };
+    const ispe = (width: number, height: number) => box('ispe', u32(0, width, height));
+    const build = (major: string, compatible: string) => {
+      const ftyp = box(
+        'ftyp',
+        Buffer.from(major, 'latin1'),
+        u32(0),
+        Buffer.from(compatible, 'latin1'),
+      );
+      const pitm = box('pitm', u32(0), Buffer.from([0, 2]));
+      const ipco = box('ipco', ispe(16, 16), ispe(64, 32));
+      const ipma = box('ipma', u32(0, 1), Buffer.from([0, 2, 1, 2]));
+      const meta = box('meta', u32(0), pitm, box('iprp', ipco, ipma));
+      return Buffer.concat([ftyp, meta]);
+    };
+    assert.deepEqual(imageSize(build('avif', 'mif1')), { width: 64, height: 32, type: 'avif' });
+    assert.deepEqual(imageSize(build('mif1', 'avif')), { width: 64, height: 32, type: 'avif' });
+    assert.equal(imageSize(build('mif1', 'heic')), undefined);
+    const full = build('mif1', 'avif');
+    for (let cut = 0; cut < full.length; cut += 3) {
+      assert.doesNotThrow(() => imageSize(full.subarray(0, cut)));
+    }
+    assert.equal(imageSize(full.subarray(0, 30)), undefined);
   });
 
   it('reads AVIF ispe box', () => {
@@ -163,6 +225,25 @@ describe('budget audit', () => {
     assert.equal(result.findings[2]?.details?.length, 2);
     assert.equal(result.findings[3]?.details?.length, 3);
     assert.deepEqual(result.findings[4]?.where, ['/']);
+  });
+
+  it('never shows an exceeded image budget as equal to its limit', async () => {
+    const over = await audit(
+      { 'dist/index.html': img },
+      { image: 250_000 },
+      {
+        'dist/a.png': pngBuffer(10, 10, 250_376),
+      },
+    );
+    assert.equal(over.findings[0]?.message, 'image /a.png 250.4 kB > 250.0 kB budget');
+    const mega = await audit(
+      { 'dist/index.html': img },
+      { image: 500_000 },
+      {
+        'dist/a.png': pngBuffer(10, 10, 1_000_000 - 24),
+      },
+    );
+    assert.equal(mega.findings[0]?.message, 'image /a.png 1.0 MB > 500 kB budget');
   });
 
   it('counts preloaded and @font-face fonts in the page total', async () => {

@@ -70,7 +70,7 @@ Every field first gets one value it accepts. The audit tries, in order: `forms.v
 
 | Field | Cases |
 | --- | --- |
-| text, `contenteditable`, `role=textbox` | empty, only spaces (when required), `minlength`-1, exactly `maxlength`, 10 000 characters (when there is no limit), unicode, an HTML snippet |
+| text, `contenteditable`, `role=textbox` | empty, only spaces (when required), `minlength`-1 (when `minlength` > 1), exactly `maxlength`, 10 000 characters (when there is no limit), unicode, an HTML snippet |
 | email, url, tel (by type or meaning) | malformed values: `vidimus`, `vidimus@`, `@example.com`, `vidimus@@example.com`, `example`, `http://`, `javascript:alert(1)` |
 | `pattern` | a mutation of the accepted value that the pattern rejects |
 | number, date | empty, `min`-1, `max`+1, a value off `step` |
@@ -86,7 +86,9 @@ For every case the report records each field's state in three layers: the **brow
 
 ### The sandbox
 
-Every page loads in a fresh browser context (no cookies, not logged in), with service workers bypassed. While the page loads it behaves like a normal visit: documents, static files and data `GET` requests go through. Once the audit starts filling the form, only `GET` requests for static files (scripts, styles, images, fonts, media) go through. Everything else is recorded and stopped: `fetch` and XHR (`GET` included, since a `GET` can unsubscribe someone), beacons, `EventSource`, and native form submissions, which get an empty `204` so the page stays put. `WebSocket` is replaced with a stub that never connects, `window.open` does nothing, and `target="_blank"` forms submit in place, so no request escapes through a new window. A `GET` with no query string, to the site itself or from inside an embed (map tiles, a lazily loaded model), is stopped too but not recorded: it carries no field value, so it is the page reading its own data, not the form sending.
+Every page loads in a fresh browser context (no cookies except `browser.state.cookies`), with service workers bypassed. While the page loads it behaves like a normal visit: documents, static files and data `GET` requests go through. Once the audit starts filling the form, only `GET` requests for static files (scripts, styles, images, fonts, media) go through. Everything else is recorded and stopped: `fetch` and XHR (`GET` included, since a `GET` can unsubscribe someone), beacons, `EventSource`, and native form submissions, which get an empty `204` so the page stays put. `WebSocket` is replaced with a stub that never connects, `window.open` does nothing, and `target="_blank"` forms submit in place, so no request escapes through a new window. A `GET` with no query string, to the site itself or from inside an embed (map tiles, a lazily loaded model), is stopped too but not recorded: it carries no field value, so it is the page reading its own data, not the form sending.
+
+The audit also fetches each page's source HTML once, to locate forms in it. That request sends the `browser.state.cookies` that apply to the page and gives up after `forms.timeout`.
 
 `forms.allowRequests` lets named URLs through (a "username taken?" check against a test API). `forms.ignoreRequests` stops matching URLs but leaves them out of the record, so analytics beacons fired after submit do not count as the form sending. `forms.stub: 'ok'` answers stopped `fetch`/XHR requests with `200 {}`, so pages that wait for a success response can show their next step.
 
@@ -113,6 +115,7 @@ Requests sent from inside web workers are outside the sandbox; pages that start 
 | `<fields> shows an error without aria-invalid` | warn |
 | `script errors while filling or submitting` | warn |
 | `page starts web workers, whose requests the sandbox cannot see` | warn |
+| `form case timed out: <field>/<case>`: the page never settled within `forms.caseTimeout` (a blocking dialog, an infinite loop), so the case was abandoned and the page reopened | error |
 | `<n> cases not run` (`forms.maxCases` reached) | warn |
 | `failed to load <page>`, `could not be exercised` | error |
 
@@ -152,6 +155,7 @@ An Angular reactive form with `Validators.required`, `Validators.email`, `Valida
 | --- | --- | --- |
 | `forms.concurrency` | half the cores (2 to 8) | pages, then forms, handled at the same time |
 | `forms.timeout` | `60000` | ms to wait for a page's `load` event |
+| `forms.caseTimeout` | `30000` | ms one case may run before it is abandoned and reported as a finding, `0` for no limit |
 | `forms.settle` | `500` | ms to wait for a request after pressing submit |
 | `forms.exclude` | `[]` | URL path patterns to skip |
 | `forms.sample` | `[]` | URL path patterns: load one page per matching template |

@@ -1,6 +1,6 @@
 ---
 title: Reporters
-description: The pretty, json, github, junit and sarif reporters, where each one writes, the JSON report shape and custom reporter objects.
+description: The pretty, json, github, junit, sarif and html reporters, where each one writes, the JSON report shape and custom reporter objects.
 ---
 
 # Reporters
@@ -29,7 +29,7 @@ npx vidimus -r pretty -r junit:reports/vidimus.xml    # pretty, junit and, on Ac
 To run without annotations on Actions, unset the variable for that step:
 `GITHUB_ACTIONS= npx vidimus`.
 
-An unknown name is an error: `unknown reporter "xml". Known: pretty, json, github, junit, sarif`.
+An unknown name is an error: `unknown reporter "xml". Known: pretty, json, github, junit, sarif, html`.
 
 ## Targets
 
@@ -38,13 +38,14 @@ directories are created, and an existing file is overwritten.
 
 | Reporter | Writes to | `:file` |
 | --- | --- | --- |
-| `pretty` | stdout, or stderr when `json`, `junit` or `sarif` writes to stdout | only `pretty:stderr` is honoured |
+| `pretty` | stdout, or stderr when `json`, `junit`, `sarif` or `html` writes to stdout | only `pretty:stderr` is honoured |
 | `json` | stdout | writes the report to the file instead |
 | `junit` | stdout | writes the report to the file instead |
 | `sarif` | stdout | writes the report to the file instead |
-| `github` | stdout, or stderr when `json`, `junit` or `sarif` writes to stdout; and `$GITHUB_STEP_SUMMARY` | ignored |
+| `html` | stdout | writes the report to the file instead |
+| `github` | stdout, or stderr when `json`, `junit`, `sarif` or `html` writes to stdout; and `$GITHUB_STEP_SUMMARY` | ignored |
 
-`json`, `junit` or `sarif` without a file writes to stdout, and `pretty` moves to stderr. That keeps
+`json`, `junit`, `sarif` or `html` without a file writes to stdout, and `pretty` moves to stderr. That keeps
 stdout parsable:
 
 ```sh
@@ -70,14 +71,15 @@ export default defineConfig({
 | `json` | `<outDir>/report.json` |
 | `junit` | `<outDir>/report.xml` |
 | `sarif` | `<outDir>/report.sarif` |
+| `html` | `<outDir>/report.html` |
 
 `-r` does not replace `reports`, and `pretty` stays the default reporter. Any other name is an
-error: `unknown report "pretty". Known: json, junit, sarif`.
+error: `unknown report "pretty". Known: json, junit, sarif, html`.
 
 ## `pretty`
 
 The terminal output. Before the audits it prints
-`vidimus: serving dist on http://localhost:4322` when it serves the build, or
+`vidimus: serving dist on http://127.0.0.1:4322` when it serves the build, or
 `vidimus: auditing <origin>` with `--origin`. Each audit is printed when it finishes: a heading, the audit's log lines, each
 finding, and a summary line.
 
@@ -113,6 +115,17 @@ npx vidimus -r sarif:vidimus.sarif
 
 Upload it with `github/codeql-action/upload-sarif`.
 
+## `html`
+
+A single self-contained HTML page for sharing as a CI artifact: no scripts, no external assets,
+light and dark themes. It lists the audits (failed and errored first) with status, summary and
+duration, and each finding in a collapsible block with its details, pages and fix. All text is
+escaped.
+
+```sh
+npx vidimus -r html:vidimus.html
+```
+
 ## `json`
 
 The whole run report, written once at the end, pretty-printed:
@@ -120,7 +133,7 @@ The whole run report, written once at the end, pretty-printed:
 ```json
 {
   "ok": false,
-  "origin": "http://localhost:4322",
+  "origin": "http://127.0.0.1:4322",
   "startedAt": "2026-09-26T10:00:00.000Z",
   "durationMs": 10412,
   "results": [
@@ -130,7 +143,7 @@ The whole run report, written once at the end, pretty-printed:
       "summary": "1 broken target(s) out of 812 links checked",
       "findings": [
         {
-          "message": "404 http://localhost:4322/old-page/",
+          "message": "404 http://127.0.0.1:4322/old-page/",
           "where": ["/blog/", "/about/"],
           "fix": "Fix or remove the link on the pages listed, or add a pattern to links.skip if the target blocks bots."
         }

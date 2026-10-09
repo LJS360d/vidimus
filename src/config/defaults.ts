@@ -20,6 +20,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     paths: [],
     discover: 'off',
     limit: 200,
+    hash: false,
   },
   render: {
     mode: 'off',
@@ -74,6 +75,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
   forms: {
     concurrency: halfTheCores,
     timeout: 60_000,
+    caseTimeout: 30_000,
     settle: 500,
     exclude: [],
     sample: [],
@@ -101,6 +103,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     outDir: 'shots',
     baselineDir: '',
     viewports: [{ width: 375, height: 667 }, 1280],
+    colorSchemes: ['light'],
     exclude: [],
     sample: [],
     allLocales: false,
@@ -175,6 +178,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     allLocales: false,
     cookies: true,
     wait: 1500,
+    rejectSelector: '',
     concurrency: halfTheCores,
     timeout: 60_000,
   },

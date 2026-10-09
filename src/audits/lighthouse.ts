@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { VidimusConfig } from '../config/types.ts';
+import { withState } from '../core/peer.ts';
 import { addSpans, span } from '../core/profile.ts';
 import type { Audit, AuditContext, Finding } from '../core/types.ts';
 import {
@@ -28,6 +29,8 @@ interface LighthouseResult {
 type Lighthouse = (
   url: string,
   flags: Record<string, unknown>,
+  config?: undefined,
+  page?: unknown,
 ) => Promise<{ lhr: LighthouseResult; report: string | string[] } | undefined>;
 
 const DESKTOP = {
@@ -117,7 +120,7 @@ export const lighthouse: Audit = {
     mkdirSync(out, { recursive: true });
 
     const browser = await launchBrowser({ args: ['--remote-debugging-port=0'] });
-    const port = Number(new URL(browser.wsEndpoint()).port);
+    const stateful = withState(browser, config.browser.state, origin);
     const scores: Record<string, string | number | null>[] = [];
     const findings: Finding[] = [];
 
@@ -135,13 +138,18 @@ export const lighthouse: Audit = {
               'lighthouse.run',
               async () => {
                 const started = performance.now();
-                const done = await runLighthouse(url, {
-                  port,
-                  output: 'html',
-                  logLevel: 'error',
-                  onlyCategories: categories,
-                  ...(preset === 'desktop' ? DESKTOP : {}),
-                });
+                const page = await stateful.newPage();
+                const done = await runLighthouse(
+                  url,
+                  {
+                    output: 'html',
+                    logLevel: 'error',
+                    onlyCategories: categories,
+                    ...(preset === 'desktop' ? DESKTOP : {}),
+                  },
+                  undefined,
+                  page,
+                ).finally(() => page.close().catch(() => {}));
                 addSpans(done?.lhr.timing?.entries ?? [], started, performance.now());
                 return done;
               },

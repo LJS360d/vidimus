@@ -62,6 +62,8 @@ the resolved `root` and `distDir`.
 `<dist> has no HTML pages. Rebuild.` means the directory exists but, after the top-level
 `exclude`, holds no `.html` file.
 
+A `dist` with no `.html` file at all stops before any audit runs with `no HTML files found in <dist>; run your build first or point --dist at the build output`, exit `2`.
+
 ## Pages or assets 404 under a base path
 
 A site built for `https://user.github.io/project/` links to `/project/…`. If `siteUrl` does not

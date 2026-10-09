@@ -131,9 +131,11 @@ The other header checks:
 - **Clickjacking** (`security.clickjacking`): a `Content-Security-Policy` header with a
   `frame-ancestors` directive, or `X-Frame-Options: DENY` or `SAMEORIGIN`. Without either:
   `no clickjacking protection: add CSP frame-ancestors or X-Frame-Options`. A `<meta>` CSP does
-  not count, since browsers ignore `frame-ancestors` there.
+  not count, since browsers ignore `frame-ancestors` there. A `frame-ancestors` source list with a
+  bare `*` or a scheme-only source (`https:`) allows any site to frame the page, so it does not
+  count either: `no clickjacking protection: frame-ancestors allows any origin`.
 - **Stack leaks** (live origin only): an `X-Powered-By` header (`x-powered-by header leaks the
-  stack`) and a `Server` header containing a version number (`server header leaks a version`)
+  stack`) and a `Server` header disclosing a product version such as `nginx/1.25.3` (`server header leaks a version`)
   are warnings.
 
 ### HTML (always)
@@ -149,11 +151,16 @@ The other header checks:
 - **Mixed content** (`security.mixedContent`): any `http://` URL in `<script src>`,
   `<img src|srcset>`, `<source src|srcset>`, `<iframe src>`, `<video src|poster>`,
   `<audio src>`, `<object data>`, `<embed src>`, `<form action>`, and `<link href>` with `rel`
-  `stylesheet`, `icon`, `preload`, `modulepreload` or `manifest`. Each URL is an error,
+  `stylesheet`, `icon`, `preload`, `modulepreload` or `manifest` (including `imagesrcset`),
+  `<svg>` `<image href|xlink:href>`, `url(…)` and `@import` in inline `<style>` blocks, and
+  `url(…)` in `style="…"` attributes. External CSS files are not scanned. Each URL is an error,
   `mixed content: http://…`. Plain `<a href="http://…">` links are not mixed content.
 - **Subresource integrity** (`security.sri`): a `<script src>` or `<link rel="stylesheet">` on
   another origin (not `siteUrl`) without an `integrity` attribute is a warning,
   `cross-origin <script> without integrity: https://…`. Protocol-relative `//cdn…` URLs count.
+  A cross-origin one that has `integrity` but no `crossorigin` attribute is an error,
+  `cross-origin <link> with integrity but no crossorigin: https://…`: the browser fetches it
+  in no-cors mode, cannot run the integrity check, and blocks it. Fix: add `crossorigin="anonymous"`.
 
 ### security.txt (`security.securityTxt`)
 

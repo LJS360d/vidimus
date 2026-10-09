@@ -189,6 +189,26 @@ document.body.dataset.ready = '';
     const shell = await audit('links', { links: { retry: false } });
     assert.deepEqual(shell.findings, []);
   });
+
+  it('links survives a rendered href the URL parser rejects', async () => {
+    const cwd = fixture({
+      'dist/index.html': SHELL,
+      'dist/app.js':
+        "const root = document.getElementById('root'); root.innerHTML = '<h1 class=\"not-found\">Not found</h1><a href=\"http://[bad\">bad</a>'; root.dataset.ready = '';",
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['links'],
+      reporters: [],
+      overrides: {
+        port: 0,
+        render: { mode: 'on', waitFor: '#root[data-ready]' },
+        links: { notFound: { selector: '.not-found' }, retry: false, checkExternal: false },
+      },
+    });
+    assert.notEqual(results[0]?.status, 'errored', results[0]?.summary);
+  });
 });
 
 describe('browser close order', { skip: noBrowser }, () => {

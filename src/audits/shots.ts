@@ -1,12 +1,4 @@
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import type { MotionOptions } from '../config/types.ts';
 import { UsageError } from '../core/errors.ts';
@@ -423,6 +415,7 @@ export const shots: Audit = {
   async run({ config, root, origin, resolve, pageUrls, launchBrowser, importPeer, log }) {
     const {
       viewports,
+      colorSchemes,
       tolerance,
       maxDiff,
       antialiasing,
@@ -459,7 +452,14 @@ export const shots: Audit = {
     );
     const sizes = viewports.map((entry) => viewport(entry));
     const shotList = sizes.flatMap((size) =>
-      urls.map((url) => ({ size, url, name: `${slug(url, origin)}@${size.width}x${size.height}` })),
+      colorSchemes.flatMap((scheme) =>
+        urls.map((url) => ({
+          size,
+          url,
+          scheme,
+          name: `${slug(url, origin)}@${size.width}x${size.height}${scheme === 'dark' ? '.dark' : ''}`,
+        })),
+      ),
     );
 
     for (const dir of [currentDir, diffDir, motionDir])
@@ -509,9 +509,14 @@ export const shots: Audit = {
       size: ReturnType<typeof viewport>,
       url: string,
       name: string,
+      scheme: string,
     ) => {
+      const features = (motionValue: string) => [
+        { name: 'prefers-reduced-motion', value: motionValue },
+        { name: 'prefers-color-scheme', value: scheme },
+      ];
       await page.setViewport(size);
-      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.emulateMediaFeatures(features('reduce'));
       await open(page, url, freeze);
       if (freeze) {
         await page
@@ -547,7 +552,7 @@ export const shots: Audit = {
       await page.setViewport(size);
       let note = '';
       if (motion) {
-        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: '' }]);
+        await page.emulateMediaFeatures(features(''));
         await open(page, url, false);
         const { frames, settled } = await captureMotion(page, motion);
         if (frames.length > 1) {
@@ -565,17 +570,22 @@ export const shots: Audit = {
     };
 
     try {
-      await inParallelTabs(browser, concurrency, shotList, async (page, { size, url, name }) => {
-        try {
-          await capture(page, size, url, name);
-        } catch (error) {
-          failed.set(name, {
-            path: pathOf(url, origin),
-            error: error instanceof Error ? error.message : String(error),
-          });
-          lines.push(`${name}.png  failed`);
-        }
-      });
+      await inParallelTabs(
+        browser,
+        concurrency,
+        shotList,
+        async (page, { size, url, name, scheme }) => {
+          try {
+            await capture(page, size, url, name, scheme);
+          } catch (error) {
+            failed.set(name, {
+              path: pathOf(url, origin),
+              error: error instanceof Error ? error.message : String(error),
+            });
+            lines.push(`${name}.png  failed`);
+          }
+        },
+      );
 
       if (!updateBaseline) {
         const names = shotList.map(({ name }) => name).filter((name) => !failed.has(name));
@@ -641,9 +651,6 @@ export const shots: Audit = {
         };
       }
       mkdirSync(baselineDir, { recursive: true });
-      for (const file of readdirSync(baselineDir).filter((name) => name.endsWith('.png'))) {
-        rmSync(join(baselineDir, file));
-      }
       cpSync(currentDir, baselineDir, { recursive: true });
       return {
         summary: `baseline updated from ${shotList.length} screenshots in ${shownBaseline}`,

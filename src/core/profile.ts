@@ -142,7 +142,7 @@ export const addSpans = (
   to: number,
 ) => {
   if (!recorder || !entries.length) return;
-  const first = Math.min(...entries.map((entry) => entry.startTime));
+  const first = entries.reduce((min, entry) => Math.min(min, entry.startTime), Infinity);
   const shift = first >= from && first <= to ? 0 : from - first;
   // Entries come flat; nest each inside the innermost entry that contains it.
   const stack: Span[] = [];
@@ -581,11 +581,11 @@ export const stopProfile = async (outDir: string, root: string, top = 5) => {
   const { samples, spans, gc } = active;
   const node = {
     cpu: average(samples.map((s) => s.cpu)),
-    heapMaxMb: Math.max(0, ...samples.map((s) => s.heap)),
+    heapMaxMb: samples.reduce((max, s) => Math.max(max, s.heap), 0),
     loopBusy: average(samples.map((s) => s.elu)),
-    lagMaxMs: Math.max(0, ...samples.map((s) => s.lag)),
+    lagMaxMs: samples.reduce((max, s) => Math.max(max, s.lag), 0),
     gcMs: gc.reduce((sum, { ms }) => sum + ms, 0),
-    gcMaxMs: Math.max(0, ...gc.map(({ ms }) => ms)),
+    gcMaxMs: gc.reduce((max, { ms }) => Math.max(max, ms), 0),
   };
   const partial = {
     trace: relative(root, trace),

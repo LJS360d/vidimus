@@ -45,11 +45,19 @@ const readPackageField = (file: string): UserConfig | undefined => {
   }
 };
 
-const findConfigFile = (cwd: string) => {
-  const file = CONFIG_FILES.map((name) => resolve(cwd, name)).find((path) => existsSync(path));
+const findConfigIn = (dir: string) => {
+  const file = CONFIG_FILES.map((name) => resolve(dir, name)).find((path) => existsSync(path));
   if (file) return file;
-  const pkg = resolve(cwd, 'package.json');
+  const pkg = resolve(dir, 'package.json');
   return existsSync(pkg) && readPackageField(pkg) ? pkg : undefined;
+};
+
+const findConfigFile = (cwd: string) => {
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    const file = findConfigIn(dir);
+    if (file) return file;
+    if (existsSync(resolve(dir, '.git')) || dirname(dir) === dir) return undefined;
+  }
 };
 
 const readConfigFile = async (file: string, env: NodeJS.ProcessEnv, cwd: string) => {
@@ -199,6 +207,7 @@ const checkSeverity = ({ severity, plugins }: VidimusConfig) => {
 };
 
 const checkRoutes = ({
+  privacy,
   routes,
   render,
   links,
@@ -207,7 +216,10 @@ const checkRoutes = ({
   forms,
   budget,
   lighthouse,
+  shots,
 }: VidimusConfig) => {
+  if (typeof privacy.rejectSelector !== 'string')
+    throw new UsageError('privacy.rejectSelector: must be a string');
   checkOneOf('routes.discover', routes.discover, ['off', 'sitemap', 'crawl']);
   checkOneOf('render.mode', render.mode, ['off', 'auto', 'on']);
   checkOneOf('server.fallbackStatus', String(server.fallbackStatus), ['200', '404']);
@@ -215,6 +227,8 @@ const checkRoutes = ({
   checkOneOf('a11y.runner', a11y.runner, ['htmlcs', 'axe']);
   checkOneOf('forms.stub', forms.stub, ['abort', 'ok']);
   checkOneOf('budget.compression', budget.compression, ['gzip', 'brotli', 'none']);
+  for (const [index, scheme] of shots.colorSchemes.entries())
+    checkOneOf(`shots.colorSchemes[${index}]`, String(scheme), ['light', 'dark']);
   checkOneOf('lighthouse.preset', lighthouse.preset, ['mobile', 'desktop']);
   if (!Number.isInteger(lighthouse.runs) || lighthouse.runs < 1)
     throw new UsageError('lighthouse.runs: must be an integer of at least 1');
@@ -231,6 +245,15 @@ const checkTimeouts = (config: VidimusConfig) => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
       throw new UsageError(`${key}: must be a number of milliseconds, 0 for no limit`);
   }
+};
+
+const checkCaseTimeout = ({ forms }: VidimusConfig) => {
+  if (
+    typeof forms.caseTimeout !== 'number' ||
+    !Number.isFinite(forms.caseTimeout) ||
+    forms.caseTimeout < 0
+  )
+    throw new UsageError('forms.caseTimeout: must be a number of milliseconds, 0 for no limit');
 };
 
 const resolveRoot = (root: string | undefined, base: string) =>
@@ -275,6 +298,7 @@ export const loadConfig = async ({
   checkAssets(config);
   checkSeverity(config);
   checkTimeouts(config);
+  checkCaseTimeout(config);
 
   return { config, source };
 };

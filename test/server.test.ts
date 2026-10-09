@@ -28,6 +28,7 @@ describe('static server', () => {
     'dist/index.html': 'home',
     'dist/about/index.html': 'about',
     'dist/contact.html': 'contact',
+    'dist/latin.html': Buffer.from('<meta charset="windows-1252"><title>caf\xe9</title>', 'latin1'),
     'dist/_astro/app.js': 'js',
     'dist/app.wasm': 'wasm',
     'secret.txt': 'nope',
@@ -43,6 +44,14 @@ describe('static server', () => {
   });
 
   after(() => server.close());
+
+  it('serves HTML with its detected charset', async () => {
+    assert.match(
+      String((await get('/latin.html')).headers['content-type']),
+      /charset=windows-1252/,
+    );
+    assert.match(String((await get('/contact.html')).headers['content-type']), /charset=utf-8/);
+  });
 
   it('resolves directories and extensionless paths', async () => {
     assert.equal((await get('/')).body, 'home');

@@ -69,6 +69,9 @@ the pages.
   (`invalid hreflang code "english"`). A set without `x-default` is a warning
   (`hreflang set has no x-default`). This check has no switch.
 - **Headings** (`seo.h1`): `no <h1>` and `more than one <h1>` are warnings.
+- **JSON-LD**: each `<script type="application/ld+json">` block must parse as JSON. An empty
+  block or a syntax error (a trailing comma, an unescaped control character, an HTML comment)
+  is an error (`invalid JSON-LD: <parse message>`). The schema.org content is not validated.
 - **Duplicates**: two or more indexable pages with the same title or description get
   `duplicate title "…"` or `duplicate meta description "…"` (warning). Pages that are all
   hreflang alternates of each other are exempt, so translations that keep an untranslated

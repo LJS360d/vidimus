@@ -51,7 +51,12 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       if (style.visibility === 'hidden' || style.opacity === '0') return false;
       // Screen-reader-only elements (sr-only, visually-hidden) are clipped away.
       if (/^rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)$/.test(style.clip)) return false;
-      if (style.clipPath === 'inset(50%)') return false;
+      if (
+        (style.position === 'absolute' || style.position === 'fixed') &&
+        /^rect\((0px, 0px, 0px, 0px|1px, 1px, 1px, 1px)\)$/.test(style.clip)
+      )
+        return false;
+      if (style.clipPath === 'inset(50%)' || style.clipPath === 'inset(100%)') return false;
     }
     return true;
   };
@@ -122,8 +127,9 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
   }
 
   for (const el of document.querySelectorAll('body :not(svg, svg *)')) {
-    if (el.firstChild?.nodeType !== Node.TEXT_NODE) continue;
-    if (!el.textContent?.trim() || !isPerceivable(el)) continue;
+    const first = el.firstChild;
+    if (first?.nodeType !== Node.TEXT_NODE || !first.textContent?.trim()) continue;
+    if (!isPerceivable(el)) continue;
     const size = Number.parseFloat(getComputedStyle(el).fontSize);
     if (size < minFont)
       findings.push({ rule: 'font-size', detail: `${size}px`, nodes: [describe(el)] });

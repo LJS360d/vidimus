@@ -34,6 +34,21 @@ describe('server.command', () => {
     assert.match(readFileSync(join(root, 'server.log'), 'utf8'), /ready/);
   });
 
+  it('quotes {dist} when its path contains spaces', async () => {
+    const root = fixture({ 'My Site/index.html': 'home', 'serve.mjs': SERVE });
+    const server = await serveCommand({
+      command: `${node} serve.mjs {dist}`,
+      cwd: root,
+      dist: join(root, 'My Site'),
+      port: 0,
+      timeout: 10000,
+      log: join(root, 'server.log'),
+    });
+    const res = await fetch(`http://localhost:${server.port}/`);
+    assert.equal(await res.text(), `${join(root, 'My Site')}/`);
+    await server.close();
+  });
+
   it('reports a command that exits before answering, with its output', async () => {
     const root = fixture({});
     await assert.rejects(
@@ -151,5 +166,31 @@ describe('server.command', () => {
     assert.match(seen[0]?.origin ?? '', /^http:\/\/localhost:[1-9]\d*$/);
     assert.equal(seen[0]?.configOrigin, seen[0]?.origin);
     assert.equal(seen[0]?.body, 'cmd/x');
+  });
+
+  it('does not append the siteUrl base path to the command server origin', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home', 'serve.mjs': SERVE });
+    let seen = '';
+    const probe: Audit = {
+      name: 'probe',
+      description: 'records its origin',
+      run: async ({ origin }) => {
+        seen = origin;
+        return { summary: 'ok' };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [],
+      overrides: {
+        port: 0,
+        siteUrl: 'https://user.github.io/project',
+        plugins: [probe],
+        server: { command: `${node} serve.mjs cmd` },
+      },
+    });
+    assert.match(seen, /^http:\/\/localhost:[1-9]\d*$/);
   });
 });

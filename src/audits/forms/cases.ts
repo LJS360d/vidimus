@@ -393,7 +393,7 @@ export const casesFor = (
     const text = typeof base === 'string' ? base : '';
     one(field, 'empty', '', required, field.required ? 'required' : 'optional');
     if (field.required) one(field, 'spaces', '   ', 'invalid', 'whitespace');
-    if (field.minLength) {
+    if (field.minLength && field.minLength > 1) {
       const short = text.padEnd(field.minLength, 'x').slice(0, field.minLength - 1);
       one(field, `minlength-1 (${short.length})`, short, 'invalid', 'minLength');
     }
@@ -418,7 +418,13 @@ export const casesFor = (
     // A value the pattern rejects tests the pattern; one it accepts tests the type or meaning.
     for (const bad of BAD[kind] ?? []) {
       const check = field.pattern && matches(field.pattern, bad) === false ? 'pattern' : undefined;
-      one(field, show(bad), bad, 'invalid', check ?? (field.type === kind ? 'type' : 'semantic'));
+      one(
+        field,
+        show(bad),
+        bad,
+        'invalid',
+        check ?? (field.type === kind && kind !== 'tel' ? 'type' : 'semantic'),
+      );
     }
     if (kind === 'url')
       one(field, '"javascript:alert(1)"', 'javascript:alert(1)', 'unknown', 'unsafe-url');

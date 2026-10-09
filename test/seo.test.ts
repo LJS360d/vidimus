@@ -93,6 +93,34 @@ describe('seo audit', () => {
     assert.ok(!result.findings.some(({ where }) => where?.includes('/old/')));
   });
 
+  it('flags JSON-LD that does not parse and skips noindex pages', async () => {
+    const jsonLd = (body: string) => `<script type="application/ld+json">${body}</script>`;
+    const result = await audit(
+      site({
+        'dist/valid/index.html': page({
+          path: '/valid/',
+          head: jsonLd('{"@context": "https://schema.org", "@type": "WebSite"}'),
+          links: ['/'],
+        }),
+        'dist/broken/index.html': page({
+          path: '/broken/',
+          head: jsonLd('{"@type": "WebSite",}'),
+          links: ['/'],
+        }),
+        'dist/hidden/index.html': page({
+          path: '/hidden/',
+          head: `<meta name="robots" content="noindex">${jsonLd('{')}`,
+          links: ['/'],
+        }),
+        'dist/sitemap.xml': sitemap('/', '/about/', '/valid/', '/broken/'),
+      }),
+    );
+    const finding = find(result, /^invalid JSON-LD/);
+    assert.deepEqual(finding?.where, ['/broken/']);
+    assert.equal(finding?.severity, undefined);
+    assert.ok(finding?.fix?.trim());
+  });
+
   it('passes a clean site', async () => {
     const result = await audit(site());
     assert.deepEqual(result.findings, []);

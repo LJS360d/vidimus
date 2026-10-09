@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { UsageError } from '../src/core/errors.ts';
@@ -6,6 +7,36 @@ import { loadConfig } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
 describe('loadConfig', () => {
+  it('discovers the config in parent directories up to the .git boundary', async () => {
+    const root = fixture({
+      '.git/HEAD': '',
+      'vidimus.config.json': JSON.stringify({ port: 9001 }),
+      'pkg/vidimus.config.json': JSON.stringify({ port: 9002 }),
+      'pkg/a/b/x': '',
+      'c/d/x': '',
+      'explicit.json': JSON.stringify({ port: 9003 }),
+    });
+    const nested = await loadConfig({ cwd: join(root, 'c/d'), env: {} });
+    assert.equal(nested.source, join(root, 'vidimus.config.json'));
+    assert.equal(nested.config.port, 9001);
+    assert.equal(nested.config.root, root);
+    const nearest = await loadConfig({ cwd: join(root, 'pkg/a/b'), env: {} });
+    assert.equal(nearest.config.port, 9002);
+    assert.equal(nearest.config.root, join(root, 'pkg'));
+    const outer = fixture({ 'vidimus.config.json': JSON.stringify({ port: 9004 }) });
+    const repo = join(outer, 'repo');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    mkdirSync(join(repo, 'sub'));
+    const bounded = await loadConfig({ cwd: join(repo, 'sub'), env: {} });
+    assert.equal(bounded.source, undefined);
+    const explicit = await loadConfig({
+      cwd: join(root, 'c/d'),
+      configFile: join(root, 'explicit.json'),
+      env: {},
+    });
+    assert.equal(explicit.config.port, 9003);
+  });
+
   it('uses defaults when no config file exists', async () => {
     const cwd = fixture({});
     const { config, source } = await loadConfig({ cwd, env: {} });
@@ -91,6 +122,19 @@ describe('loadConfig', () => {
     assert.equal(config.lighthouse.thresholds.pwa, 0.8);
   });
 
+  it('parses a JSON array for server.fallback, which also accepts a file name', async () => {
+    const rules = '[{"match":"^/blog","file":"blog.html"},{"match":"^/docs","file":"docs.html"}]';
+    const { config } = await loadConfig({
+      cwd: fixture({}),
+      env: {},
+      set: [`server.fallback=${rules}`],
+    });
+    assert.deepEqual(config.server.fallback, [
+      { match: '^/blog', file: 'blog.html' },
+      { match: '^/docs', file: 'docs.html' },
+    ]);
+  });
+
   it('ignores unrelated VIDIMUS_* variables but still validates known ones', async () => {
     const cwd = fixture({});
     const { config } = await loadConfig({
@@ -123,6 +167,18 @@ describe('loadConfig', () => {
     await assert.rejects(load([{ where: '(' }]), /ignore\[0\]\.where: Invalid regular expression/);
     const { config } = await load([{ audit: 'seo', where: '^/draft/' }]);
     assert.deepEqual(config.ignore, [{ audit: 'seo', where: '^/draft/' }]);
+  });
+
+  it('rejects a non-string privacy.rejectSelector', async () => {
+    await assert.rejects(
+      loadConfig({
+        cwd: fixture({
+          'vidimus.config.json': JSON.stringify({ privacy: { rejectSelector: 3 } }),
+        }),
+        env: {},
+      }),
+      /privacy\.rejectSelector: must be a string/,
+    );
   });
 
   it('accepts CSS selectors in forms.skip while still checking links.skip as regexes', async () => {
@@ -162,6 +218,13 @@ describe('loadConfig', () => {
     await assert.rejects(loadConfig({ cwd, env: {} }), /shots\.overrides\[0\]\.match/);
   });
 
+  it('rejects an unknown shots.colorSchemes value', async () => {
+    const cwd = fixture({
+      'vidimus.config.json': JSON.stringify({ shots: { colorSchemes: ['sepia'] } }),
+    });
+    await assert.rejects(loadConfig({ cwd, env: {} }), /shots\.colorSchemes\[0\]/);
+  });
+
   it('reports a malformed package.json as a usage error', async () => {
     const cwd = fixture({ 'package.json': '{ nope' });
     await assert.rejects(loadConfig({ cwd, env: {} }), UsageError);
@@ -175,6 +238,7 @@ describe('loadConfig', () => {
       ['a11y.runner=pa11y', /a11y\.runner: "pa11y" is not one of htmlcs, axe/],
       ['budget.compression=zstd', /budget\.compression: "zstd" is not one of gzip, brotli, none/],
       ['forms.stub=nope', /forms\.stub: "nope" is not one of abort, ok/],
+      ['forms.caseTimeout=-1', /forms\.caseTimeout: must be a number/],
     ] as const)
       await assert.rejects(loadConfig({ cwd, env: {}, set: [path] }), pattern);
     const { config } = await loadConfig({ cwd, env: {}, set: ['server.fallbackStatus=404'] });

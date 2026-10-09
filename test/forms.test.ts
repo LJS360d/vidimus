@@ -14,7 +14,7 @@ import {
   matches,
   slugOf,
 } from '../src/audits/forms/cases.ts';
-import { forms, shotOf } from '../src/audits/forms/index.ts';
+import { type Exercised, findingsFor, forms, shotOf } from '../src/audits/forms/index.ts';
 import type { FieldInfo, FormInfo } from '../src/audits/forms/probe.ts';
 import { parseBody } from '../src/audits/forms/sandbox.ts';
 import { defaults } from '../src/config/defaults.ts';
@@ -105,6 +105,22 @@ describe('forms cases', () => {
     // Changing the password changes what the confirmation must repeat.
     const changed = cases.find((c) => c.label === 'password=empty');
     assert.equal(changed?.values.confirm, '');
+  });
+
+  it('tests a tel field for meaning, since browsers do not validate tel format', () => {
+    const { cases } = casesFor([
+      field({ key: 'phone', name: 'phone', type: 'tel' }),
+      field({ key: 'mail', name: 'mail', type: 'email' }),
+    ]);
+    const labels = cases.map((c) => `${c.label}|${c.expect}|${c.check}`);
+    assert.ok(labels.includes('phone="not a phone"|invalid|semantic'), labels.join('\n'));
+    assert.ok(labels.includes('mail="vidimus"|invalid|type'), labels.join('\n'));
+  });
+
+  it('skips the minlength-1 case when minlength is 1, since browsers never apply it to an empty value', () => {
+    const { cases } = casesFor([field({ key: 'code', name: 'code', minLength: 1 })]);
+    const labels = cases.map((c) => `${c.label}|${c.expect}|${c.check}`);
+    assert.ok(!labels.some((l) => l.includes('|minLength')), labels.join('\n'));
   });
 
   it('reads what a field means from its autocomplete token, name and label', () => {
@@ -277,6 +293,32 @@ describe('forms cases', () => {
   });
 });
 
+describe('forms findings grouping', () => {
+  it('judges each case by its own expectation', () => {
+    const base = {
+      field: 'email',
+      check: 'required',
+      outcome: 'sent',
+      requests: [],
+      invalid: [],
+      events: { errors: [], workers: [], canary: false },
+    };
+    const form = {
+      id: 'f',
+      pages: ['/'],
+      form: { novalidate: false, adapters: [] },
+      fields: [{ key: 'email', type: 'email', required: true }],
+      confirms: {},
+      cases: [
+        { ...base, label: 'valid', expect: 'valid' },
+        { ...base, label: 'bad', expect: 'invalid' },
+      ],
+    } as unknown as Exercised;
+    const out = findingsFor(form, 'http://x');
+    assert.equal(out.filter((f) => f.message.includes('sent ')).length, 1);
+  });
+});
+
 describe('forms audit', () => {
   it('never lets a submission reach a server', { skip: noBrowser }, async () => {
     const hits: string[] = [];
@@ -327,6 +369,72 @@ document.getElementById('scripted').addEventListener('submit', (event) => {
     } finally {
       target.close();
     }
+  });
+
+  it('refuses output dirs outside .vidimus and deletes nothing', { skip: noBrowser }, async () => {
+    for (const pick of [() => '', () => '.', (cwd: string) => cwd, () => '../outside']) {
+      const cwd = fixture({
+        'dist/index.html': page('<form><input name="q"><button>Go</button></form>'),
+        'outside/keep.txt': 'user data',
+        '.vidimus/keep.txt': 'output',
+      });
+      const outDir = pick(cwd);
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['forms'],
+        reporters: [],
+        overrides: { port: await freePort(), forms: { outDir } },
+      });
+      assert.equal(results[0]?.status, 'errored', `outDir "${outDir}"`);
+      assert.match(results[0]?.summary ?? '', /forms\.outDir/);
+      assert.equal(readFileSync(join(cwd, 'outside/keep.txt'), 'utf8'), 'user data');
+      assert.equal(readFileSync(join(cwd, '.vidimus/keep.txt'), 'utf8'), 'output');
+    }
+    const cwd = fixture({
+      'dist/index.html': page('<form><input name="q"><button>Go</button></form>'),
+      '.vidimus/keep.txt': 'output',
+    });
+    await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { outDir: 'forms' } },
+    });
+    assert.ok(existsSync(join(cwd, '.vidimus/forms')));
+    assert.equal(readFileSync(join(cwd, '.vidimus/keep.txt'), 'utf8'), 'output');
+  });
+
+  it('abandons a case whose page never settles and runs the rest', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html':
+        page(`<form id="stuck" onsubmit="alert('wait'); return false"><input name="q"><button>Go</button></form>
+<form id="fine"><input name="p"><button>Go</button></form>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { caseTimeout: 1500 } },
+    });
+    const messages = (results[0]?.findings ?? []).map((f) => f.message);
+    assert.ok(
+      messages.some((m) => /^stuck: form case timed out: /.test(m)),
+      messages.join('\n'),
+    );
+    assert.ok(!messages.some((m) => /^fine: form case timed out/.test(m)));
+    const fine = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/fine.json'), 'utf8'));
+    assert.ok(fine.cases.length > 0);
+    const stuck = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/stuck.json'), 'utf8'));
+    assert.ok(
+      stuck.cases.every(
+        (c: { outcome: string }) => c.outcome === 'timeout' || c.outcome === 'not-submitted',
+      ),
+    );
   });
 
   it('reports missing validation and unsafe output', { skip: noBrowser }, async () => {
@@ -582,6 +690,39 @@ document.querySelector('form').addEventListener('submit', (e) => {
       );
       assert.ok(urls.length > 0);
       assert.ok(urls.every((u: string) => u.endsWith('/api/alpha')));
+    } finally {
+      target.close();
+    }
+  });
+
+  it('sends browser.state cookies when it fetches the page source', {
+    skip: noBrowser,
+  }, async () => {
+    const form =
+      '<form action="/api/x" method="post"><label>Email <input type="email" name="email" required autocomplete="email"></label><button>Go</button></form>';
+    const target = createServer((req, res) => {
+      res.setHeader('content-type', 'text/html');
+      res.end(page(req.headers.cookie?.includes('sid=1') ? form : '<p>login</p>'));
+    }).listen(0, '127.0.0.1');
+    await new Promise((r) => target.once('listening', r));
+    try {
+      const cwd = fixture({ 'dist/index.html': page(form) });
+      await run({
+        cwd,
+        env: {},
+        audits: ['forms'],
+        reporters: [],
+        overrides: {
+          origin: `http://127.0.0.1:${(target.address() as AddressInfo).port}`,
+          browser: { state: { cookies: [{ name: 'sid', value: '1' }] } },
+          forms: { settle: 50, maxCases: 3 },
+        },
+      });
+      const files = readdirSync(join(cwd, '.vidimus/forms'));
+      assert.ok(
+        files.some((f) => /_form_L\d+\.json$/.test(f)),
+        files.join('\n'),
+      );
     } finally {
       target.close();
     }

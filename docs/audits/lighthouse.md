@@ -15,7 +15,7 @@ default set.
 
 - `lighthouse` 12 or later and `puppeteer`: `npm i -D lighthouse puppeteer`. A missing one ends
   the audit with `!` and the install command.
-- A server. vidimus serves `dist/` on `http://localhost:4322` (plus the base path of `siteUrl`)
+- A server. vidimus serves `dist/` on `http://127.0.0.1:4322` (plus the base path of `siteUrl`)
   unless you pass `--origin` to
   audit a running site.
 
@@ -47,6 +47,12 @@ npx vidimus lighthouse --origin https://preview.example.com
 
 Set `urls` when you know exactly which pages matter, `sample` when the directory heuristic
 groups pages that use different templates, and `all` to audit everything.
+
+### Browser state
+
+Every Lighthouse run opens its own page with `browser.state` applied: cookies, `localStorage`,
+`sessionStorage` and `script` are in place before the page loads, so pages behind a login or
+cookie wall are measured rather than the wall itself.
 
 ### Scores
 

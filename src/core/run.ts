@@ -106,6 +106,7 @@ export const runAudits = async (
     return await execute(config, audits, reporters, options);
   } finally {
     // Only still recording when the run threw: keep what was measured up to the failure.
+    createOutDir(resolve(config.root, config.outDir));
     await stopProfile(resolve(config.root, config.outDir, 'profile'), config.root);
   }
 };
@@ -123,6 +124,11 @@ const execute = async (
     throw new UsageError(`no build output at ${dist}. Run the build first.`);
   }
   const builtPages = createPageReader(dist);
+  if (needsDist && !builtPages().length) {
+    throw new UsageError(
+      `no HTML files found in ${dist}; run your build first or point --dist at the build output`,
+    );
+  }
   const bundle = needsDist ? clientRenderedBundle(config, dist, builtPages) : 0;
   const rendering =
     needsDist && (config.render.mode === 'on' || (config.render.mode === 'auto' && bundle > 0));
@@ -176,7 +182,8 @@ const execute = async (
       ? await span('serve', () => startServer(config, dist, renderer.snapshot))
       : undefined;
   const origin = (
-    config.origin || `http://localhost:${server?.port ?? config.port}${basePathOf(config.siteUrl)}`
+    config.origin ||
+    `http://${command ? 'localhost' : '127.0.0.1'}:${server?.port ?? config.port}${command ? '' : basePathOf(config.siteUrl)}`
   ).replace(/\/$/, '');
   // Audits treat a server.command like --origin: the host tool, not vidimus, answers requests.
   const auditConfig = command && server ? { ...config, origin } : config;
@@ -288,7 +295,9 @@ const execute = async (
     }
     if (needsServer) {
       const routes = await span('routes', () =>
-        task('routes', () => resolveRoutes(auditConfig, dist, builtPages, origin, renderer)),
+        task('routes', () =>
+          resolveRoutes(auditConfig, dist, builtPages, origin, renderer, rendering),
+        ),
       );
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }

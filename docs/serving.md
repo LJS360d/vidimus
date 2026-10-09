@@ -65,9 +65,10 @@ Or on the command line: `npx vidimus --serve "npx wrangler pages dev {dist} --po
 
 - `{port}` is replaced by `port` (default `4322`; `--port 0` picks a free one), and the command
   also gets it as the `PORT` environment variable
-- `{dist}` is replaced by the absolute path of `distDir`
+- `{dist}` is replaced by the absolute path of `distDir`, already shell-quoted, so do not wrap it in quotes yourself
 - the command runs in `root`, through the shell
-- the server must answer on `http://localhost:<port>`; a tool that reads its port from its own
+- the server must serve `dist` at `/` on `http://localhost:<port>`; the base path of `siteUrl` is not
+  added to the audit origin; a tool that reads its port from its own
   config file needs `port` set to the same number
 - `server.startTimeout` (default `60000` ms) is how long vidimus waits for the first response;
   a command that exits earlier, or never answers, stops the run with exit code `2` and the last

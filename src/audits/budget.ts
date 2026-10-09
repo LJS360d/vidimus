@@ -38,12 +38,18 @@ const BUDGET_FIXES: Record<Kind, string> = {
   page: 'Shrink the largest files listed above (images first), lazy-load below-the-fold media, or raise budget.page.',
 };
 
-const formatBytes = (bytes: number) =>
+const formatBytes = (bytes: number, digits = 0) =>
   bytes < 1000
     ? `${bytes} B`
-    : bytes < 1_000_000
-      ? `${Math.round(bytes / 1000)} kB`
-      : `${Number((bytes / 1_000_000).toFixed(1))} MB`;
+    : bytes < 999_500
+      ? `${(bytes / 1000).toFixed(digits)} kB`
+      : `${(bytes / 1_000_000).toFixed(Math.max(digits, 1))} MB`;
+
+const formatExceeded = (size: number, limit: number) => {
+  let digits = 0;
+  while (formatBytes(size, digits) === formatBytes(limit, digits)) digits++;
+  return [formatBytes(size, digits), formatBytes(limit, digits)] as const;
+};
 
 const memo = <T>(compute: (file: string) => T) => {
   const cache = new Map<string, T>();
@@ -227,10 +233,11 @@ export const budget: Audit = {
           kind === 'page'
             ? 'total'
             : { gzip: 'gzipped', brotli: 'brotli', none: 'raw' }[options.compression];
+        const [sized, limited] = formatExceeded(size, limit);
         report(
           `${kind} ${page.path}`,
           {
-            message: `${kind} ${formatBytes(size)} ${measured} > ${formatBytes(limit)} budget`,
+            message: `${kind} ${sized} ${measured} > ${limited} budget`,
             details: topFiles(assets),
             file: page.file,
             fix: BUDGET_FIXES[kind],
@@ -241,10 +248,11 @@ export const budget: Audit = {
 
       for (const image of imageAssets) {
         if (!limits.image || image.size <= limits.image) continue;
+        const [sized, limited] = formatExceeded(image.size, limits.image);
         report(
           `image ${image.file}`,
           {
-            message: `image ${image.url} ${formatBytes(image.size)} > ${formatBytes(limits.image)} budget`,
+            message: `image ${image.url} ${sized} > ${limited} budget`,
             file: image.file,
             fix: 'Resize/compress it (e.g. with sharp or squoosh) and serve AVIF/WebP, or raise budget.image.',
           },

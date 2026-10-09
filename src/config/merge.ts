@@ -43,8 +43,18 @@ export const merge = <T extends object>(base: T, override: unknown): T => {
 
 const normalize = (key: string) => key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const coerce = (raw: string, current: unknown, source: string): unknown => {
-  if (typeof current === 'string') return raw;
+const STRING_OR_ARRAY_KEYS = new Set(['server.fallback']);
+
+const coerce = (raw: string, current: unknown, source: string, path: string): unknown => {
+  if (typeof current === 'string') {
+    if (!STRING_OR_ARRAY_KEYS.has(path) || !raw.trim().startsWith('[')) return raw;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : raw;
+    } catch {
+      return raw;
+    }
+  }
   if (typeof current === 'number') {
     const number = Number(raw);
     if (raw.trim() === '' || Number.isNaN(number)) {
@@ -101,7 +111,7 @@ export const setPath = <T extends object>(
     const value =
       parents.join('.') === 'security.require' && /^false$/i.test(raw)
         ? false
-        : coerce(raw, tree[key], source);
+        : coerce(raw, tree[key], source, [...parents, key].join('.'));
     return { ...tree, [key]: value } as T;
   }
   const child = tree[key];

@@ -1,4 +1,4 @@
-import { globSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, globSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { Pattern } from '../config/types.ts';
 import { matchesAny, stripBase, underBase } from './util.ts';
@@ -189,6 +189,48 @@ export const linksWithRel = (html: string, rel: string) =>
 
 const pagePath = (rel: string) => `/${rel.replace(/(^|\/)index\.html$/, '$1')}`;
 
+const BOMS: [number[], string][] = [
+  [[0xef, 0xbb, 0xbf], 'utf-8'],
+  [[0xff, 0xfe], 'utf-16le'],
+  [[0xfe, 0xff], 'utf-16be'],
+];
+
+const detectCharset = (head: Buffer): string => {
+  const bom = BOMS.find(([bytes]) => bytes.every((byte, i) => head[i] === byte));
+  if (bom) return bom[1];
+  const text = head.subarray(0, 1024).toString('latin1');
+  const found =
+    /<meta\s[^>]*charset\s*=\s*["']?\s*([\w:.-]+)/i.exec(text) ??
+    /<meta\s[^>]*http-equiv\s*=\s*["']?content-type[^>]*charset\s*=\s*["']?\s*([\w:.-]+)/i.exec(
+      text,
+    );
+  return found?.[1]?.toLowerCase() ?? 'utf-8';
+};
+
+const decodeHtml = (buffer: Buffer): string => {
+  const label = detectCharset(buffer);
+  if (label === 'utf-8' || label === 'utf8') return buffer.toString('utf8');
+  try {
+    return new TextDecoder(label).decode(buffer);
+  } catch {
+    return buffer.toString('utf8');
+  }
+};
+
+export const fileCharset = (file: string): string => {
+  const head = Buffer.alloc(1024);
+  const fd = openSync(file, 'r');
+  try {
+    const label = detectCharset(head.subarray(0, readSync(fd, head, 0, 1024, 0)));
+    new TextDecoder(label);
+    return label;
+  } catch {
+    return 'utf-8';
+  } finally {
+    closeSync(fd);
+  }
+};
+
 export type PageReader = (exclude?: Pattern[]) => BuiltPage[];
 
 export const createPageReader = (dist: string): PageReader => {
@@ -197,7 +239,7 @@ export const createPageReader = (dist: string): PageReader => {
   const read = (file: string) => {
     let html = contents.get(file);
     if (html === undefined) {
-      html = readFileSync(file, 'utf8');
+      html = decodeHtml(readFileSync(file));
       contents.set(file, html);
     }
     return html;

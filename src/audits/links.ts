@@ -31,6 +31,7 @@ const routeLinks = (pages: RenderedPage[], origin: string, dist: string) => {
   const audited = new URL(origin).origin;
   for (const page of pages) {
     for (const href of page.anchors) {
+      if (!URL.canParse(href)) continue;
       const url = new URL(href);
       if (url.origin !== audited) continue;
       const path = pathOf(href, origin);

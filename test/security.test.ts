@@ -161,6 +161,28 @@ describe('security audit', () => {
     ]);
   });
 
+  it('counts only restrictive frame-ancestors as clickjacking protection', async () => {
+    const clickjacking = async (value: string) =>
+      messages(
+        await audit({
+          'dist/index.html': page(),
+          'dist/_headers': GOOD_HEADERS.replace(
+            "frame-ancestors 'none'",
+            `frame-ancestors ${value}`,
+          ),
+        }),
+      ).filter((message) => message.startsWith('no clickjacking protection'));
+    const anyOrigin = ['no clickjacking protection: frame-ancestors allows any origin'];
+    assert.deepEqual(await clickjacking('*'), anyOrigin);
+    assert.deepEqual(await clickjacking('https:'), anyOrigin);
+    assert.deepEqual(await clickjacking('http: https:'), anyOrigin);
+    assert.deepEqual(await clickjacking("* 'self'"), anyOrigin);
+    assert.deepEqual(await clickjacking("'none'"), []);
+    assert.deepEqual(await clickjacking("'self'"), []);
+    assert.deepEqual(await clickjacking('https://cms.example.com'), []);
+    assert.deepEqual(await clickjacking('*.example.com'), []);
+  });
+
   it("warns on 'unsafe-inline' unless a hash is present, always on 'unsafe-eval'", async () => {
     const csp = (policy: string) =>
       page(`<meta http-equiv="content-security-policy" content="${policy}">`);
@@ -204,7 +226,7 @@ describe('security audit', () => {
     const result = await audit({
       'dist/index.html': page(`<img src="http://cdn.test/a.png">
 <img srcset="https://ok.test/b.png 1x, http://cdn.test/c.png 2x">
-<link rel="stylesheet" href="http://cdn.test/s.css" integrity="sha384-x">
+<link rel="stylesheet" href="http://cdn.test/s.css" integrity="sha384-x" crossorigin="anonymous">
 <a href="http://example.test/">external</a>`),
       'dist/other.html': page('<img src="http://cdn.test/a.png">'),
       'dist/_headers': GOOD_HEADERS,
@@ -218,10 +240,32 @@ describe('security audit', () => {
     assert.deepEqual(result.findings[0]?.where, ['/', '/other.html']);
   });
 
+  it('finds mixed content hidden in css, style attributes, imagesrcset and svg images', async () => {
+    const result = await audit({
+      'dist/index.html':
+        page(`<style>@import "http://m.test/i1.css"; @import url(http://m.test/i2.css);
+.a { background: url('http://m.test/bg.png') } .b { background: url(https://ok.test/x.png) }</style>
+<div style="background:url(http://m.test/inline.png)"></div>
+<link rel="preload" as="image" imagesrcset="https://ok.test/a.png 1x, http://m.test/set.png 2x">
+<svg><image href="http://m.test/svg.png"/><image xlink:href="http://m.test/xlink.png"/></svg>`),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.deepEqual(messages(result).sort(), [
+      'mixed content: http://m.test/bg.png',
+      'mixed content: http://m.test/i1.css',
+      'mixed content: http://m.test/i2.css',
+      'mixed content: http://m.test/inline.png',
+      'mixed content: http://m.test/set.png',
+      'mixed content: http://m.test/svg.png',
+      'mixed content: http://m.test/xlink.png',
+    ]);
+    assert.ok(result.findings.every(({ fix }) => fix));
+  });
+
   it('warns about cross-origin scripts and styles without integrity', async () => {
     const result = await audit({
       'dist/index.html': page(`<script src="https://cdn.test/lib.js"></script>
-<script src="https://cdn.test/safe.js" integrity="sha384-x"></script>
+<script src="https://cdn.test/safe.js" integrity="sha384-x" crossorigin="anonymous"></script>
 <script src="/local.js"></script>
 <link rel="stylesheet" href="//fonts.test/f.css">
 <link rel="icon" href="https://cdn.test/icon.png">`),
@@ -234,9 +278,28 @@ describe('security audit', () => {
     ]);
   });
 
+  it('fails on cross-origin resources with integrity but no crossorigin', async () => {
+    const result = await audit({
+      'dist/index.html': page(`<script src="https://cdn.test/a.js" integrity="sha384-x"></script>
+<script src="https://cdn.test/b.js" integrity="sha384-x" crossorigin="anonymous"></script>
+<script src="/local.js" integrity="sha384-x"></script>
+<link rel="stylesheet" href="//fonts.test/f.css" integrity="sha384-x">
+<link rel="stylesheet" href="https://cdn.test/c.css" integrity="sha384-x" crossorigin>`),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(messages(result), [
+      'cross-origin <script> with integrity but no crossorigin: https://cdn.test/a.js',
+      'cross-origin <link> with integrity but no crossorigin: //fonts.test/f.css',
+    ]);
+    assert.match(result.findings[0]?.fix ?? '', /crossorigin="anonymous"/);
+  });
+
   it('skips header checks without _headers but still checks the HTML', async () => {
     const result = await audit({
-      'dist/index.html': page('<script src="http://x.test/a.js" integrity="sha384-x">'),
+      'dist/index.html': page(
+        '<script src="http://x.test/a.js" integrity="sha384-x" crossorigin="anonymous">',
+      ),
     });
     assert.equal(result.status, 'failed');
     assert.deepEqual(messages(result), ['mixed content: http://x.test/a.js']);
@@ -270,9 +333,8 @@ describe('security audit', () => {
     assert.match(fixOf('integrity'), /crossorigin="anonymous"/);
   });
 
-  it('is skipped when there are no pages', async () => {
-    const result = await audit({ 'dist/app.js': '' });
-    assert.equal(result.status, 'skipped');
+  it('stops before the audit when dist has no HTML', async () => {
+    await assert.rejects(audit({ 'dist/app.js': '' }), /no HTML files found in/);
   });
 });
 
@@ -364,6 +426,7 @@ describe('security audit against a live origin', () => {
   let server: Server;
   let origin = '';
   const methods: string[] = [];
+  let serverHeader = 'nginx/1.25.3';
 
   before(async () => {
     server = createServer((req, res) => {
@@ -379,7 +442,7 @@ describe('security audit against a live origin', () => {
         'permissions-policy': 'camera=()',
         'x-frame-options': 'DENY',
         'x-powered-by': 'Express',
-        server: 'nginx/1.25.3',
+        server: serverHeader,
       });
       res.end(req.method === 'HEAD' ? undefined : 'ok');
     });
@@ -405,6 +468,34 @@ describe('security audit against a live origin', () => {
     assert.ok(methods.includes('GET'));
     assert.match(result.findings[0]?.fix ?? '', /X-Powered-By/);
     assert.match(result.findings[1]?.fix ?? '', /server_tokens off/);
+  });
+
+  it('flags only Server values that disclose a version', async () => {
+    const leaks = async (value: string) => {
+      serverHeader = value;
+      const result = await audit(
+        { 'dist/index.html': page(), 'dist/about/index.html': page(), 'dist/_headers': '' },
+        { origin },
+      );
+      return result.findings.some((finding) => finding.message === 'server header leaks a version');
+    };
+    for (const cdn of [
+      'cloudflare',
+      'AmazonS3',
+      'Vercel',
+      'Netlify',
+      'GitHub.com',
+      'cloudfront',
+      'AkamaiGHost',
+      'ECS (dcb/7F83)',
+      'ECAcc (dcd/7D4F)',
+    ]) {
+      assert.equal(await leaks(cdn), false, cdn);
+    }
+    for (const version of ['nginx/1.18.0', 'Apache/2.4.41 (Ubuntu)', 'Express 4.17', 'Caddy/2']) {
+      assert.equal(await leaks(version), true, version);
+    }
+    serverHeader = 'nginx/1.25.3';
   });
 });
 

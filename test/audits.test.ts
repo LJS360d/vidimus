@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
-import { run } from '../src/index.ts';
+import { run, UsageError } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
 const hash = (body: string) => `sha256-${createHash('sha256').update(body).digest('base64')}`;
@@ -210,6 +210,19 @@ describe('runner', () => {
     await assert.rejects(
       run({ cwd: fixture({}), env: {}, audits: ['csp'], reporters: [] }),
       /no build output/,
+    );
+  });
+
+  it('stops with a usage error when dist holds no HTML', async () => {
+    await assert.rejects(
+      run({
+        cwd: fixture({ 'dist/app.js': 'x' }),
+        env: {},
+        audits: ['csp'],
+        reporters: [],
+        overrides: { port: 0 },
+      }),
+      (error) => error instanceof UsageError && /no HTML files found in .*dist/.test(error.message),
     );
   });
 });

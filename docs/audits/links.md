@@ -43,7 +43,7 @@ The fix depends on the status: for `404` and `410` it suggests fixing the link, 
 ```
 ─── links ───────────────────────────────────────────────────────
 
-✖ 404 http://localhost:4322/blog/2024/hello-wrold/
+✖ 404 http://127.0.0.1:4322/blog/2024/hello-wrold/
     on: /blog/ /tags/astro/
     → Fix or remove the link on the pages listed, or add a pattern to links.skip if the target blocks bots.
 
@@ -64,7 +64,7 @@ A passing run:
 ✔ links: 2210 links checked across 34 pages, none broken (8.1s)
 ```
 
-Internal targets are shown on the audit origin (`http://localhost:4322/…`), since that is the URL that was requested.
+Internal targets are shown on the audit origin (`http://127.0.0.1:4322/…`), since that is the URL that was requested.
 
 ## Options
 

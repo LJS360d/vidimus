@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -31,6 +31,61 @@ const freePort = () =>
 const page = '<!doctype html><html lang="en"><head><title>t</title></head><body>hi</body></html>';
 
 describe('shots audit', () => {
+  it('captures a dark baseline per page with colorSchemes', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page.replace(
+        '</head>',
+        '<style>body{background:#fff}@media (prefers-color-scheme: dark){body{background:#000}}</style></head>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['shots'],
+      reporters: [],
+      overrides: {
+        port: 0,
+        shots: {
+          viewports: [320],
+          motion: false,
+          updateBaseline: true,
+          colorSchemes: ['light', 'dark'],
+        },
+      },
+    });
+    assert.equal(results[0]?.status, 'passed');
+    const dir = join(cwd, '.vidimus', 'shots', 'baseline');
+    assert.deepEqual(readdirSync(dir).sort(), ['index@320x800.dark.png', 'index@320x800.png']);
+    assert.notDeepEqual(
+      readFileSync(join(dir, 'index@320x800.png')),
+      readFileSync(join(dir, 'index@320x800.dark.png')),
+    );
+  });
+
+  it('updates only the baselines of the pages captured in the run', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({ 'dist/index.html': page, 'dist/other/index.html': page });
+    const shots = async (shotsConfig: UserConfig['shots']) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: { port: 0, shots: { viewports: [320], motion: false, ...shotsConfig } },
+      });
+      return results[0];
+    };
+    const dir = join(cwd, '.vidimus', 'shots', 'baseline');
+    assert.equal((await shots({ updateBaseline: true }))?.status, 'passed');
+    const otherFile = join(dir, 'other@320x800.png');
+    writeFileSync(otherFile, 'kept');
+    writeFileSync(join(dir, 'index@320x800.png'), 'stale');
+    assert.equal((await shots({ updateBaseline: true, exclude: ['^/other'] }))?.status, 'passed');
+    assert.equal(readFileSync(otherFile, 'utf8'), 'kept');
+    assert.notEqual(readFileSync(join(dir, 'index@320x800.png'), 'utf8'), 'stale');
+  });
+
   it('applies the first matching override to a changed page', { skip: noBrowser }, async () => {
     const cwd = fixture({ 'dist/index.html': page });
     const shots = async (shotsConfig: UserConfig['shots'] = {}) => {

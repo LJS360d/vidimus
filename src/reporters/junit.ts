@@ -54,10 +54,9 @@ const suite = (result: AuditResult) => {
     : [summaryCase(result)];
   const counts: Counts = {
     tests: cases.length,
-    failures:
-      result.status === 'failed'
-        ? Math.max(1, result.findings.filter(({ severity }) => severity !== 'warn').length)
-        : 0,
+    failures: result.findings.length
+      ? result.findings.filter(({ severity }) => severity !== 'warn').length
+      : Number(result.status === 'failed'),
     errors: result.status === 'errored' ? 1 : 0,
     skipped: result.status === 'skipped' ? 1 : 0,
   };

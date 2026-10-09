@@ -107,7 +107,10 @@ describe('lighthouse categories', () => {
           };
         },
       }),
-      launchBrowser: async () => ({ wsEndpoint: () => 'ws://127.0.0.1:9/', close: async () => {} }),
+      launchBrowser: async () => ({
+        newPage: async () => ({ close: async () => {} }),
+        close: async () => {},
+      }),
       pageUrls: () => [],
       log: () => {},
     } as unknown as AuditContext;
@@ -148,13 +151,75 @@ describe('lighthouse runs', () => {
           };
         },
       }),
-      launchBrowser: async () => ({ wsEndpoint: () => 'ws://127.0.0.1:9/', close: async () => {} }),
+      launchBrowser: async () => ({
+        newPage: async () => ({ close: async () => {} }),
+        close: async () => {},
+      }),
       pageUrls: () => [],
       log: (line: string) => logged.push(line),
     } as unknown as AuditContext;
     await lighthouse.run(context);
     assert.deepEqual(seen, ['desktop', 'desktop', 'desktop']);
     assert.match(logged[0] ?? '', /performance 70/);
+  });
+});
+
+describe('lighthouse browser state', () => {
+  it('opens every run on a page that carries browser.state', async () => {
+    const cwd = fixture({});
+    const config = defaults(cwd);
+    config.lighthouse = {
+      ...config.lighthouse,
+      urls: ['/'],
+      thresholds: { performance: 0 },
+      runs: 3,
+    };
+    config.browser.state.script = 'window.__seeded = 1';
+    config.browser.state.cookies = [{ name: 'sid', value: 'abc' }];
+    const seeded: unknown[] = [];
+    const context = {
+      config,
+      root: cwd,
+      origin: ORIGIN,
+      resolve: (...parts: string[]) => join(cwd, ...parts),
+      importPeer: async () => ({
+        default: async (
+          _url: string,
+          _flags: unknown,
+          _config: unknown,
+          page: { seeded: unknown },
+        ) => {
+          seeded.push(page.seeded);
+          return {
+            lhr: { categories: { performance: { score: 1, auditRefs: [] } }, audits: {} },
+            report: '<html></html>',
+          };
+        },
+      }),
+      launchBrowser: async () => ({
+        newPage: async () => {
+          const page = {
+            seeded: [] as unknown[],
+            evaluateOnNewDocument: async (...args: unknown[]) => {
+              page.seeded.push(args[0]);
+            },
+            browserContext: () => ({
+              setCookie: async (...cookies: { name: string; domain: string }[]) => {
+                page.seeded.push(cookies.map((c) => `${c.name}@${c.domain}`));
+              },
+            }),
+            close: async () => {},
+          };
+          return page;
+        },
+        close: async () => {},
+      }),
+      pageUrls: () => [],
+      log: () => {},
+    } as unknown as AuditContext;
+    await lighthouse.run(context);
+    const one = ['window.__seeded = 1', ['sid@localhost']];
+    assert.deepEqual(seeded, [one, one, one]);
   });
 });
 

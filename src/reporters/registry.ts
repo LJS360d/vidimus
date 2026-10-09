@@ -2,17 +2,18 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { UsageError } from '../core/errors.ts';
 import { github } from './github.ts';
+import { html } from './html.ts';
 import { junit } from './junit.ts';
 import { pretty } from './pretty.ts';
 import { sarif } from './sarif.ts';
 import type { Reporter } from './types.ts';
 
-export const REPORTERS = ['pretty', 'json', 'github', 'junit', 'sarif'];
+export const REPORTERS = ['pretty', 'json', 'github', 'junit', 'sarif', 'html'];
 
 export interface ReporterEnv {
   cwd: string;
   env: NodeJS.ProcessEnv;
-  /** `json`, `junit` or `sarif`: also written to `<outDir>/report.json` / `report.xml` / `report.sarif`, whatever `specs` is. */
+  /** `json`, `junit`, `sarif` or `html`: also written to `<outDir>/report.json` / `report.xml` / `report.sarif` / `report.html`, whatever `specs` is. */
   reports?: string[];
   outDir?: string;
 }
@@ -21,6 +22,7 @@ const REPORT_FILES = new Map([
   ['json', 'report.json'],
   ['junit', 'report.xml'],
   ['sarif', 'report.sarif'],
+  ['html', 'report.html'],
 ]);
 
 const reportSpecs = (reports: string[], outDir: string) =>
@@ -79,7 +81,8 @@ export const createReporters = (
     typeof spec === 'string' ? parse(spec) : spec,
   );
   const onStdout = parsed.filter(
-    (spec) => isBuiltin(spec) && ['json', 'junit', 'sarif'].includes(spec.name) && !spec.target,
+    (spec) =>
+      isBuiltin(spec) && ['json', 'junit', 'sarif', 'html'].includes(spec.name) && !spec.target,
   );
   if (onStdout.length > 1) {
     throw new UsageError(
@@ -105,6 +108,8 @@ export const createReporters = (
         return junit(writer(target, cwd));
       case 'sarif':
         return sarif(writer(target, cwd));
+      case 'html':
+        return html(writer(target, cwd));
       default:
         throw new UsageError(`unknown reporter "${name}". Known: ${REPORTERS.join(', ')}`);
     }
