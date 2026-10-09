@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, it } from 'node:test';
+import { r12s } from '../src/audits/r12s.ts';
+import { defaults } from '../src/config/defaults.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -98,5 +100,28 @@ describe('r12s audit', () => {
     assert.equal(result?.findings[0]?.message, 'failed to load /');
     assert.match(result?.findings[0]?.details?.[0] ?? '', /^@320\/375px: /);
     assert.match(result?.summary ?? '', /1 page\(s\) failed to load/);
+  });
+
+  it('turns a setViewport failure into a per-page finding', async () => {
+    const cwd = fixture({});
+    const config = defaults(cwd);
+    config.r12s.viewports = [375];
+    const page = {
+      setViewport: async () => {
+        throw new Error('viewport boom');
+      },
+      close: async () => {},
+    };
+    const browser = { newPage: async () => page, close: async () => {} };
+    const result = await r12s.run({
+      config,
+      origin: 'http://localhost:1',
+      pageUrls: () => ['http://localhost:1/'],
+      launchBrowser: async () => browser,
+      log: () => {},
+    } as never);
+    assert.equal(result.findings?.[0]?.message, 'failed to load /');
+    assert.deepEqual(result.findings?.[0]?.details, ['@375px: viewport boom']);
+    assert.ok(result.findings?.[0]?.fix);
   });
 });

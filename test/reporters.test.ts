@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
+import { subtractBaseline } from '../src/core/findings.ts';
 import { createReporters, type RunReport } from '../src/index.ts';
 import { annotation, github } from '../src/reporters/github.ts';
 import { toJUnit } from '../src/reporters/junit.ts';
 import { pretty, progressLine } from '../src/reporters/pretty.ts';
+import { toSarif } from '../src/reporters/sarif.ts';
 import { fixture } from './helpers.ts';
 
 const report: RunReport = {
@@ -53,6 +55,41 @@ const report: RunReport = {
     },
   ],
 };
+
+describe('sarif reporter', () => {
+  it('maps findings to results with levels and locations', () => {
+    const withFiles: RunReport = {
+      ...report,
+      results: [
+        {
+          name: 'links',
+          status: 'failed',
+          summary: '2 findings',
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+          findings: [
+            { message: 'broken', file: 'dist/a.html', line: 7, fix: 'repair it' },
+            { message: 'meh', severity: 'warn' },
+          ],
+        },
+      ],
+    };
+    const log = toSarif(withFiles);
+    assert.equal(log.version, '2.1.0');
+    const results = log.runs[0]?.results ?? [];
+    assert.equal(results.length, 2);
+    assert.equal(results[0]?.ruleId, 'links');
+    assert.equal(results[0]?.level, 'error');
+    assert.match(results[0]?.message?.text ?? '', /fix: repair it/);
+    assert.deepEqual(results[0]?.locations?.[0]?.physicalLocation, {
+      artifactLocation: { uri: 'dist/a.html' },
+      region: { startLine: 7 },
+    });
+    assert.equal(results[1]?.level, 'warning');
+    assert.equal(results[1]?.locations, undefined);
+  });
+});
 
 describe('junit reporter', () => {
   it('counts results and escapes XML', () => {
@@ -221,6 +258,7 @@ describe('github reporter output', () => {
           message: 'title, too long: 70%',
           severity: 'warn',
           file: join(root, 'dist', 'index.html'),
+          line: 7,
           details: ['line\r\nbreak'],
           where: ['/'],
           fix: 'shorten it',
@@ -228,9 +266,23 @@ describe('github reporter output', () => {
       ],
     });
     reporter.onEnd?.(report);
+    const baseline = {
+      version: 1 as const,
+      findings: [{ audit: 'seo', message: 'm', file: 'a.html' }],
+    };
+    assert.deepEqual(
+      subtractBaseline(
+        root,
+        'seo',
+        [{ message: 'm', file: join(root, 'a.html'), line: 3 }],
+        baseline,
+        false,
+      ),
+      [],
+    );
     assert.equal(
       text(),
-      '::warning file=dist/index.html,title=vidimus seo::title, too long: 70%25%0Aline%0D%0Abreak%0Aon: /%0Afix: shorten it\n',
+      '::warning file=dist/index.html,line=7,title=vidimus seo::title, too long: 70%25%0Aline%0D%0Abreak%0Aon: /%0Afix: shorten it\n',
     );
   });
 });
@@ -250,6 +302,8 @@ describe('createReporters', () => {
     assert.deepEqual(names(['pretty', 'json:out.json', 'junit']), ['pretty', 'json', 'junit']);
     assert.throws(() => names(['nope']), { name: 'UsageError' });
     assert.throws(() => names(['json', 'junit']), /both write to stdout/);
+    assert.deepEqual(names(['sarif:r.sarif']), ['sarif']);
+    assert.throws(() => names(['json', 'sarif']), /both write to stdout/);
   });
 
   it('passes custom reporters through even when they have a target field', () => {
@@ -267,6 +321,14 @@ describe('createReporters', () => {
     for (const reporter of reporters) await reporter.onEnd?.(report);
     assert.equal(JSON.parse(readFileSync(join(cwd, 'reports/r.json'), 'utf8')).ok, false);
     assert.match(readFileSync(join(cwd, 'reports/r.xml'), 'utf8'), /<testsuites/);
+  });
+
+  it('writes the sarif report to outDir', async () => {
+    const cwd = fixture({});
+    const outDir = join(cwd, '.vidimus');
+    const reporters = createReporters([], { cwd, env: {}, reports: ['sarif'], outDir });
+    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
+    assert.match(readFileSync(join(outDir, 'report.sarif'), 'utf8'), /"version": "2.1.0"/);
   });
 
   it('adds reports in outDir next to the default pretty reporter', async () => {

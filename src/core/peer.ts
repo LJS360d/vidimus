@@ -27,7 +27,13 @@ export const importPeer = <T>(peer: string): Promise<T> => {
 export const sharedBrowser = (launch: () => Promise<Browser>) => {
   let current: Promise<Browser> | undefined;
   let users = 0;
-  return async (): Promise<Browser> => {
+  const leave = async (launching: Promise<Browser>, browser: Browser) => {
+    users -= 1;
+    if (users > 0 || current !== launching) return;
+    current = undefined;
+    await browser.close();
+  };
+  const acquire = async (): Promise<Browser> => {
     users += 1;
     current ??= launch();
     const launching = current;
@@ -39,16 +45,19 @@ export const sharedBrowser = (launch: () => Promise<Browser>) => {
       if (current === launching) current = undefined;
       throw error;
     }
-    const context = await browser.createBrowserContext();
+    let context: Awaited<ReturnType<Browser['createBrowserContext']>>;
+    try {
+      context = await browser.createBrowserContext();
+    } catch (error) {
+      await leave(launching, browser).catch(() => {});
+      throw error;
+    }
     let released = false;
     const release = async () => {
       if (released) return;
       released = true;
-      users -= 1;
       await context.close().catch(() => {});
-      if (users > 0 || current !== launching) return;
-      current = undefined;
-      await browser.close();
+      await leave(launching, browser);
     };
     return new Proxy(browser, {
       get(target, property) {
@@ -59,6 +68,14 @@ export const sharedBrowser = (launch: () => Promise<Browser>) => {
       },
     });
   };
+  const closeAll = async () => {
+    const launching = current;
+    current = undefined;
+    users = 0;
+    const browser = await launching?.catch(() => undefined);
+    await browser?.close().catch(() => {});
+  };
+  return Object.assign(acquire, { closeAll });
 };
 
 // Runs in the page before its own scripts, so it must stay self-contained.
@@ -109,7 +126,9 @@ export const launchBrowser = async (
   const { default: puppeteer } = await importPeer<typeof import('puppeteer')>('puppeteer');
   const browser = await span('browser.launch', () =>
     puppeteer.launch({
-      ...(config.browser.executablePath && { executablePath: config.browser.executablePath }),
+      ...(config.browser.executablePath && {
+        executablePath: config.browser.executablePath,
+      }),
       ...options,
       args: [...config.browser.args, ...(options.args ?? [])],
     }),

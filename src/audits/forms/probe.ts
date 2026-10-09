@@ -93,7 +93,9 @@ export const probe = (skip: string[]) => {
     workers: [],
     canary: false,
   };
-  const CONTROLS = 'input, select, textarea';
+  const EDITABLE =
+    '[contenteditable]:not([contenteditable=false]), [role=textbox]:not(input, textarea)';
+  const CONTROLS = `input, select, textarea, ${EDITABLE}`;
   const SKIPPED_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image']);
   const SUBMIT_WORDS =
     /submit|send|sign ?(in|up)|log ?in|register|subscribe|save|continue|next|join|apply|create|book|order|pay|confirm|search|go\b/i;
@@ -219,7 +221,15 @@ export const probe = (skip: string[]) => {
 
   const controlsOf = (root: Element): Element[] =>
     root instanceof HTMLFormElement
-      ? [...root.elements].filter((el) => el.matches(CONTROLS))
+      ? [
+          ...[...root.elements].filter((el) => {
+            if (!el.localName.includes('-')) return el.matches(CONTROLS);
+            if (!('name' in el))
+              Object.defineProperty(el, 'name', { value: el.getAttribute('name') ?? '' });
+            return true;
+          }),
+          ...deepAll(EDITABLE, root),
+        ].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
       : deepAll(CONTROLS, root).filter((el) => !(el as HTMLInputElement).form);
 
   const text = (el: Element | null | undefined) =>
@@ -262,8 +272,8 @@ export const probe = (skip: string[]) => {
     return null;
   };
   // biome-ignore lint/suspicious/noExplicitAny: walk a dotted path in an untyped object
-  const at = (object: any, path: string) =>
-    path.split('.').reduce((node, part) => node?.[part], object);
+  const at = (object: any, path?: string) =>
+    (path ?? '').split('.').reduce((node, part) => node?.[part], object);
   // biome-ignore lint/suspicious/noExplicitAny: rule values are primitives or { value }
   const ruleValue = (rule: any) =>
     rule && typeof rule === 'object' && 'value' in rule ? rule.value : rule;
@@ -307,7 +317,8 @@ export const probe = (skip: string[]) => {
   const fieldsOf = (root: Element) => {
     const keys = new Map<string, Element[]>();
     const hidden: string[] = [];
-    for (const el of controlsOf(root) as HTMLInputElement[]) {
+    const all = controlsOf(root) as HTMLInputElement[];
+    for (const el of all) {
       if (el.type === 'hidden') {
         hidden.push(el.name);
         continue;
@@ -319,8 +330,13 @@ export const probe = (skip: string[]) => {
         el.getAttribute('formcontrolname') ||
         el.getAttribute('ng-reflect-name') ||
         el.id;
-      let key = el.type === 'radio' ? named : named || `${el.tagName.toLowerCase()}${keys.size}`;
-      if (el.type !== 'radio' && keys.has(key)) key = `${key}#${keys.size}`;
+      const grouped =
+        el.type === 'radio' ||
+        (el.type === 'checkbox' &&
+          !!el.name &&
+          all.filter((c) => c.type === 'checkbox' && c.name === el.name).length > 1);
+      let key = grouped ? named : named || `${el.tagName.toLowerCase()}${keys.size}`;
+      if (!grouped && keys.has(key)) key = `${key}#${keys.size}`;
       keys.set(key, [...(keys.get(key) ?? []), el]);
     }
     return { keys, hidden };
@@ -328,14 +344,15 @@ export const probe = (skip: string[]) => {
   const describeField = (key: string, els: Element[]): FieldInfo => {
     const el = els[0] as HTMLInputElement;
     const tag = el.tagName.toLowerCase();
-    const type = tag === 'input' ? el.type : tag;
+    const editable = el.matches(EDITABLE);
+    const type = editable ? 'textarea' : tag === 'input' ? el.type : tag;
     const number = (attr: string) => {
       const raw = el.getAttribute(attr);
       return raw === null || raw === '' ? undefined : Number(raw);
     };
     const attr = (name: string) => el.getAttribute(name) ?? undefined;
     const options =
-      type === 'radio'
+      type === 'radio' || (type === 'checkbox' && els.length > 1)
         ? (els as HTMLInputElement[]).map((radio) => ({
             value: radio.value,
             disabled: radio.disabled,
@@ -348,7 +365,7 @@ export const probe = (skip: string[]) => {
           : [];
     const info: FieldInfo = {
       key,
-      name: el.name,
+      name: el.getAttribute('name') ?? '',
       id: el.id,
       tag,
       type,
@@ -365,7 +382,7 @@ export const probe = (skip: string[]) => {
       step: attr('step'),
       pattern: attr('pattern'),
       accept: attr('accept'),
-      multiple: el.multiple,
+      multiple: !!el.multiple,
       options,
       custom: [],
     };
@@ -393,10 +410,12 @@ export const probe = (skip: string[]) => {
   const apply = (els: HTMLInputElement[], value: Value, hold: boolean) => {
     const el = els[0] as HTMLInputElement;
     let tail = '';
-    if (el.type === 'checkbox') {
+    if (el.type === 'checkbox' && els.length === 1) {
       if (el.checked !== !!value) el.click();
-    } else if (el.type === 'radio') {
+    } else if (el.type === 'radio' || el.type === 'checkbox') {
       const pick = els.find((radio) => radio.value === value);
+      if (el.type === 'checkbox')
+        for (const box of els) if (box !== pick && box.checked) box.click();
       if (pick && !pick.checked) pick.click();
       if (value === null)
         for (const radio of els)
@@ -409,6 +428,9 @@ export const probe = (skip: string[]) => {
           }
     } else if (el.type === 'file') {
       if (!value) el.value = '';
+    } else if (el.matches(EDITABLE)) {
+      el.textContent = String(value ?? '');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
     } else {
       el.focus();
       const text = String(value ?? '');
@@ -509,9 +531,12 @@ export const probe = (skip: string[]) => {
       }
       for (const [key, els] of fields) {
         const el = els[0] as HTMLInputElement;
-        const flags = Object.keys(Object.getPrototypeOf(el.validity)).filter(
-          (flag) => flag !== 'valid' && el.validity[flag as keyof ValidityState],
-        );
+        const face = !el.validity;
+        const flags = face
+          ? []
+          : Object.keys(Object.getPrototypeOf(el.validity)).filter(
+              (flag) => flag !== 'valid' && el.validity[flag as keyof ValidityState],
+            );
         const ids =
           `${el.getAttribute('aria-describedby') ?? ''} ${el.getAttribute('aria-errormessage') ?? ''}`
             .split(/\s+/)
@@ -531,8 +556,18 @@ export const probe = (skip: string[]) => {
           if ([...node.classList].some((name) => UI_ERROR.test(name))) ui = true;
         const ariaInvalid = el.getAttribute('aria-invalid') === 'true';
         out[key] = {
-          ...(!['checkbox', 'radio', 'file'].includes(el.type) && { value: el.value }),
-          native: el.willValidate ? (el.validity.valid ? 'valid' : 'invalid') : 'n/a',
+          ...(!['checkbox', 'radio', 'file'].includes(el.type) && {
+            value: el.value ?? el.textContent,
+          }),
+          native: face
+            ? el.matches(':invalid')
+              ? 'invalid'
+              : 'valid'
+            : el.willValidate
+              ? el.validity.valid
+                ? 'valid'
+                : 'invalid'
+              : 'n/a',
           flags,
           framework: frameworkState(el),
           ui: ui || ariaInvalid || messages.length ? 'invalid' : 'valid',

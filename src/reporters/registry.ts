@@ -4,14 +4,15 @@ import { UsageError } from '../core/errors.ts';
 import { github } from './github.ts';
 import { junit } from './junit.ts';
 import { pretty } from './pretty.ts';
+import { sarif } from './sarif.ts';
 import type { Reporter } from './types.ts';
 
-export const REPORTERS = ['pretty', 'json', 'github', 'junit'];
+export const REPORTERS = ['pretty', 'json', 'github', 'junit', 'sarif'];
 
 export interface ReporterEnv {
   cwd: string;
   env: NodeJS.ProcessEnv;
-  /** `json` or `junit`: also written to `<outDir>/report.json` / `report.xml`, whatever `specs` is. */
+  /** `json`, `junit` or `sarif`: also written to `<outDir>/report.json` / `report.xml` / `report.sarif`, whatever `specs` is. */
   reports?: string[];
   outDir?: string;
 }
@@ -19,6 +20,7 @@ export interface ReporterEnv {
 const REPORT_FILES = new Map([
   ['json', 'report.json'],
   ['junit', 'report.xml'],
+  ['sarif', 'report.sarif'],
 ]);
 
 const reportSpecs = (reports: string[], outDir: string) =>
@@ -77,7 +79,7 @@ export const createReporters = (
     typeof spec === 'string' ? parse(spec) : spec,
   );
   const onStdout = parsed.filter(
-    (spec) => isBuiltin(spec) && ['json', 'junit'].includes(spec.name) && !spec.target,
+    (spec) => isBuiltin(spec) && ['json', 'junit', 'sarif'].includes(spec.name) && !spec.target,
   );
   if (onStdout.length > 1) {
     throw new UsageError(
@@ -101,6 +103,8 @@ export const createReporters = (
         };
       case 'junit':
         return junit(writer(target, cwd));
+      case 'sarif':
+        return sarif(writer(target, cwd));
       default:
         throw new UsageError(`unknown reporter "${name}". Known: ${REPORTERS.join(', ')}`);
     }

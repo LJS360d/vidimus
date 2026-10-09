@@ -84,7 +84,8 @@ From then on:
 
 - a finding already in the baseline is hidden and counted as `accepted`
 - a new finding is reported and fails the audit as usual
-- a finding that has been fixed stays in the baseline until you shrink it
+- a finding that has been fixed stays in the baseline until you shrink it; the run prints a
+  note on stderr counting these stale entries, for the audits that ran, and exits as usual
 
 `--accept-findings` records only the audits that ran in that invocation, and keeps the entries
 of every other audit. You can build the baseline audit by audit:
@@ -104,6 +105,9 @@ or shrink without the finding counting as new: a missing `<h1>` on five pages th
 stays accepted. The same finding in another file, or with different details, is new. Some
 findings list each affected page in their details (several `seo` checks show `page: value`
 lines); a new page there changes the details, and the whole finding is reported again.
+
+Set `baseline.matchWhere` to also match the page list: the same finding on a different set of
+pages is then new. Re-run `--accept-findings` with it on to record the page lists.
 
 Messages and details that contain measurements change with them. A `budget` finding such as
 `html 104 kB gzipped > 100 kB budget` becomes a new finding at `105 kB`, and a `lighthouse`

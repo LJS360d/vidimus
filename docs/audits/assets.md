@@ -52,9 +52,17 @@ manifest a page links with `<link rel="manifest">`, and each finding lists the p
 - It has a `name` or `short_name` (`manifest … has no name or short_name`).
 - It has a non-empty `icons` array (`manifest … has no icons`), and each icon `src`, resolved
   relative to the manifest, exists in the build (`manifest icon /icons/512.png not found`).
-- At least one icon is 512 pixels or larger on its shorter side, from its declared `sizes`
-  (`"any"` counts) or its measured size: otherwise
+- At least one icon is 512 pixels or larger on its shorter side, from its measured size or,
+  when the file cannot be measured, its declared `sizes` (`"any"` counts): otherwise
   `manifest … has no icon of at least 512x512` (warning).
+- It has a `start_url` (`manifest … has no start_url`, warning) that resolves inside `scope`
+  (default: the manifest's directory) and exists in the build (`manifest … start_url /x/ is outside
+  scope /app/`, `manifest start_url /x/ not found`, errors).
+- `display`, when set, is `fullscreen`, `standalone`, `minimal-ui` or `browser`
+  (`manifest … display "huge" is not valid`, error).
+- At least one icon has `"purpose": "maskable"` (`manifest … has no maskable icon`, warning).
+- An icon's declared `sizes` match its measured size (`manifest icon /i.png declares 192x192 but is
+  512x512`, warning).
 
 ### Open Graph and Twitter cards (`assets.openGraph`)
 
@@ -69,6 +77,14 @@ be shared.
 - An `og:image` on your site exists in the build (`og:image /og.png not found`, error) and,
   when its size can be read (PNG, JPEG, GIF, WebP, AVIF, SVG), is at least `assets.ogImage`:
   `og:image /og.png is 800x418, smaller than 1200x630` (warning).
+- That `og:image` is not SVG or AVIF, which social crawlers do not accept
+  (`og:image /og.svg is SVG, which social crawlers do not accept`, error), and weighs at most
+  1 MB (`og:image /og.png is 2.0 MB, over the 1 MB limit`, warning); over 8 MB it is an error.
+- `og:image:alt` is present whenever `og:image` is set (`missing <meta property="og:image:alt"> for og:image`,
+  warning), and `og:image:width` / `og:image:height`, when present, match the measured image
+  (`og:image:height is 600 but /og.png is 630`, warning).
+- `twitter:image`, when set, exists in the build and is not SVG or AVIF
+  (`twitter:image /gone.png not found`, error). Without it, `twitter:card` falls back to `og:image`.
 - With `siteUrl` set, `og:url` is on the same origin:
   `og:url origin https://staging.example.com differs from siteUrl https://example.com` (error).
 

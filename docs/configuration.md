@@ -140,11 +140,14 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `audits` | `['i18n', 'csp', 'a11y', 'links', 'r12s']` | what `npx vidimus` runs |
 | `severity` | `{}` | per audit `error`, `warn` or `off` |
 | `strict` | `false` | fail on warnings too |
+| `timeout` | no limit | milliseconds the whole run may take; past it, the run stops, reports the audits that finished and exits `2` (`--timeout`) |
+| `auditTimeout` | no limit | milliseconds each audit may take; past it, that audit errors and the others go on (`--audit-timeout`) |
 | `ignore` | `[]` | rules that drop findings |
 | `baseline.file` / `baseline.update` | `vidimus.baseline.json` / `false` | the findings baseline; `''` turns it off |
+| `baseline.matchWhere` | `false` | also match accepted findings by page list (`where`) |
 | `plugins` | `[]` | custom audits, see [Custom audits and API](./plugins) |
 | `reporters` | `[]` | reporter names, `name:file` or objects, see [Reporters](./reporters) |
-| `reports` | `[]` | `json` and/or `junit`, always written to `<outDir>/report.json` / `report.xml` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
+| `reports` | `[]` | `json`, `junit` and/or `sarif`, always written to `<outDir>/report.json` / `report.xml` / `report.sarif` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `browser.state` | `{}` | `localStorage`, `sessionStorage`, `cookies` and a `script` seeded into every page a browser audit opens, see [below](#browser-state) |

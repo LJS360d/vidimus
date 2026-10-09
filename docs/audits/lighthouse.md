@@ -108,6 +108,8 @@ A clean run ends with `✔ lighthouse: 4 pages meet every threshold, reports in 
 | `lighthouse.all` | `false` | audit every page, ignoring `sample` and the one-per-directory default |
 | `lighthouse.urls` | `[]` | fixed list of paths to audit instead of the built pages |
 | `lighthouse.exclude` | `[]` | URL path patterns to skip |
+| `lighthouse.preset` | `'mobile'` | `'desktop'` switches to Lighthouse's desktop form factor, screen emulation and throttling |
+| `lighthouse.runs` | `1` | runs per page; each category score is the median across runs, ignoring runs where it is unavailable, and the report and failing audits come from the median run |
 | `lighthouse.outDir` | `'lighthouse'` | report folder inside the top-level `outDir` (`.vidimus`) |
 
 Objects merge deeply, so setting one threshold keeps the others. Setting a category to `0`

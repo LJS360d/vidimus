@@ -125,24 +125,95 @@ describe('loadConfig', () => {
     assert.deepEqual(config.ignore, [{ audit: 'seo', where: '^/draft/' }]);
   });
 
+  it('accepts CSS selectors in forms.skip while still checking links.skip as regexes', async () => {
+    const selectors = await loadConfig({
+      cwd: fixture({ 'vidimus.config.json': JSON.stringify({ forms: { skip: ['*[data-x]'] } }) }),
+      env: {},
+    });
+    assert.deepEqual(selectors.config.forms.skip, ['*[data-x]']);
+    await assert.rejects(
+      loadConfig({
+        cwd: fixture({ 'vidimus.config.json': JSON.stringify({ links: { skip: ['('] } }) }),
+        env: {},
+      }),
+      /links\.skip\[0\]: Invalid regular expression/,
+    );
+  });
+
   it('rejects unknown keys in config files and accepts $schema', async () => {
     const typo = fixture({ 'vidimus.config.json': JSON.stringify({ r12s: { viewport: [320] } }) });
     await assert.rejects(loadConfig({ cwd: typo, env: {} }), /unknown config key "r12s.viewport"/);
     const open = fixture({
       'vidimus.config.json': JSON.stringify({
         $schema: './node_modules/vidimus/schema.json',
-        severity: { custom: 'warn' },
+        severity: { a11y: 'warn' },
         lighthouse: { thresholds: { pwa: 0.5 } },
       }),
     });
     const { config } = await loadConfig({ cwd: open, env: {} });
-    assert.equal(config.severity.custom, 'warn');
+    assert.equal(config.severity.a11y, 'warn');
     assert.equal('$schema' in config, false);
+  });
+
+  it('rejects an invalid shots.overrides pattern', async () => {
+    const cwd = fixture({
+      'vidimus.config.json': JSON.stringify({ shots: { overrides: [{ match: '(' }] } }),
+    });
+    await assert.rejects(loadConfig({ cwd, env: {} }), /shots\.overrides\[0\]\.match/);
   });
 
   it('reports a malformed package.json as a usage error', async () => {
     const cwd = fixture({ 'package.json': '{ nope' });
     await assert.rejects(loadConfig({ cwd, env: {} }), UsageError);
+  });
+
+  it('rejects values outside the allowed set for fallbackStatus, a11y.standard and forms.stub', async () => {
+    const cwd = fixture({});
+    for (const [path, pattern] of [
+      ['server.fallbackStatus=500', /server\.fallbackStatus: "500" is not one of 200, 404/],
+      ['a11y.standard=WCAG3', /a11y\.standard: "WCAG3" is not one of/],
+      ['a11y.runner=pa11y', /a11y\.runner: "pa11y" is not one of htmlcs, axe/],
+      ['budget.compression=zstd', /budget\.compression: "zstd" is not one of gzip, brotli, none/],
+      ['forms.stub=nope', /forms\.stub: "nope" is not one of abort, ok/],
+    ] as const)
+      await assert.rejects(loadConfig({ cwd, env: {}, set: [path] }), pattern);
+    const { config } = await loadConfig({ cwd, env: {}, set: ['server.fallbackStatus=404'] });
+    assert.equal(config.server.fallbackStatus, 404);
+  });
+
+  it('rejects severity keys that are not audit names and values that are not severities', async () => {
+    const cwd = fixture({});
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, set: ['severity.adit=warn'] }),
+      /severity\.adit: unknown audit/,
+    );
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, set: ['severity.budget=warning'] }),
+      /severity\.budget: "warning" is not one of error, warn, off/,
+    );
+    const { config } = await loadConfig({ cwd, env: {}, set: ['severity.budget=warn'] });
+    assert.equal(config.severity.budget, 'warn');
+  });
+
+  it('reads timeouts and rejects negative ones', async () => {
+    const cwd = fixture({});
+    const { config } = await loadConfig({
+      cwd,
+      env: { VIDIMUS_AUDIT_TIMEOUT: '500' },
+      set: ['timeout=2000'],
+    });
+    assert.equal(config.timeout, 2000);
+    assert.equal(config.auditTimeout, 500);
+    await assert.rejects(loadConfig({ cwd, env: {}, set: ['timeout=-1'] }), UsageError);
+    await assert.rejects(loadConfig({ cwd, env: {}, set: ['lighthouse.runs=0'] }), UsageError);
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, set: ['lighthouse.preset=tablet'] }),
+      UsageError,
+    );
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, overrides: { auditTimeout: Number.NaN } }),
+      UsageError,
+    );
   });
 
   it('rejects unknown keys and bad values', async () => {

@@ -27,7 +27,7 @@ npx vidimus security --origin https://preview.example.com  # headers from a live
 
 ## Where headers come from
 
-Static hosts set headers outside the HTML, so vidimus reads them from one of two places:
+Static hosts set headers outside the HTML, so vidimus reads them from one of two places (the second also covers [host config files](#host-config-files)):
 
 1. **A live origin**, when `--origin` (or the `origin` config key) is set. vidimus sends a
    `HEAD` request for every built page to the origin plus the page path, and retries with
@@ -68,6 +68,26 @@ https://example.com/admin/*
 - Every rule that matches a path applies, in file order. When two rules set the same header,
   the values are joined with `, `.
 - An indented `! Name` removes a header that an earlier rule set for that path.
+
+### Host config files
+
+Headers are also read from the host config files below, in the project root and in the build.
+Their rules are merged with `_headers` and use the same path matching. A file that is not valid
+JSON is skipped.
+
+| File | Read from |
+| --- | --- |
+| `vercel.json` | `headers` (`source`, `headers[].key` and `value`) |
+| `netlify.toml` | `[[headers]]` blocks with `for` and a `[headers.values]` table |
+| `firebase.json` | `hosting.headers` (an object or an array of them) |
+| `staticwebapp.config.json` | `globalHeaders` and `routes[].headers` |
+
+`netlify.toml` is not parsed as full TOML: only `for = "…"` and `key = "value"` lines of
+`[[headers]]` and `[headers.values]` are understood, one per line.
+
+Supported patterns are the catch-alls `/*`, `/**`, `/(.*)` and `**`, exact paths, and `*`
+inside a path such as `/blog/*`. Patterns with regular expression syntax (`(`, `[`, `?`, `|`,
+`{`) are ignored, such as `/blog/(?<slug>[^/]+)`.
 
 ### GitHub Pages and other hosts without custom headers
 

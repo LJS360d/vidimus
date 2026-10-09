@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -31,6 +31,33 @@ const freePort = () =>
 const page = '<!doctype html><html lang="en"><head><title>t</title></head><body>hi</body></html>';
 
 describe('shots audit', () => {
+  it('applies the first matching override to a changed page', { skip: noBrowser }, async () => {
+    const cwd = fixture({ 'dist/index.html': page });
+    const shots = async (shotsConfig: UserConfig['shots'] = {}) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: {
+          port: await freePort(),
+          shots: { viewports: [320], motion: false, ...shotsConfig },
+        },
+      });
+      return results[0];
+    };
+    assert.equal((await shots({ updateBaseline: true }))?.status, 'passed');
+    writeFileSync(
+      join(cwd, 'dist', 'index.html'),
+      page.replace('<body>', '<body style="background:#c00">'),
+    );
+    assert.equal((await shots())?.status, 'failed');
+    const loose = await shots({ overrides: [{ match: '^/$', viewport: 320, maxDiff: 1 }] });
+    assert.notEqual(loose?.status, 'failed');
+    const other = await shots({ overrides: [{ match: '^/other', maxDiff: 1 }] });
+    assert.equal(other?.status, 'failed');
+  });
+
   it('fails without a baseline and warns about pages that have none', {
     skip: noBrowser,
   }, async () => {
@@ -95,6 +122,59 @@ describe('shots audit', () => {
       failed?.findings.some((f) => /^failed to capture /.test(f.message)),
       failed?.findings.map((f) => f.message).join('\n'),
     );
+  });
+
+  it('ignores an anti-aliased edge pixel only when shots.antialiasing is on', {
+    skip: noBrowser,
+  }, async () => {
+    const strip = (grey: string) =>
+      `<!doctype html><html lang="en"><head><title>t</title></head><body style="margin:0;display:flex;height:800px"><i style="display:block;height:800px;width:20px;background:#000"></i><i style="display:block;height:800px;width:1px;background:${grey}"></i></body></html>`;
+    const cwd = fixture({ 'dist/index.html': strip('#808080') });
+    const shots = async (shotsConfig: UserConfig['shots'] = {}) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: {
+          port: await freePort(),
+          shots: { viewports: [320], motion: false, maxDiff: 0, ...shotsConfig },
+        },
+      });
+      return results[0];
+    };
+    assert.equal((await shots({ updateBaseline: true }))?.status, 'passed');
+    writeFileSync(join(cwd, 'dist', 'index.html'), strip('#d0d0d0'));
+    assert.equal((await shots())?.status, 'failed');
+    assert.equal((await shots({ antialiasing: true }))?.status, 'passed');
+  });
+
+  it('turns a corrupt baseline into a finding for that shot only', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({ 'dist/index.html': page });
+    const shots = async (shotsConfig: UserConfig['shots'] = {}) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: {
+          port: await freePort(),
+          shots: { viewports: [320], motion: false, ...shotsConfig },
+        },
+      });
+      return results[0];
+    };
+    assert.equal((await shots({ updateBaseline: true }))?.status, 'passed');
+    const baselineDir = join(cwd, '.vidimus', 'shots', 'baseline');
+    for (const file of readdirSync(baselineDir))
+      writeFileSync(join(baselineDir, file), 'not a png');
+    const corrupt = await shots();
+    assert.notEqual(corrupt?.status, 'errored', corrupt?.summary);
+    assert.equal(corrupt?.status, 'failed');
+    assert.equal(corrupt?.findings.length, 1);
+    assert.match(corrupt?.findings[0]?.message ?? '', /^failed to compare index/);
   });
 });
 

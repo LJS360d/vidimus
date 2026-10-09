@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { localFile } from '../src/core/html.ts';
+import { isNoindex, localFile, meta, textOf } from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -46,6 +46,7 @@ describe('html audit', () => {
     assert.ok(finding);
     assert.deepEqual(finding.where, ['/about/', '/']);
     assert.equal(finding.file, undefined);
+    assert.equal(finding.line, undefined);
     assert.match(finding.details?.[0] ?? '', /^\/about\/:9:\d+ /);
     assert.match(finding.details?.at(-1) ?? '', /^https:\/\/html-validate\.org\//);
   });
@@ -55,6 +56,7 @@ describe('html audit', () => {
     assert.equal(result.status, 'failed');
     assert.ok(result.findings.some(({ message }) => message.startsWith('close-order:')));
     assert.match(result.findings[0]?.file ?? '', /dist\/index\.html$/);
+    assert.ok((result.findings[0]?.line ?? 0) > 0);
     assert.match(result.summary, /^1 pages, \d+ distinct problem\(s\)$/);
   });
 
@@ -84,6 +86,40 @@ describe('html audit', () => {
       result.findings.map(({ message }) => message.split(':')[0]),
       ['no-trailing-whitespace'],
     );
+  });
+
+  it('loads .htmlvalidate.mjs and .htmlvalidate.cjs and rejects a throwing one', async () => {
+    const files = { 'dist/index.html': page('<p>hello</p>\n    <p>trailing</p>   ') };
+    const rule = { rules: { 'no-trailing-whitespace': 'error' } };
+    const names = async (extra: Record<string, string>) =>
+      (await audit({ ...files, ...extra })).findings.map(({ message }) => message.split(':')[0]);
+    assert.deepEqual(
+      await names({ '.htmlvalidate.mjs': `export default ${JSON.stringify(rule)};` }),
+      ['no-trailing-whitespace'],
+    );
+    assert.deepEqual(
+      await names({ '.htmlvalidate.cjs': `module.exports = ${JSON.stringify(rule)};` }),
+      ['no-trailing-whitespace'],
+    );
+    const broken = await audit({ ...files, '.htmlvalidate.mjs': "throw new Error('boom');" });
+    assert.equal(broken.status, 'errored');
+    assert.match(broken.summary, /\.htmlvalidate\.mjs: .*boom/);
+  });
+
+  it('rejects a malformed or non-object .htmlvalidate.json', async () => {
+    const malformed = await audit({
+      'dist/index.html': page('<p>hello</p>'),
+      '.htmlvalidate.json': '{',
+    });
+    assert.equal(malformed.status, 'errored');
+    assert.match(malformed.summary, /\.htmlvalidate\.json: /);
+
+    const array = await audit({
+      'dist/index.html': page('<p>hello</p>'),
+      '.htmlvalidate.json': '[]',
+    });
+    assert.equal(array.status, 'errored');
+    assert.match(array.summary, /\.htmlvalidate\.json: .*config object/);
   });
 
   it('applies rules on top of .htmlvalidate.json', async () => {
@@ -128,5 +164,30 @@ describe('html audit', () => {
     assert.equal(localFile(dist, ''), null);
     assert.equal(localFile(dist, '/.'), null);
     assert.equal(localFile(dist, '/'), null);
+  });
+
+  it('treats robots content none as noindex', () => {
+    assert.equal(isNoindex('<meta name="robots" content="none">'), true);
+    assert.equal(isNoindex('<meta name="googlebot" content="noindex, nofollow">'), true);
+    assert.equal(isNoindex('<meta name="robots" content="nofollow">'), false);
+  });
+
+  it('matches meta by name or property', () => {
+    assert.equal(meta('<meta name=image property=og:image content="a.png">', 'og:image'), 'a.png');
+    assert.equal(meta('<meta name=description content="d">', 'description'), 'd');
+  });
+});
+
+describe('textOf within', () => {
+  it('falls back to the part before body when head is omitted', () => {
+    assert.equal(textOf('<!doctype html><html><title>x</title><h1>y</h1>', 'title', 'head'), 'x');
+    assert.equal(
+      textOf('<html><body><svg><title>no</title></svg></body></html>', 'title', 'head'),
+      undefined,
+    );
+    assert.equal(
+      textOf('<html><title>x</title><body><svg><title>no</title></svg>', 'title', 'head'),
+      'x',
+    );
   });
 });

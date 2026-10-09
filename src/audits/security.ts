@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { headerPolicies, metaPolicies, type Policy, parsePolicy } from '../core/csp.ts';
 import type { BuiltPage, Tag } from '../core/html.ts';
 import { relTokens, resolveHref, srcsetUrls, tags } from '../core/html.ts';
@@ -53,6 +53,113 @@ export const parseHeadersFile = (text: string): HeaderRule[] => {
   return rules;
 };
 
+const hostPattern = (source: string) => {
+  const pattern = source.replace(/\/\(\.\*\)$/, '/*').replace(/\*\*/g, '*');
+  return /[(){}[\]?|]/.test(pattern) ? '' : pattern;
+};
+
+const hostRule = (source: unknown, pairs: [string, unknown][]): HeaderRule[] => {
+  const pattern = typeof source === 'string' ? hostPattern(source) : '';
+  const set = pairs.filter(
+    (pair): pair is [string, string] => !!pair[0] && typeof pair[1] === 'string',
+  );
+  return pattern && set.length
+    ? [
+        {
+          pattern,
+          match: patternRegExp(pattern),
+          set: set.map(([name, value]) => [name.toLowerCase(), value]),
+          detach: [],
+        },
+      ]
+    : [];
+};
+
+const obj = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const keyValues = (value: unknown): [string, unknown][] =>
+  list(value).map((item) => [String(obj(item).key ?? ''), obj(item).value]);
+
+const objectPairs = (value: unknown): [string, unknown][] => Object.entries(obj(value));
+
+const sourceRules = (value: unknown) =>
+  list(value).flatMap((item) => hostRule(obj(item).source, keyValues(obj(item).headers)));
+
+const parseVercel = (json: unknown) => sourceRules(obj(json).headers);
+
+const parseFirebase = (json: unknown) =>
+  [obj(json).hosting].flat().flatMap((hosting) => sourceRules(obj(hosting).headers));
+
+const parseStaticWebApp = (json: unknown) => [
+  ...hostRule('/*', objectPairs(obj(json).globalHeaders)),
+  ...list(obj(json).routes).flatMap((route) =>
+    hostRule(obj(route).route, objectPairs(obj(route).headers)),
+  ),
+];
+
+const parseNetlify = (text: string) => {
+  const rules: HeaderRule[] = [];
+  let source: string | undefined;
+  let pairs: [string, unknown][] = [];
+  let inValues = false;
+  const flush = () => {
+    if (source !== undefined) rules.push(...hostRule(source, pairs));
+    source = undefined;
+    pairs = [];
+  };
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (line.startsWith('[')) {
+      inValues = line === '[headers.values]';
+      if (line === '[[headers]]') {
+        flush();
+        source = '';
+      } else if (!inValues) flush();
+      continue;
+    }
+    const entry = line.match(/^("[^"]+"|[\w-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/);
+    if (!entry?.[1] || source === undefined) continue;
+    const value = entry[2] ?? entry[3] ?? '';
+    if (inValues) pairs.push([entry[1].replace(/^"|"$/g, ''), value]);
+    else if (entry[1] === 'for') source = value;
+  }
+  flush();
+  return rules;
+};
+
+const hostFiles: [string, (text: string) => HeaderRule[]][] = [
+  ['vercel.json', (text) => parseVercel(JSON.parse(text))],
+  ['netlify.toml', parseNetlify],
+  ['firebase.json', (text) => parseFirebase(JSON.parse(text))],
+  ['staticwebapp.config.json', (text) => parseStaticWebApp(JSON.parse(text))],
+];
+
+export const loadHeaderRules = (root: string, dist: string, file: string) => {
+  const rules: HeaderRule[] = [];
+  const sources: string[] = [];
+  const sought: [string, (text: string) => HeaderRule[]][] = [
+    [join(dist, file), parseHeadersFile],
+    ...[root, dist].flatMap((dir) =>
+      hostFiles.map(([name, parse]): [string, (text: string) => HeaderRule[]] => [
+        join(dir, name),
+        parse,
+      ]),
+    ),
+  ];
+  for (const [path, parse] of sought) {
+    if (!existsSync(path)) continue;
+    try {
+      rules.push(...parse(readFileSync(path, 'utf8')));
+      sources.push(path === join(dist, file) ? file : basename(path));
+    } catch {}
+  }
+  return { rules, sources: [...new Set(sources)] };
+};
+
 export const headersFor = (rules: HeaderRule[], path: string): HeaderMap => {
   const headers: HeaderMap = {};
   for (const rule of rules) {
@@ -76,7 +183,7 @@ const request = async (url: string) => {
   return response;
 };
 
-const fetchHeaders = async (url: string): Promise<HeaderMap> => {
+export const fetchHeaders = async (url: string): Promise<HeaderMap> => {
   let current = new URL(url);
   let response = await request(current.href);
   for (let hops = 0; hops < MAX_REDIRECTS; hops += 1) {
@@ -87,6 +194,8 @@ const fetchHeaders = async (url: string): Promise<HeaderMap> => {
     current = next;
     response = await request(current.href);
   }
+  if (response.status < 200 || response.status >= 300)
+    throw new Error(`${current.href} responded ${response.status}`);
   return Object.fromEntries([...response.headers].map(([name, value]) => [name, value]));
 };
 
@@ -318,7 +427,7 @@ export const security: Audit = {
     };
 
     const origin = config.origin.replace(/\/$/, '');
-    const headersFile = join(dist, options.file);
+    const loaded = loadHeaderRules(config.root, dist, options.file);
     const headers = new Map<string, HeaderMap>();
     let source = '';
 
@@ -334,10 +443,9 @@ export const security: Audit = {
           });
         }
       });
-    } else if (existsSync(headersFile)) {
-      source = options.file;
-      const rules = parseHeadersFile(readFileSync(headersFile, 'utf8'));
-      for (const page of pages) headers.set(page.path, headersFor(rules, page.path));
+    } else if (loaded.sources.length) {
+      source = loaded.sources.join(', ');
+      for (const page of pages) headers.set(page.path, headersFor(loaded.rules, page.path));
     } else {
       log(
         `header checks skipped: no ${options.file} in the build and no --origin to fetch headers from`,

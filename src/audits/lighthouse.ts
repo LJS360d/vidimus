@@ -30,6 +30,40 @@ type Lighthouse = (
   flags: Record<string, unknown>,
 ) => Promise<{ lhr: LighthouseResult; report: string | string[] } | undefined>;
 
+const DESKTOP = {
+  formFactor: 'desktop',
+  screenEmulation: {
+    mobile: false,
+    width: 1350,
+    height: 940,
+    deviceScaleFactor: 1,
+    disabled: false,
+  },
+  throttling: {
+    rttMs: 40,
+    throughputKbps: 10240,
+    cpuSlowdownMultiplier: 1,
+    requestLatencyMs: 0,
+    downloadThroughputKbps: 0,
+    uploadThroughputKbps: 0,
+  },
+};
+
+const median = (values: (number | null | undefined)[]) => {
+  const sorted = values.filter((value): value is number => value != null).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = sorted.length >> 1;
+  return sorted.length % 2
+    ? (sorted[mid] as number)
+    : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+};
+
+const medianRun = <T extends { lhr: LighthouseResult }>(ran: T[]) =>
+  [...ran].sort(
+    (a, b) =>
+      (a.lhr.categories.performance?.score ?? 0) - (b.lhr.categories.performance?.score ?? 0),
+  )[(ran.length - 1) >> 1];
+
 export const selectUrls = ({ config, origin, pageUrls }: AuditContext) => {
   const { exclude, sample, all, urls } = config.lighthouse;
   if (urls.length)
@@ -72,11 +106,13 @@ export const lighthouse: Audit = {
   exclusive: true,
   async run(context) {
     const { config, root, origin, resolve, importPeer, launchBrowser, log } = context;
-    const { thresholds } = config.lighthouse;
+    const { thresholds, overrides, preset, runs } = config.lighthouse;
     const { default: runLighthouse } = await importPeer<{ default: Lighthouse }>('lighthouse');
     const out = resolve(config.outDir, config.lighthouse.outDir);
     const shown = displayPath(root, out);
-    const categories = Object.keys(thresholds);
+    const categories = [
+      ...new Set([thresholds, ...overrides.map((rule) => rule.thresholds)].flatMap(Object.keys)),
+    ];
     const urls = selectUrls(context);
     mkdirSync(out, { recursive: true });
 
@@ -90,30 +126,37 @@ export const lighthouse: Audit = {
       for (const url of urls) {
         const path = pathOf(url, origin);
         const name = slug(url, origin);
-        let result: Awaited<ReturnType<Lighthouse>>;
+        const ok: NonNullable<Awaited<ReturnType<Lighthouse>>>[] = [];
+        let failed: Awaited<ReturnType<Lighthouse>>;
         let thrown = '';
-        try {
-          result = await span(
-            'lighthouse.run',
-            async () => {
-              const started = performance.now();
-              const ran = await runLighthouse(url, {
-                port,
-                output: 'html',
-                logLevel: 'error',
-                onlyCategories: categories,
-              });
-              addSpans(ran?.lhr.timing?.entries ?? [], started, performance.now());
-              return ran;
-            },
-            { url },
-          );
-        } catch (error) {
-          thrown = error instanceof Error ? error.message : String(error);
+        for (let attempt = 0; attempt < runs; attempt++) {
+          try {
+            const ran = await span(
+              'lighthouse.run',
+              async () => {
+                const started = performance.now();
+                const done = await runLighthouse(url, {
+                  port,
+                  output: 'html',
+                  logLevel: 'error',
+                  onlyCategories: categories,
+                  ...(preset === 'desktop' ? DESKTOP : {}),
+                });
+                addSpans(done?.lhr.timing?.entries ?? [], started, performance.now());
+                return done;
+              },
+              { url },
+            );
+            if (ran && !ran.lhr.runtimeError) ok.push(ran);
+            else failed = ran;
+          } catch (error) {
+            thrown = error instanceof Error ? error.message : String(error);
+          }
         }
         tick();
-        if (thrown || !result || result.lhr.runtimeError) {
-          const error = result?.lhr.runtimeError;
+        const result = ok.length ? medianRun(ok) : undefined;
+        if (!result) {
+          const error = failed?.lhr.runtimeError;
           findings.push({
             message: `failed to load ${path}`,
             details: thrown ? [thrown] : error ? [`${error.code} - ${error.message}`] : [],
@@ -128,14 +171,13 @@ export const lighthouse: Audit = {
         const row: Record<string, string | number | null> = { page: name };
         for (const category of categories) {
           const seoIsMeaningless = category === 'seo' && noindex;
-          row[category] = seoIsMeaningless
-            ? null
-            : Math.round((lhr.categories[category]?.score ?? 0) * 100);
+          const score = median(ok.map((ran) => ran.lhr.categories[category]?.score));
+          row[category] = seoIsMeaningless || score == null ? null : Math.round(score * 100);
         }
         scores.push(row);
         log(
           `${name}${noindex ? ' (noindex)' : ''}  ${categories
-            .map((category) => `${category} ${row[category] ?? '-'}`)
+            .map((category) => `${category} ${row[category] ?? 'unavailable'}`)
             .join('  ')}`,
         );
 

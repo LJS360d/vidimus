@@ -34,16 +34,19 @@ the pages.
 
 ### Every page
 
-- **Language**: `<html>` has a non-empty `lang` attribute. Missing: `missing <html lang>`
-  (error).
-- **Title**: a `<title>` exists (`missing <title>`, error) and is within `seo.titleLength`
+- **Language**: `<html>` has a non-empty `lang` attribute (`missing <html lang>`, error) that
+  is a valid BCP 47 code such as `en` or `pt-BR` (`invalid <html lang> "english"`, error).
+- **Title**: a `<title>` exists in `<head>` (an `<svg><title>` in the body is ignored;
+  `missing <title>`, error) and is within `seo.titleLength`
   (`title outside 10-60 characters`, warning, with the length of each page as detail).
 - **Description**: `<meta name="description">` exists and is not blank
   (`missing meta description`, error) and is within `seo.descriptionLength`
   (`meta description outside 50-160 characters`, warning).
 - **noindex**: a `<meta name="robots">` or `<meta name="googlebot">` whose content contains
   `noindex` fails with `noindex in the production build`, unless the page path matches
-  `seo.allowNoindex`. A noindex page still gets the language, title and description checks,
+  `seo.allowNoindex`. An `X-Robots-Tag: noindex` header counts too, read from the `_headers` file
+  (`security.file`) or, with `--origin`, from the live response; such a page is treated as noindex by
+  the canonical, hreflang and sitemap checks. A noindex page still gets the language, title and description checks,
   but none of the checks below, and it is not counted as indexable.
 
 ### Indexable pages
@@ -52,12 +55,19 @@ the pages.
   (`no canonical link`); more than one is an error. The href must be absolute
   (`canonical URL is not absolute`). With `siteUrl` set, it must also be on that origin
   (`canonical points outside https://example.com`) and resolve to a page in the build
-  (`canonical is not a built page`), with the base path of `siteUrl` taken into account.
+  (`canonical is not a built page`), with the base path of `siteUrl` taken into account. A
+  canonical pointing at a redirect or a `noindex` page, or at a page whose own canonical points
+  elsewhere (a chain), is an error (`canonical points to a redirect`,
+  `canonical points to a noindex page`, `canonical points to a page with a different canonical`).
 - **hreflang**: each `<link rel="alternate" hreflang="…">` must have a unique language per page
   (`duplicate hreflang "en"`) and an absolute href (`hreflang URL is not absolute`). Targets on
   `siteUrl` must be built pages (`hreflang target is not a built page`) and must link back
-  (`hreflang not reciprocated`, with `from → to` as detail). Targets on other origins are not
-  followed. `x-default` is treated like any other language value. This check has no switch.
+  (`hreflang not reciprocated`, with `from → to` as detail). A target that is a redirect or has
+  `noindex` is reported as `hreflang points to a redirect` or `hreflang points to a noindex page`. Targets on other origins are not
+  followed. A page with hreflang links must list itself (`hreflang missing self-reference`), and
+  each language code must be valid BCP 47 such as `en` or `pt-BR`, or `x-default`
+  (`invalid hreflang code "english"`). A set without `x-default` is a warning
+  (`hreflang set has no x-default`). This check has no switch.
 - **Headings** (`seo.h1`): `no <h1>` and `more than one <h1>` are warnings.
 - **Duplicates**: two or more indexable pages with the same title or description get
   `duplicate title "…"` or `duplicate meta description "…"` (warning). Pages that are all
@@ -73,14 +83,19 @@ the pages.
 
 - **robots.txt** (`seo.robots`): no `robots.txt` in the build root is a warning. A
   `Disallow: /` in a group that applies to `User-agent: *` is an error
-  (`robots.txt disallows everything for User-agent: *`). No `Sitemap:` line is a warning.
+  (`robots.txt disallows everything for User-agent: *`). No `Sitemap:` line is a warning. An indexable page that the `User-agent: *` group
+  (or the `Googlebot` group when there is no `*` group) disallows is a warning
+  (`indexable page disallowed by robots.txt`); the longest matching rule wins, `Allow`
+  wins a tie, and `*` and `$` wildcards are supported.
 - **Sitemap** (`seo.sitemap`): vidimus reads `/sitemap.xml`, `/sitemap-index.xml`,
   `/sitemap_index.xml` and every `Sitemap:` URL from `robots.txt` that exists in the build, and
-  follows `<sitemap><loc>` entries of sitemap indexes. Every `<url><loc>` must be absolute, on
+  follows `<sitemap><loc>` entries of sitemap indexes. A `Sitemap:` line or index entry that points
+  at another origin than `siteUrl` (`sitemap target outside …`) or at a file missing from the build
+  (`sitemap target is missing from the build`) is an error. Every `<url><loc>` must be absolute, on
   `siteUrl` (when set), and a built page; a listed noindex page is an error
   (`noindex page in the sitemap`). If no sitemap is found at all you get a `no sitemap.xml`
   warning; otherwise every indexable page missing from it is a warning
-  (`indexable page missing from the sitemap`). `<![CDATA[…]]>` and entities in `<loc>` are
+  (`indexable page missing from the sitemap`). Gzipped sitemaps (`.xml.gz`) are read too. A sitemap with more than 50,000 URLs or over 50 MB uncompressed is an error (`sitemap exceeds the protocol limits`); split it and reference the parts from a sitemap index. `<![CDATA[…]]>` and entities in `<loc>` are
   handled.
 - **Orphans** (`seo.orphans`): an indexable page that no other built page links to with an
   `<a href>` is a warning (`orphan page: no other page links to it`). Links from pages skipped by

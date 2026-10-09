@@ -53,7 +53,7 @@ and its example locations read `/path/ <iframe srcdoc>:line:column`. An `<iframe
 ### Configuration sources
 
 1. `html.extends`, `['html-validate:standard']` by default.
-2. A `.htmlvalidate.json` in the project root, if present, replaces `html.extends` completely:
+2. A `.htmlvalidate.json` (or `.htmlvalidate.js`, `.htmlvalidate.cjs`, `.htmlvalidate.mjs`, checked in that order) in the project root, if present, replaces `html.extends` completely:
    its `extends`, `rules` and other keys are used as is. Other html-validate config file names
    (`.htmlvalidate.js`, `.htmlvalidate.cjs`) are not read.
 3. `html.rules` is merged on top of the rules from either source.
@@ -97,7 +97,7 @@ A clean run ends with `✔ html: 24 pages, valid`.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `html.extends` | `['html-validate:standard']` | html-validate presets; ignored when `.htmlvalidate.json` exists |
+| `html.extends` | `['html-validate:standard']` | html-validate presets; ignored when a `.htmlvalidate.*` file exists |
 | `html.rules` | `{}` | html-validate rules applied on top, e.g. `{ 'no-inline-style': 'off' }` |
 | `html.exclude` | `[]` | URL path patterns to skip |
 

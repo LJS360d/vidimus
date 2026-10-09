@@ -18,6 +18,7 @@ import {
   navigate,
   onePagePerTemplate,
   pathOf,
+  regex,
   slug,
   viewport,
 } from '../core/util.ts';
@@ -29,7 +30,12 @@ interface Frame {
 
 // Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
 /* node:coverage disable */
-const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: number) => {
+const diffPngsInPage = async (
+  beforeSrc: string,
+  afterSrc: string,
+  tolerance: number,
+  antialiasing: boolean,
+) => {
   const decode = (src: string) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
@@ -52,6 +58,55 @@ const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: nu
   const a32 = new Uint32Array(a.buffer);
   const b32 = new Uint32Array(b.buffer);
 
+  const grey = (data: Uint8ClampedArray, i: number) =>
+    0.299 * (data[i] ?? 0) + 0.587 * (data[i + 1] ?? 0) + 0.114 * (data[i + 2] ?? 0);
+  const hasManySiblings = (data32: Uint32Array, x: number, y: number) => {
+    let same = x === 0 || x === width - 1 || y === 0 || y === height - 1 ? 1 : 0;
+    for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, height - 1); ny++) {
+      for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, width - 1); nx++) {
+        if ((nx !== x || ny !== y) && data32[ny * width + nx] === data32[y * width + x]) same += 1;
+      }
+    }
+    return same > 2;
+  };
+  const isAntialiased = (
+    data: Uint8ClampedArray,
+    data32: Uint32Array,
+    otherData32: Uint32Array,
+    x: number,
+    y: number,
+  ) => {
+    let same = x === 0 || x === width - 1 || y === 0 || y === height - 1 ? 1 : 0;
+    let min = 0;
+    let max = 0;
+    let darkest = [x, y];
+    let brightest = [x, y];
+    const centre = grey(data, (y * width + x) * 4);
+    for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, height - 1); ny++) {
+      for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, width - 1); nx++) {
+        if (nx === x && ny === y) continue;
+        const delta = grey(data, (ny * width + nx) * 4) - centre;
+        if (delta === 0) {
+          same += 1;
+          if (same > 2) return false;
+        } else if (delta < min) {
+          min = delta;
+          darkest = [nx, ny];
+        } else if (delta > max) {
+          max = delta;
+          brightest = [nx, ny];
+        }
+      }
+    }
+    if (min === 0 || max === 0) return false;
+    const [dx = 0, dy = 0] = darkest;
+    const [bx = 0, by = 0] = brightest;
+    return (
+      (hasManySiblings(data32, dx, dy) && hasManySiblings(otherData32, dx, dy)) ||
+      (hasManySiblings(data32, bx, by) && hasManySiblings(otherData32, bx, by))
+    );
+  };
+
   const out = new OffscreenCanvas(width, height);
   const ctx = out.getContext('2d') as OffscreenCanvasRenderingContext2D;
   const image = ctx.createImageData(width, height);
@@ -68,7 +123,15 @@ const diffPngsInPage = async (beforeSrc: string, afterSrc: string, tolerance: nu
           Math.abs((a[i + 2] ?? 0) - (b[i + 2] ?? 0)),
           Math.abs((a[i + 3] ?? 0) - (b[i + 3] ?? 0)),
         );
-    if (delta > tolerance) {
+    const pixel = i >> 2;
+    if (
+      delta > tolerance &&
+      !(
+        antialiasing &&
+        (isAntialiased(a, a32, b32, pixel % width, Math.floor(pixel / width)) ||
+          isAntialiased(b, b32, a32, pixel % width, Math.floor(pixel / width)))
+      )
+    ) {
       changed += 1;
       d.set([255, 0, 0, 255], i);
     } else {
@@ -362,6 +425,8 @@ export const shots: Audit = {
       viewports,
       tolerance,
       maxDiff,
+      antialiasing,
+      overrides,
       sample,
       exclude,
       allLocales,
@@ -407,11 +472,21 @@ export const shots: Audit = {
       protocolTimeout: config.shots.protocolTimeout,
       args: WEBGL_ARGS,
     });
-    const changes: { name: string; ratio: number; percent: string }[] = [];
+    const limitsFor = (name: string) => {
+      const shot = shotList.find((entry) => entry.name === name);
+      const rule = overrides.find(
+        ({ match, viewport }) =>
+          (match === undefined || regex(match).test(pathOf(shot?.url ?? '', origin))) &&
+          (viewport === undefined || viewport === shot?.size.width),
+      );
+      return { tolerance: rule?.tolerance ?? tolerance, maxDiff: rule?.maxDiff ?? maxDiff };
+    };
+    const changes: { name: string; ratio: number; percent: string; maxDiff: number }[] = [];
     const lines: string[] = [];
     const motionNotes = new Map<string, string>();
     let missingBaseline = 0;
     const failed = new Map<string, { path: string; error: string }>();
+    const diffFailed = new Map<string, string>();
 
     const invalidMasks = new Set<string>();
     const glFailures = new Map<string, string[]>();
@@ -511,24 +586,30 @@ export const shots: Audit = {
         }
 
         await inParallelTabs(browser, concurrency, withBaseline, async (blankPage, name) => {
-          const { changed, total, diffBase64 } = await blankPage.evaluate(
-            diffPngsInPage,
-            asDataUrl(png(baselineDir, name)),
-            asDataUrl(png(currentDir, name)),
-            tolerance,
-          );
-          const ratio = changed / total;
-          if (ratio === 0) {
-            lines.push(`${name}.png  unchanged${motionNotes.get(name) ?? ''}`);
-            return;
+          try {
+            const { changed, total, diffBase64 } = await blankPage.evaluate(
+              diffPngsInPage,
+              asDataUrl(png(baselineDir, name)),
+              asDataUrl(png(currentDir, name)),
+              limitsFor(name).tolerance,
+              antialiasing,
+            );
+            const ratio = changed / total;
+            if (ratio === 0) {
+              lines.push(`${name}.png  unchanged${motionNotes.get(name) ?? ''}`);
+              return;
+            }
+            mkdirSync(diffDir, { recursive: true });
+            writeFileSync(png(diffDir, name), Buffer.from(diffBase64, 'base64'));
+            const percent = (ratio * 100).toFixed(2);
+            changes.push({ name, ratio, percent, maxDiff: limitsFor(name).maxDiff });
+            lines.push(
+              `${name}.png  ${percent}% changed -> diff/${name}.png${motionNotes.get(name) ?? ''}`,
+            );
+          } catch (error) {
+            diffFailed.set(name, error instanceof Error ? error.message : String(error));
+            lines.push(`${name}.png  failed to compare`);
           }
-          mkdirSync(diffDir, { recursive: true });
-          writeFileSync(png(diffDir, name), Buffer.from(diffBase64, 'base64'));
-          const percent = (ratio * 100).toFixed(2);
-          changes.push({ name, ratio, percent });
-          lines.push(
-            `${name}.png  ${percent}% changed -> diff/${name}.png${motionNotes.get(name) ?? ''}`,
-          );
         });
       }
     } finally {
@@ -577,14 +658,22 @@ export const shots: Audit = {
       log(`side-by-side gallery at ${shown}/diff.html`);
     }
     const findings: Finding[] = changes
-      .filter(({ ratio }) => ratio > maxDiff)
-      .map(({ name, percent }) => ({
+      .filter((change) => change.ratio > change.maxDiff)
+      .map(({ name, percent, maxDiff }) => ({
         message: `${name}: ${percent}% changed > ${(maxDiff * 100).toFixed(2)}% allowed`,
         details: [`${shown}/diff/${name}.png`],
         fix: changedShotFix(`${shown}/diff.html`),
       }));
     const beyond = findings.length;
     findings.push(...failures);
+    for (const [name, error] of [...diffFailed].sort(([a], [b]) => a.localeCompare(b))) {
+      findings.push({
+        message: `failed to compare ${name}`,
+        details: [error],
+        where: [`${shownBaseline}/${name}.png`],
+        fix: `Delete ${shownBaseline}/${name}.png, then run vidimus shots --update-baseline.`,
+      });
+    }
     if (missingBaseline) {
       const none = missingBaseline === shotList.length - failed.size;
       findings.push({

@@ -14,8 +14,10 @@ import {
   matches,
   slugOf,
 } from '../src/audits/forms/cases.ts';
+import { forms, shotOf } from '../src/audits/forms/index.ts';
 import type { FieldInfo, FormInfo } from '../src/audits/forms/probe.ts';
 import { parseBody } from '../src/audits/forms/sandbox.ts';
+import { defaults } from '../src/config/defaults.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -361,6 +363,79 @@ document.querySelector('[name=name]').addEventListener('input', (e) => {
     assert.equal(results[0]?.status, 'failed');
   });
 
+  it('treats form-associated custom elements as fields', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<script>
+customElements.define('x-field', class extends HTMLElement {
+  static formAssociated = true;
+  #internals = this.attachInternals();
+  get value() { return this._v ?? ''; }
+  set value(v) {
+    this._v = v;
+    this.#internals.setFormValue(v);
+    this.#internals.setValidity(v ? {} : { valueMissing: true }, 'required', this);
+  }
+  connectedCallback() { this.value = this.value; }
+});
+</script>
+<form id="face" action="/api/face" method="post">
+  <x-field id="widget" name="widget" style="display:block;width:100px;height:20px" aria-label="Widget"></x-field>
+  <button>Go</button>
+</form>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const sent = JSON.stringify(results[0]?.findings);
+    assert.match(sent, /\\"widget\\":\\"vidimus\\"/, sent);
+  });
+
+  it('probes contenteditable, select multiple and checkbox groups', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="widgets" action="/api/widgets" method="post">
+  <div id="note" contenteditable="true" aria-required="true" aria-label="Note" style="display:block;width:100px;height:20px"></div>
+  <select name="tags" multiple required aria-label="Tags"><option value="a">a</option><option value="b">b</option></select>
+  <label><input type="checkbox" name="color" value="red" required> red</label>
+  <label><input type="checkbox" name="color" value="blue"> blue</label>
+  <button>Go</button>
+</form>
+<script>
+document.getElementById('widgets').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = event.target;
+  fetch('/api/widgets', {
+    method: 'POST',
+    body: JSON.stringify({
+      note: document.getElementById('note').textContent,
+      tags: [...form.tags.selectedOptions].map((o) => o.value),
+      color: [...form.querySelectorAll('[name=color]:checked')].map((o) => o.value),
+    }),
+  });
+});
+</script>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const found = JSON.stringify(results[0]?.findings);
+    assert.match(found, /note sent empty while required/, found);
+    assert.match(found, /\\"note\\":\\"Hello from vidimus/, found);
+    assert.match(found, /\\"tags\\":\[\\"a\\"\]/, found);
+    assert.match(found, /\\"color\\":\[\\"red\\"\]/, found);
+  });
+
   it('accepts a well-validated form and exercises formless groups', {
     skip: noBrowser,
   }, async () => {
@@ -473,6 +548,43 @@ document.querySelector('form').addEventListener('submit', (e) => {
     }
     assert.ok(after > 0);
     assert.deepEqual([...counts], [0]);
+  });
+
+  it('keeps exercising the same form when the DOM differs between loads', {
+    skip: noBrowser,
+  }, async () => {
+    let hits = 0;
+    const alpha =
+      '<form id="alpha" action="/api/alpha" method="post"><label>Email <input type="email" name="email" required autocomplete="email"></label><button>Go</button></form>';
+    const extra =
+      '<form id="extra" action="/api/extra" method="post"><label>Zip <input name="zip" required autocomplete="off"></label><button>Go</button></form>';
+    const target = createServer((req, res) => {
+      res.setHeader('content-type', 'text/html');
+      if (req.url === '/') res.end(page(++hits > 2 ? extra + alpha : alpha));
+      else res.end('');
+    }).listen(0, '127.0.0.1');
+    await new Promise((r) => target.once('listening', r));
+    try {
+      const cwd = fixture({ 'dist/index.html': page(alpha) });
+      await run({
+        cwd,
+        env: {},
+        audits: ['forms'],
+        reporters: [],
+        overrides: {
+          origin: `http://127.0.0.1:${(target.address() as AddressInfo).port}`,
+          forms: { settle: 50, maxCases: 3 },
+        },
+      });
+      const exercised = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/alpha.json'), 'utf8'));
+      const urls = exercised.cases.flatMap((c: { requests: { url: string }[] }) =>
+        c.requests.map((r) => r.url),
+      );
+      assert.ok(urls.length > 0);
+      assert.ok(urls.every((u: string) => u.endsWith('/api/alpha')));
+    } finally {
+      target.close();
+    }
   });
 
   it('flags a fetch POST without a CSRF token', { skip: noBrowser }, async () => {
@@ -778,5 +890,45 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       overrides: { port: await freePort(), forms: { timeout: 1 } },
     });
     assert.equal(slow.results[0]?.findings[0]?.message, 'failed to load /');
+  });
+
+  it('closes the browser context when a page cannot be opened', async () => {
+    const cwd = fixture({});
+    let contexts = 0;
+    let closed = 0;
+    const browser = {
+      createBrowserContext: async () => {
+        contexts++;
+        return {
+          newPage: async () => {
+            throw new Error('no page');
+          },
+          close: async () => {
+            closed++;
+          },
+        };
+      },
+      close: async () => {},
+    };
+    const result = await forms.run({
+      config: defaults(cwd),
+      origin: 'http://localhost:1',
+      resolve: (...segments: string[]) => join(cwd, ...segments),
+      pageUrls: () => ['http://localhost:1/'],
+      launchBrowser: async () => browser,
+      log: () => {},
+    } as never);
+    assert.equal(contexts, 1);
+    assert.equal(closed, 1);
+    assert.equal(result.findings?.[0]?.message, 'failed to load /');
+  });
+});
+
+describe('forms shot', () => {
+  it('returns no shot when the page cannot resolve the form', async () => {
+    const broken = {
+      evaluateHandle: () => Promise.reject(new Error('detached')),
+    } as unknown as Parameters<typeof shotOf>[0];
+    assert.equal(await shotOf(broken, 0), undefined);
   });
 });

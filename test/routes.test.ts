@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { gzipSync } from 'node:zlib';
 import {
   type Audit,
   loadConfig,
@@ -42,7 +43,7 @@ setTimeout(() => {
 `;
 
 const collect = async (
-  files: Record<string, string>,
+  files: Record<string, string | Buffer>,
   overrides: Record<string, unknown>,
   query?: PageQuery,
 ) => {
@@ -155,6 +156,24 @@ describe('routes', () => {
       },
       {
         siteUrl: 'https://user.github.io/project',
+        server: { fallback: 'index.html' },
+        routes: { discover: 'sitemap' },
+      },
+    );
+    assert.deepEqual(paths, ['/', '/docs/seo']);
+  });
+
+  it('follows robots.txt sitemap lines to gzipped sitemaps', async () => {
+    const { paths } = await collect(
+      {
+        'dist/index.html': SHELL,
+        'dist/robots.txt': 'User-agent: *\nSitemap: https://example.com/maps/site.xml.gz\n',
+        'dist/maps/site.xml.gz': gzipSync(
+          '<urlset><url><loc>https://example.com/docs/seo</loc></url></urlset>',
+        ),
+      },
+      {
+        siteUrl: 'https://example.com',
         server: { fallback: 'index.html' },
         routes: { discover: 'sitemap' },
       },

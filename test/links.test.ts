@@ -13,7 +13,7 @@ describe('links skip', () => {
       env: {},
       audits: ['links'],
       reporters: [],
-      overrides: { siteUrl: 'https://example.org', links: { checkExternal: false } },
+      overrides: { port: 0, siteUrl: 'https://example.org', links: { checkExternal: false } },
     });
     assert.deepEqual(
       results[0]?.findings.map(({ message }) => message.replace(/:\d+/, '')),
@@ -33,7 +33,7 @@ describe('links options', () => {
       env: {},
       audits: ['links'],
       reporters: [],
-      overrides: { links: { checkExternal: false, warnRedirects: true } },
+      overrides: { port: 0, links: { checkExternal: false, warnRedirects: true } },
     });
     const [finding] = results[0]?.findings ?? [];
     assert.equal(finding?.severity, 'warn');

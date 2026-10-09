@@ -23,12 +23,19 @@ const head = ({
 } = {}) => `<!doctype html><head>${icon}${manifest}
 <meta property="og:title" content="Home">
 <meta property="og:image" content="${ogImage}">
+<meta property="og:image:alt" content="Logo">
 <meta property="og:url" content="https://example.com/">
 <meta name="twitter:card" content="summary_large_image">${extra}</head>`;
 
 const manifest = JSON.stringify({
   name: 'Site',
-  icons: [{ src: 'icon-512.png' }, { src: '/icon.svg', sizes: '192x192' }],
+  start_url: '/',
+  scope: '/',
+  display: 'standalone',
+  icons: [
+    { src: 'icon-512.png', sizes: '512x512', purpose: 'any maskable' },
+    { src: '/icon.svg', sizes: '192x192' },
+  ],
 });
 
 const site = (overrides: Record<string, string | undefined> = {}, images = {}) => {
@@ -37,7 +44,7 @@ const site = (overrides: Record<string, string | undefined> = {}, images = {}) =
       'dist/index.html': head(),
       'dist/about/index.html': head(),
       'dist/404.html': '<p>Not found</p>',
-      'dist/icon.svg': '<svg width="32" height="32"></svg>',
+      'dist/icon.svg': '<svg width="192" height="192"></svg>',
       'dist/app/site.webmanifest': manifest,
       'vidimus.config.json': JSON.stringify({ siteUrl: 'https://example.com' }),
       ...overrides,
@@ -130,14 +137,68 @@ describe('assets audit', () => {
   });
 
   it('reports missing manifest icons and the lack of a 512px icon', async () => {
-    const icons = [{ src: 'gone.png' }, { src: '/icon.svg', sizes: '192x192' }];
+    const icons = [
+      { src: 'gone.png', purpose: 'maskable' },
+      { src: '/icon.svg', sizes: '192x192' },
+    ];
     const result = await audit(
-      site({ 'dist/app/site.webmanifest': JSON.stringify({ short_name: 'S', icons }) }),
+      site({
+        'dist/app/site.webmanifest': JSON.stringify({
+          short_name: 'S',
+          start_url: '/',
+          scope: '/',
+          icons,
+        }),
+      }),
     );
     assert.deepEqual(result.messages, [
       'error: manifest icon /app/gone.png not found',
       'warn: manifest /app/site.webmanifest has no icon of at least 512x512',
     ]);
+  });
+
+  it('measures a manifest icon instead of trusting its declared sizes', async () => {
+    const icons = [{ src: 'icon-192.png', sizes: '192x192', purpose: 'maskable' }];
+    const result = await audit(
+      site(
+        {
+          'dist/app/site.webmanifest': JSON.stringify({
+            short_name: 'S',
+            start_url: '/',
+            scope: '/',
+            icons,
+          }),
+        },
+        { 'dist/app/icon-192.png': png(192, 192) },
+      ),
+    );
+    assert.deepEqual(result.messages, [
+      'warn: manifest /app/site.webmanifest has no icon of at least 512x512',
+    ]);
+  });
+
+  it('validates manifest start_url, display, maskable icon and declared sizes', async () => {
+    const manifest = {
+      name: 'S',
+      start_url: '/elsewhere/',
+      scope: '/app/',
+      display: 'huge',
+      icons: [{ src: 'icon-512.png', sizes: '192x192' }],
+    };
+    const result = await audit(site({ 'dist/app/site.webmanifest': JSON.stringify(manifest) }));
+    assert.deepEqual(result.messages, [
+      'error: manifest /app/site.webmanifest start_url /elsewhere/ is outside scope /app/',
+      'error: manifest /app/site.webmanifest display "huge" is not valid',
+      'warn: manifest /app/site.webmanifest has no maskable icon',
+      'warn: manifest icon /app/icon-512.png declares 192x192 but is 512x512',
+    ]);
+    const missing = await audit(
+      site({
+        'dist/app/site.webmanifest': JSON.stringify({ ...manifest, scope: '/', start_url: '/x/' }),
+      }),
+    );
+    assert.ok(missing.messages.includes('error: manifest start_url /x/ not found'));
+    assert.ok(result.findings.every((finding) => finding.fix));
   });
 
   it('fails a relative og:image and a missing one', async () => {
@@ -169,6 +230,51 @@ describe('assets audit', () => {
       'warn: og:image /og.png is 600x315, smaller than 1200x630',
     ]);
     assert.deepEqual(result.findings[0]?.where, ['/about/']);
+  });
+
+  it('flags an og:image in an unsupported format or over the byte limit', async () => {
+    const svg = head({ ogImage: 'https://example.com/og.svg' });
+    const vector = await audit(
+      site({ 'dist/index.html': svg, 'dist/og.svg': '<svg width="1200" height="630"></svg>' }),
+    );
+    assert.deepEqual(vector.messages, [
+      'error: og:image /og.svg is SVG, which social crawlers do not accept',
+    ]);
+    const mb = (count: number) =>
+      Buffer.concat([png(1200, 630), Buffer.alloc(count * 1024 * 1024)]);
+    const heavy = await audit(site({}, { 'dist/og.png': mb(2) }));
+    assert.deepEqual(heavy.messages, ['warn: og:image /og.png is 2.0 MB, over the 1 MB limit']);
+    const huge = await audit(site({}, { 'dist/og.png': mb(9) }));
+    assert.deepEqual(huge.messages, ['error: og:image /og.png is 9.0 MB, over the 8 MB limit']);
+  });
+
+  it('checks og:image:alt, og:image dimensions and twitter:image', async () => {
+    const bare = head().replace('<meta property="og:image:alt" content="Logo">\n', '');
+    const missingAlt = await audit(site({ 'dist/index.html': bare }));
+    assert.deepEqual(missingAlt.messages, [
+      'warn: missing <meta property="og:image:alt"> for og:image',
+    ]);
+    const sized = head({
+      extra:
+        '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="600">',
+    });
+    const wrong = await audit(site({ 'dist/index.html': sized }));
+    assert.deepEqual(wrong.messages, ['warn: og:image:height is 600 but /og.png is 630']);
+    const twitter = (path: string) =>
+      head({ extra: `<meta name="twitter:image" content="https://example.com${path}">` });
+    const gone = await audit(site({ 'dist/index.html': twitter('/gone.png') }));
+    assert.deepEqual(gone.messages, ['error: twitter:image /gone.png not found']);
+    const vector = await audit(
+      site({
+        'dist/index.html': twitter('/t.svg'),
+        'dist/t.svg': '<svg width="10" height="10"></svg>',
+      }),
+    );
+    assert.deepEqual(vector.messages, [
+      'error: twitter:image /t.svg is SVG, which social crawlers do not accept',
+    ]);
+    const fine = await audit(site({ 'dist/index.html': twitter('/og.png') }));
+    assert.deepEqual(fine.messages, []);
   });
 
   it('fails an og:url on another origin', async () => {

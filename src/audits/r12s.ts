@@ -175,9 +175,9 @@ export const r12s: Audit = {
     try {
       const tasks = viewports.flatMap((width) => urls.map((url) => ({ width, url })));
       await inParallelTabs(browser, concurrency, tasks, async (page, { width, url }) => {
-        await page.setViewport(viewport(width));
         let defects: LayoutDefect[];
         try {
+          await page.setViewport(viewport(width));
           await navigate(page, url, { waitFor: config.render.waitFor, timeout });
           defects = await measureAfterFontsAndRedirects(page, minTarget, minFont);
         } catch (error) {

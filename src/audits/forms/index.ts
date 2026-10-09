@@ -308,17 +308,19 @@ const withoutShots = (key: string, value: unknown) =>
   key === 'shot' || key === 'before' ? undefined : value;
 
 // ponytail: JPEG of the form element only, no full page; a hidden or zero-size form has none.
-const shotOf = async (page: Page, index: number) => {
-  const handle = await page.evaluateHandle((i) => window.__vidimus.root(i), index);
+export const shotOf = async (page: Page, index: number) => {
   try {
-    const el = handle.asElement() as unknown as {
-      screenshot(o: object): Promise<Uint8Array>;
-    } | null;
-    return await el?.screenshot({ type: 'jpeg', quality: 60, optimizeForSpeed: true });
+    const handle = await page.evaluateHandle((i) => window.__vidimus.root(i), index);
+    try {
+      const el = handle.asElement() as unknown as {
+        screenshot(o: object): Promise<Uint8Array>;
+      } | null;
+      return await el?.screenshot({ type: 'jpeg', quality: 60, optimizeForSpeed: true });
+    } finally {
+      await handle.dispose();
+    }
   } catch {
     return undefined;
-  } finally {
-    await handle.dispose();
   }
 };
 
@@ -347,18 +349,29 @@ export const forms: Audit = {
     const browser = await launchBrowser();
     const open = async (url: string) => {
       const context = await (browser as Browser).createBrowserContext();
-      const page = await context.newPage();
-      const net = await sandbox(page, options.allowRequests, options.ignoreRequests, options.stub);
-      await page.evaluateOnNewDocument(probe, options.skip);
-      const load = async () => {
-        net.arm(false);
-        await navigate(page, url, { waitFor: config.render.waitFor, timeout: options.timeout });
-        net.arm(true);
-        net.take();
-        await page.evaluate(() => window.__vidimus.drain());
-      };
-      await load();
-      return { page, net, load, close: () => context.close().catch(() => {}) };
+      const close = () => context.close().catch(() => {});
+      try {
+        const page = await context.newPage();
+        const net = await sandbox(
+          page,
+          options.allowRequests,
+          options.ignoreRequests,
+          options.stub,
+        );
+        await page.evaluateOnNewDocument(probe, options.skip);
+        const load = async () => {
+          net.arm(false);
+          await navigate(page, url, { waitFor: config.render.waitFor, timeout: options.timeout });
+          net.arm(true);
+          net.take();
+          await page.evaluate(() => window.__vidimus.drain());
+        };
+        await load();
+        return { page, net, load, close };
+      } catch (error) {
+        await close();
+        throw error;
+      }
     };
 
     type Session = Awaited<ReturnType<typeof open>>;
@@ -401,6 +414,7 @@ export const forms: Audit = {
       // The same form on many pages (a footer newsletter) is exercised once. Look-alike forms
       // on one page stay apart: the n-th of them only matches the n-th on another page.
       const groups = new Map<string, Found[]>();
+      const nths = new Map<Found, number>();
       const seen = new Map<string, number>();
       for (const item of found.sort(
         (a, b) => a.path.localeCompare(b.path) || a.form.index - b.form.index,
@@ -409,6 +423,7 @@ export const forms: Audit = {
         seen.set(`${item.path} ${item.fingerprint}`, nth + 1);
         const key = `${item.fingerprint}#${nth}`;
         groups.set(key, [...(groups.get(key) ?? []), item]);
+        nths.set(item, nth);
       }
       const ids = new Map<string, number>();
       const unique = [...groups.values()].map((items) => {
@@ -417,18 +432,25 @@ export const forms: Audit = {
         ids.set(first.id, seen);
         return {
           first,
+          nth: nths.get(first) ?? 0,
           id: seen > 1 ? `${first.id}~${seen}` : first.id,
           pages: [...new Set(items.map((i) => i.path))],
         };
       });
 
-      await inParallel(options.concurrency, unique, async ({ first, id, pages }) => {
+      await inParallel(options.concurrency, unique, async ({ first, nth, id, pages }) => {
         const { url, form, fingerprint } = first;
-        const index = form.index;
+        let index = form.index;
         let session: Session | undefined;
         try {
           session = await open(url);
           const { page, net } = session;
+          const locate = async () => {
+            const loaded = await page.evaluate(() => window.__vidimus.forms());
+            index =
+              loaded.filter((f) => fingerprintOf(f, origin) === fingerprint)[nth]?.index ?? index;
+          };
+          await locate();
           // Find a baseline the form really accepts. Ticking boxes and picking options can
           // reveal more fields, and undeclared rules can reject the generated values: fill,
           // try alternatives for rejected fields, rescan, repeat.
@@ -483,6 +505,7 @@ export const forms: Audit = {
                 'forms.case',
                 async () => {
                   await span('forms.reload', () => (session as Session).load());
+                  await locate();
                   return runCase(
                     page,
                     net,
@@ -609,11 +632,14 @@ const runCase = async (
       index,
       field.key,
     );
-    const input = handle.asElement() as unknown as {
-      uploadFile(...paths: string[]): Promise<void>;
-    } | null;
-    await input?.uploadFile(upload);
-    await handle.dispose();
+    try {
+      const input = handle.asElement() as unknown as {
+        uploadFile(...paths: string[]): Promise<void>;
+      } | null;
+      await input?.uploadFile(upload);
+    } finally {
+      await handle.dispose();
+    }
   }
   await settled(page);
   const states = await page.evaluate((i) => window.__vidimus.observe(i), index);

@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { UsageError } from '../core/errors.ts';
 import { tags } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
@@ -37,11 +39,29 @@ interface Group {
 
 const MAX_EXAMPLES = 3;
 
-const baseConfig = (root: string, extendsPresets: string[]): ConfigData => {
-  const file = join(root, '.htmlvalidate.json');
-  if (!existsSync(file)) return { extends: extendsPresets };
-  const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
-  return isPlainObject(parsed) ? parsed : {};
+const CONFIG_FILES = [
+  '.htmlvalidate.json',
+  '.htmlvalidate.js',
+  '.htmlvalidate.cjs',
+  '.htmlvalidate.mjs',
+];
+
+const baseConfig = async (root: string, extendsPresets: string[]): Promise<ConfigData> => {
+  const name = CONFIG_FILES.find((candidate) => existsSync(join(root, candidate)));
+  if (!name) return { extends: extendsPresets };
+  const file = join(root, name);
+  let loaded: unknown;
+  try {
+    if (name.endsWith('.json')) loaded = JSON.parse(readFileSync(file, 'utf8'));
+    else {
+      const mod = (await import(pathToFileURL(file).href)) as { default?: unknown };
+      loaded = mod.default ?? mod;
+    }
+  } catch (error) {
+    throw new UsageError(`${file}: ${(error as Error).message}`);
+  }
+  if (!isPlainObject(loaded)) throw new UsageError(`${file}: must contain a config object`);
+  return loaded;
 };
 
 const withRules = (base: ConfigData, rules: Record<string, unknown>): ConfigData => ({
@@ -86,7 +106,7 @@ const toFinding = ({ message, pages, examples }: Group): Finding => {
     where,
     details: [...examples, ...(message.ruleUrl ? [message.ruleUrl] : [])],
     fix: fixFor(message),
-    ...(where.length === 1 && pages[0] ? { file: pages[0].file } : {}),
+    ...(where.length === 1 && pages[0] ? { file: pages[0].file, line: message.line } : {}),
     ...(message.severity === 1 ? { severity: 'warn' as const } : {}),
   };
 };
@@ -105,7 +125,7 @@ export const html: Audit = {
     const { HtmlValidate, StaticConfigLoader } =
       await importPeer<HtmlValidatePeer>('html-validate');
     const validator = new HtmlValidate(
-      new StaticConfigLoader(withRules(baseConfig(root, extendsPresets), rules)),
+      new StaticConfigLoader(withRules(await baseConfig(root, extendsPresets), rules)),
     );
     const groups = new Map<string, Group>();
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after } from 'node:test';
 
-export const fixture = (files: Record<string, string>) => {
+export const fixture = (files: Record<string, string | Buffer>) => {
   const root = mkdtempSync(join(tmpdir(), 'vidimus-'));
   for (const [path, content] of Object.entries(files)) {
     const file = join(root, path);

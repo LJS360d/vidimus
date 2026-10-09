@@ -10,6 +10,7 @@ export interface AcceptedFinding {
   message: string;
   file?: string;
   details?: string[];
+  where?: string[];
 }
 
 export interface BaselineFile {
@@ -47,15 +48,30 @@ const portable = (root: string, file: string | undefined) =>
     ? undefined
     : (isAbsolute(file) ? relative(root, file) : file).split(sep).join('/').split('\\').join('/');
 
-const toAccepted = (root: string, audit: string, finding: Finding): AcceptedFinding => ({
+const toAccepted = (
+  root: string,
+  audit: string,
+  finding: Finding,
+  matchWhere: boolean,
+): AcceptedFinding => ({
   audit,
   message: finding.message,
   ...(finding.file !== undefined && { file: portable(root, finding.file) }),
   ...(finding.details?.length && { details: finding.details }),
+  ...(matchWhere && finding.where?.length && { where: finding.where }),
 });
 
-const fingerprint = ({ audit, message, file, details = [] }: AcceptedFinding) =>
-  JSON.stringify([audit, message, file ?? '', details]);
+const fingerprint = (
+  { audit, message, file, details = [], where = [] }: AcceptedFinding,
+  matchWhere: boolean,
+) =>
+  JSON.stringify([
+    audit,
+    message,
+    file ?? '',
+    details.map((detail) => detail.replace(/(:\d+){1,2}(?!\d)/g, '')),
+    matchWhere ? [...where].sort() : [],
+  ]);
 
 export const readBaseline = (file: string): BaselineFile => {
   if (!existsSync(file)) return { version: 1, findings: [] };
@@ -68,10 +84,15 @@ export const readBaseline = (file: string): BaselineFile => {
   }
 };
 
-export const writeBaseline = (file: string, root: string, raw: Map<string, Finding[]>) => {
+export const writeBaseline = (
+  file: string,
+  root: string,
+  raw: Map<string, Finding[]>,
+  matchWhere: boolean,
+) => {
   const kept = readBaseline(file).findings.filter(({ audit }) => !raw.has(audit));
   const accepted = [...raw].flatMap(([audit, findings]) =>
-    findings.map((finding) => toAccepted(root, audit, finding)),
+    findings.map((finding) => toAccepted(root, audit, finding, matchWhere)),
   );
   const findings = [...kept, ...accepted].sort(
     (a, b) => a.audit.localeCompare(b.audit) || a.message.localeCompare(b.message),
@@ -84,15 +105,36 @@ export const writeBaseline = (file: string, root: string, raw: Map<string, Findi
   return accepted.length;
 };
 
+export const countStale = (
+  root: string,
+  raw: Map<string, Finding[]>,
+  baseline: BaselineFile,
+  matchWhere: boolean,
+) => {
+  const current = new Set(
+    [...raw].flatMap(([audit, findings]) =>
+      findings.map((finding) =>
+        fingerprint(toAccepted(root, audit, finding, matchWhere), matchWhere),
+      ),
+    ),
+  );
+  return baseline.findings.filter(
+    (entry) => raw.has(entry.audit) && !current.has(fingerprint(entry, matchWhere)),
+  ).length;
+};
+
 export const subtractBaseline = (
   root: string,
   audit: string,
   findings: Finding[],
   baseline: BaselineFile,
+  matchWhere: boolean,
 ) => {
-  const known = new Set(baseline.findings.map(fingerprint));
+  const known = new Set(baseline.findings.map((entry) => fingerprint(entry, matchWhere)));
   if (!known.size) return findings;
-  return findings.filter((finding) => !known.has(fingerprint(toAccepted(root, audit, finding))));
+  return findings.filter(
+    (finding) => !known.has(fingerprint(toAccepted(root, audit, finding, matchWhere), matchWhere)),
+  );
 };
 
 export interface SettleOptions {

@@ -46,11 +46,13 @@ An unknown audit name is an error that lists the known ones.
 | `--port <n>` | port the build is served on |
 | `--all-locales` | include translated pages too |
 | `--update-baseline` | `shots`: record the current screenshots as the baseline |
-| `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, repeatable |
+| `-r, --reporter <name[:file]>` | `pretty`, `json`, `github`, `junit`, `sarif`, repeatable |
 | `--strict` | fail on warnings too |
 | `--accept-findings` | write the current findings to the [baseline file](./configuration#severity-ignores-and-the-findings-baseline) |
 | `--profile [level]` | record where the run spends its time: `spans` (default) or `cpu`, see [Profiling](./profiling) |
 | `--serial` | run audits one at a time instead of in parallel |
+| `--timeout <ms>` | stop the whole run after this many milliseconds |
+| `--audit-timeout <ms>` | error an audit that runs longer than this |
 
 Except `--profile` and `--serial`, which change how the run is measured and scheduled, each
 flag sets a config key and wins over every other source:
@@ -64,6 +66,7 @@ flag sets a config key and wins over every other source:
 | `--update-baseline` | `shots.updateBaseline: true` |
 | `--accept-findings` | `baseline.update: true` |
 | `--strict` | `strict: true` |
+| `--timeout` / `--audit-timeout` | `timeout` / `auditTimeout` |
 | `-r` | `reporters` (replaces the list; `github` is still added on Actions) |
 
 A relative `--root` resolves from the working directory; relative `--dist` and `--out-dir`
@@ -160,7 +163,7 @@ vidimus: 2/3 passed — warnings: budget — failed: links
 
 Skipped audits are not counted in the last line.
 
-`-r` replaces the default reporters (on GitHub Actions `github` is added back). `json` or `junit` without a file writes to stdout, and
+`-r` replaces the default reporters (on GitHub Actions `github` is added back). `json`, `junit` or `sarif` without a file writes to stdout, and
 `pretty` moves to stderr, so the output can be piped:
 
 ```sh
@@ -175,7 +178,7 @@ Formats, targets and custom reporters are covered in [Reporters](./reporters).
 | --- | --- |
 | `0` | every audit passed, warned or was skipped, or `--help` / `--version`; warnings exit `0` unless `--strict` is set |
 | `1` | at least one audit failed or errored, including a missing peer dependency or a browser that did not start |
-| `2` | unknown flag, command, audit or reporter; unknown config key, unparsable value or invalid pattern; missing config file or build output; invalid baseline file; port in use; an unexpected error outside the audits |
+| `2` | unknown flag, command, audit or reporter; unknown config key, unparsable value or invalid pattern; missing config file or build output; invalid baseline file; port in use; the run went past `timeout`; an unexpected error outside the audits |
 
 Usage errors print one line starting with `vidimus:`; unexpected errors print a stack trace.
 

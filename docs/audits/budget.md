@@ -30,23 +30,22 @@ Pages matched by the top-level `exclude` or `budget.exclude` are skipped.
 
 Only files in the build count; URLs on other origins are ignored, and absolute URLs on
 `siteUrl` are resolved to the build. Each file counts once per page, however often the page
-references it.
+references it. SVG, JSON, XML, text and WebAssembly files are measured gzipped, as servers
+compress them (set `budget.compression` to `brotli` or `none` to change that); a `.br` or `.gz` file next to the asset in the build, such as `app.js.br`, is used instead and counts by its size on disk; other files (PNG, JPEG, WebP, AVIF, GIF, fonts, video, audio) are measured raw.
 
 | Kind | Files | Measured |
 | --- | --- | --- |
 | `html` | the page itself | gzipped |
 | `css` | `<link rel="stylesheet">` | gzipped |
 | `js` | `<script src>` and `<link rel="modulepreload">` | gzipped |
-| images | `<img src>`, `srcset` of `<img>` and `<source>` | raw bytes |
+| images | one per `<img>`: its `src`, else its first `srcset` candidate | gzipped for SVG, raw bytes otherwise |
 | `page` | all of the above | sum of the sizes above |
 
-Not counted: iframes and what they load (Lighthouse counts them), fonts, CSS background images, `<video>`/`<audio>` sources, and anything a script
+Not counted: iframes and what they load (Lighthouse counts them), CSS background images, `<video>`/`<audio>` sources, and anything a script
 or stylesheet loads, unless [`render.mode`](../how-it-works#client-rendered-sites) is on. With
 rendering, `html` is still the shipped file, and the other kinds are the build files the browser
 requested while rendering: stylesheets, scripts (lazy chunks included) and images by request
-type, while fonts, media and `fetch` requests (models, data) count toward `page` only. Every
-candidate in a `srcset` counts toward the page total, not only the
-one a browser would pick, so pages with many responsive variants read heavier than a real visit.
+type, while fonts, media and `fetch` requests (models, data) count toward `page` only. In static mode fonts count toward `page` only (raw bytes): `<link rel="preload" as="font">` and `url()` in `@font-face` rules of linked stylesheets, resolved against the build directory. Each `<img>`, including the fallback of a `<picture>`, counts once, so `<source>` and `srcset` variants add nothing to the page total.
 
 ### Checks
 
@@ -65,6 +64,20 @@ one a browser would pick, so pages with many responsive variants read heavier th
   with `aspect-ratio` in their inline `style` are exempt. When vidimus can read the image's
   intrinsic size (PNG, JPEG, GIF, WebP, AVIF, and SVG with `width`/`height` or `viewBox`), the
   fix includes the exact attributes to add.
+
+- **Request counts** (`budget.requests`, `budget.thirdParty`): with
+  [`render.mode`](../how-it-works#client-rendered-sites) on, a page that makes more `http(s)` requests
+  than the limit, or more requests to origins other than the site's, fails. Static mode has no
+  requests to count, so both are skipped. Request sizes are unknown, so there is no third-party byte
+  limit.
+
+- **Per-route limits** (`budget.routes`): a map of page-path pattern to limits (`html`, `css`, `js`,
+  `image`, `page`, `requests`, `thirdParty`) that replace the global ones for matching pages. The first matching pattern wins;
+  other pages keep the global limits.
+
+```ts
+budget: { routes: { '^/docs/': { page: 4_000_000 }, '^/$': { js: 100_000 } } }
+```
 
 Sizes are shown in decimal units: `B` below 1000 bytes, `kB`, then `MB`. A limit of `0` turns
 that check off. The summary names the heaviest page.
@@ -103,10 +116,13 @@ that check off. The summary names the heaviest page.
 
 | Key | Default | Description |
 | --- | --- | --- |
+| `budget.compression` | `gzip` | `gzip`, `brotli` or `none`: how text files are compressed before measuring |
 | `budget.html` | `100_000` | max gzipped bytes of a page's HTML |
 | `budget.css` | `100_000` | max gzipped bytes of a page's stylesheets |
 | `budget.js` | `250_000` | max gzipped bytes of a page's scripts, including `modulepreload` |
 | `budget.page` | `2_000_000` | max total bytes per page |
+| `budget.requests` | `0` | max network requests per page; rendered pages only |
+| `budget.thirdParty` | `0` | max requests per page to origins other than the site's; rendered pages only |
 | `budget.image` | `500_000` | max bytes of any image in `<img>`, `srcset` or `<source>` |
 | `budget.legacyImage` | `100_000` | warn when a PNG/JPEG/GIF this large has no AVIF/WebP `<source>` |
 | `budget.dimensions` | `true` | warn on `<img>` without `width` and `height` |

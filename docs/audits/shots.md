@@ -62,6 +62,19 @@ Each current screenshot is compared with the file of the same name in the baseli
 - Some changed pixels: a diff image is written to `.vidimus/shots/diff/`, with changed pixels in red over a faded grey copy of the current screenshot, and the page is added to the side-by-side gallery `.vidimus/shots/diff.html` (baseline, current, diff).
 - More than `shots.maxDiff` of the pixels changed (default `0.002`, which is 0.2%): the screenshot is a failing finding.
 
+A page or viewport that is noisier than the rest can have its own `tolerance` and `maxDiff` in `shots.overrides`. A rule applies when its `match` pattern matches the page path and its `viewport` equals the screenshot width; either may be left out, and the first matching rule wins:
+
+```ts
+export default defineConfig({
+  shots: {
+    overrides: [
+      { match: '^/blog/', maxDiff: 0.01 },
+      { viewport: 320, tolerance: 24 },
+    ],
+  },
+});
+```
+
 Screenshots with no baseline, such as new pages, are listed as `no baseline` and reported as a warning (`2 screenshot(s) have no baseline`). With no baseline at all nothing was compared, and the audit fails (`no baseline in .vidimus/shots/baseline: nothing was compared`): record one with `--update-baseline`. In CI, see [Sharing the baseline](#sharing-the-baseline).
 
 `--update-baseline` skips the comparison, deletes the PNG files in the baseline directory and copies the current screenshots in, so baselines of pages that no longer exist are removed. Other files in that directory are left alone. If any screenshot fails, the baseline is left as it was.
@@ -140,6 +153,8 @@ side-by-side gallery at .vidimus/shots/diff.html
 | `shots.allLocales` | `false` | also capture pages of translated locales |
 | `shots.tolerance` | `12` | per-channel colour difference (0 to 255) a pixel may have and still count as unchanged |
 | `shots.maxDiff` | `0.002` | share of changed pixels allowed before a screenshot fails |
+| `shots.antialiasing` | `false` | ignore changed pixels that are anti-aliased edge pixels (soft glyph or line edges), so sub-pixel rendering differences do not count |
+| `shots.overrides` | `[]` | `{ match, viewport, tolerance, maxDiff }` rules: other limits for the screenshots whose page path and width match, first rule wins |
 | `shots.freeze` | `true` | stop animation-frame loops, seed `Math.random`, still videos and endless CSS animations before the screenshot |
 | `shots.mask` | `[]` | CSS selectors painted flat black before the screenshot |
 | `shots.maskEmbeds` | `true` | also mask cross-origin iframes |

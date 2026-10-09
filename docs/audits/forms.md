@@ -31,7 +31,7 @@ On each page (one per template with `forms.sample`), after `load` and `render.wa
 
 - every `<form>`, including those inside open shadow roots;
 - **formless forms**: fields outside any `<form>` (common in React and Vue apps) are grouped under their nearest ancestor that holds a button;
-- each field: `input`, `select`, `textarea` and form-associated custom elements. Hidden inputs are listed but not filled. Disabled, read-only, invisible and `aria-hidden` fields are left alone, which also keeps honeypot fields empty.
+- each field: `input`, `select` (including `multiple`), `textarea`, `contenteditable` and `role=textbox` elements, form-associated custom elements, and checkbox groups (checkboxes sharing a `name` are one field). Hidden inputs are listed but not filled. Disabled, read-only, invisible and `aria-hidden` fields are left alone, which also keeps honeypot fields empty.
 
 Forms matching a `forms.skip` selector, or inside `[data-vidimus-skip]`, are not touched.
 
@@ -70,11 +70,12 @@ Every field first gets one value it accepts. The audit tries, in order: `forms.v
 
 | Field | Cases |
 | --- | --- |
-| text | empty, only spaces (when required), `minlength`-1, exactly `maxlength`, 10 000 characters (when there is no limit), unicode, an HTML snippet |
+| text, `contenteditable`, `role=textbox` | empty, only spaces (when required), `minlength`-1, exactly `maxlength`, 10 000 characters (when there is no limit), unicode, an HTML snippet |
 | email, url, tel (by type or meaning) | malformed values: `vidimus`, `vidimus@`, `@example.com`, `vidimus@@example.com`, `example`, `http://`, `javascript:alert(1)` |
 | `pattern` | a mutation of the accepted value that the pattern rejects |
 | number, date | empty, `min`-1, `max`+1, a value off `step` |
-| select, radio | every option; no choice for radio groups |
+| select, radio | every option; no choice for radio groups and `select multiple` |
+| checkbox group | nothing checked |
 | checkbox | unchecked |
 | file | no file (an accepted case uploads a 1x1 PNG) |
 | confirmation fields ("Confirm password") | a value that does not match the original |

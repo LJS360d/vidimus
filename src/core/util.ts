@@ -75,6 +75,12 @@ export const track = (total: number) => {
   return () => report?.(++done, total);
 };
 
+const settled = async (failure: () => { error: unknown } | undefined, jobs: Promise<void>[]) => {
+  await Promise.allSettled(jobs);
+  const failed = failure();
+  if (failed) throw failed.error;
+};
+
 export const inParallel = async <T>(
   concurrency: number,
   items: T[],
@@ -84,14 +90,22 @@ export const inParallel = async <T>(
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(concurrency) || 1), items.length);
   const tick = track(items.length);
+  let failure: { error: unknown } | undefined;
   await span(
     'pool',
     async () => {
       const opened = performance.now();
-      await Promise.all(
+      await settled(
+        () => failure,
         Array.from({ length: workers }, async () => {
           for (const item of queue) {
-            await span('task', () => work(item), taskAttrs(item, performance.now() - opened));
+            if (failure) return;
+            try {
+              await span('task', () => work(item), taskAttrs(item, performance.now() - opened));
+            } catch (error) {
+              failure ??= { error };
+              throw error;
+            }
             tick();
           }
         }),
@@ -119,20 +133,28 @@ export const inParallelTabs = async <T>(
   const queue = items[Symbol.iterator]();
   const workers = Math.min(Math.max(1, Math.floor(tabs) || 1), items.length);
   const tick = track(items.length);
+  let failure: { error: unknown } | undefined;
   await span(
     'pool',
     async () => {
       const opened = performance.now();
-      await Promise.all(
+      await settled(
+        () => failure,
         Array.from({ length: workers }, async () => {
           const page = await browser.newPage();
           try {
             for (const item of queue) {
-              await span(
-                'task',
-                () => work(page, item),
-                taskAttrs(item, performance.now() - opened),
-              );
+              if (failure) return;
+              try {
+                await span(
+                  'task',
+                  () => work(page, item),
+                  taskAttrs(item, performance.now() - opened),
+                );
+              } catch (error) {
+                failure ??= { error };
+                throw error;
+              }
               tick();
             }
           } finally {

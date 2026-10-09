@@ -32,6 +32,8 @@ interface RunFlags extends ConfigFlags {
   reporter?: string[];
   profile?: ProfileLevel | true;
   serial?: boolean;
+  timeout?: number;
+  auditTimeout?: number;
 }
 
 const collect = (value: string, previous: string[] = []) => [...previous, value];
@@ -69,6 +71,8 @@ const runOverrides = (flags: RunFlags): UserConfig => ({
   ...(flags.acceptFindings && { baseline: { update: true } }),
   ...(flags.strict && { strict: true }),
   ...(flags.reporter?.length && { reporters: flags.reporter }),
+  timeout: flags.timeout,
+  auditTimeout: flags.auditTimeout,
 });
 
 const INIT_TEMPLATES = {
@@ -138,6 +142,8 @@ withConfigOptions(
     ).choices(['spans', 'cpu']),
   )
   .option('--serial', 'run audits one at a time instead of in parallel')
+  .option('--timeout <ms>', 'stop the whole run after this many milliseconds', Number)
+  .option('--audit-timeout <ms>', 'error an audit that runs longer than this', Number)
   .action(async (audits: string[], flags: RunFlags) => {
     const { config } = await loadConfig(loadOptions(flags, runOverrides(flags)));
     const report = await run({
@@ -146,7 +152,11 @@ withConfigOptions(
       profile: flags.profile === true ? 'spans' : flags.profile,
       serial: flags.serial,
     });
-    process.exitCode = report.ok ? 0 : 1;
+    if (report.timedOut)
+      console.error(
+        `vidimus: run stopped after timeout (${config.timeout} ms); raise timeout, or set auditTimeout to find the audit that hangs`,
+      );
+    process.exitCode = report.timedOut ? 2 : report.ok ? 0 : 1;
   });
 
 withConfigOptions(program.command('list').description('list available audits')).action(

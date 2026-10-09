@@ -13,18 +13,23 @@ import {
 } from '../core/html.ts';
 import { pathnameOf, readSitemaps } from '../core/sitemap.ts';
 import type { Audit, Finding, Severity } from '../core/types.ts';
-import { matchesAny, stripBase } from '../core/util.ts';
+import { basePathOf, inParallel, matchesAny, stripBase } from '../core/util.ts';
+import { fetchHeaders, type HeaderMap, headersFor, loadHeaderRules } from './security.ts';
 
 const isRedirect = (html: string) =>
   tags(html, 'meta').some(
     ({ attrs }) =>
       (attrs['http-equiv'] ?? '').toLowerCase() === 'refresh' &&
-      /(^|[;,\s])url\s*=/i.test(attrs.content ?? ''),
+      (/^\s*\d+(\.\d+)?\s*[;,]\s*\S/.test(attrs.content ?? '') ||
+        /(^|[;,\s])url\s*=/i.test(attrs.content ?? '')),
   );
+
+const FULL_BLOCKS = new Set(['/', '/*', '/*$']);
 
 const robotsRules = (text: string) => {
   const sitemaps: string[] = [];
-  let blocksAll = false;
+  const blocked = new Set<string>();
+  const groups = new Map<string, { allow: boolean; path: string }[]>();
   let agents: string[] = [];
   let inRules = false;
   for (const raw of text.split(/\r?\n/)) {
@@ -41,11 +46,34 @@ const robotsRules = (text: string) => {
       agents.push(value);
     } else {
       inRules = true;
-      if (key === 'disallow' && value === '/' && agents.includes('*')) blocksAll = true;
+      if (key === 'disallow' && FULL_BLOCKS.has(value))
+        for (const agent of agents) blocked.add(agent);
+      if ((key === 'allow' || key === 'disallow') && value)
+        for (const agent of agents) {
+          const name = agent.toLowerCase();
+          groups.set(name, [...(groups.get(name) ?? []), { allow: key === 'allow', path: value }]);
+        }
     }
   }
-  return { sitemaps, blocksAll };
+  return { sitemaps, blocked: [...blocked], groups };
 };
+
+const isDisallowed = (groups: Map<string, { allow: boolean; path: string }[]>, path: string) => {
+  let best: { allow: boolean; length: number } | undefined;
+  for (const rule of groups.get('*') ?? groups.get('googlebot') ?? []) {
+    const source = rule.path
+      .replace(/[.+?^{}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\$$/, '$$');
+    if (!new RegExp(`^${source}`).test(path)) continue;
+    const length = rule.path.length;
+    if (!best || length > best.length || (length === best.length && rule.allow))
+      best = { allow: rule.allow, length };
+  }
+  return best !== undefined && !best.allow;
+};
+
+const LANG_CODE = /^[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?$/;
 
 const outside = (length: number, { min, max }: { min: number; max: number }) =>
   length < min || length > max;
@@ -55,8 +83,9 @@ export const seo: Audit = {
   description:
     'titles, descriptions, canonical, hreflang, noindex, sitemap, robots.txt and orphan pages',
   requires: 'dist',
-  async run({ config, renderedPages, dist }) {
+  async run({ config, renderedPages, dist, log }) {
     const options = config.seo;
+    const base = basePathOf(config.siteUrl);
     const siteOrigin = originOf(config.siteUrl);
     const built = await renderedPages(config.exclude);
     const pages = built.filter((page) => !matchesAny(options.exclude, page.path));
@@ -83,8 +112,19 @@ export const seo: Audit = {
     const byFile = new Map(pages.map((page) => [page.file, page]));
     const byPath = new Map(pages.map((page) => [page.path, page.file]));
     const noindex = new Set<BuiltPage>();
+    const loaded = loadHeaderRules(config.root, dist, config.security.file);
+    const origin = config.origin.replace(/\/$/, '');
+    const headers = new Map<string, HeaderMap>();
+    if (origin)
+      await inParallel(8, pages, async (page) => {
+        try {
+          headers.set(page.path, await fetchHeaders(origin + page.path));
+        } catch {}
+      });
+    else for (const page of pages) headers.set(page.path, headersFor(loaded.rules, page.path));
     const redirects = new Set<BuiltPage>();
     const canonicalized = new Set<BuiltPage>();
+    const pointers: { page: BuiltPage; kind: string; file: string; href: string }[] = [];
     const alternates = new Map<string, Set<string>>();
     const titles = new Map<string, string[]>();
     const descriptions = new Map<string, string[]>();
@@ -96,14 +136,21 @@ export const seo: Audit = {
         redirects.add(page);
         continue;
       }
-      if (!tags(html, 'html')[0]?.attrs.lang?.trim())
+      const htmlLang = tags(html, 'html')[0]?.attrs.lang?.trim();
+      if (!htmlLang)
         report(
           'missing <html lang>',
           'Add a lang attribute to <html>, e.g. <html lang="en">.',
           path,
         );
+      else if (!LANG_CODE.test(htmlLang.toLowerCase()))
+        report(
+          `invalid <html lang> "${htmlLang}"`,
+          'Use a language code such as "en" or "pt-BR" (ISO 639-1, optional region).',
+          path,
+        );
 
-      const title = textOf(html, 'title') ?? '';
+      const title = textOf(html, 'title', 'head') ?? '';
       if (!title)
         report('missing <title>', 'Add a unique, descriptive <title> element inside <head>.', path);
       else if (outside(title.length, options.titleLength)) {
@@ -136,12 +183,15 @@ export const seo: Audit = {
         );
       }
 
-      if (isNoindex(html)) {
+      const headerNoindex = /noindex/i.test(headers.get(path)?.['x-robots-tag'] ?? '');
+      if (headerNoindex || isNoindex(html)) {
         noindex.add(page);
         if (!matchesAny(options.allowNoindex, path))
           report(
             'noindex in the production build',
-            'Remove the robots noindex meta tag, or add the path to seo.allowNoindex if it is intentional.',
+            headerNoindex
+              ? 'Remove the X-Robots-Tag noindex header, or add the path to seo.allowNoindex if it is intentional.'
+              : 'Remove the robots noindex meta tag, or add the path to seo.allowNoindex if it is intentional.',
             path,
           );
         continue;
@@ -156,8 +206,15 @@ export const seo: Audit = {
         canonicalTarget?.absolute && canonicalTarget.url.origin === siteOrigin
           ? localFile(dist, stripBase(canonicalTarget.url.pathname, config.siteUrl))
           : null;
-      if (canonicalFile && canonicalFile !== page.file) canonicalized.add(page);
-      else {
+      if (canonicalFile && canonicalFile !== page.file) {
+        canonicalized.add(page);
+        pointers.push({
+          page,
+          kind: 'canonical',
+          file: canonicalFile,
+          href: canonicals[0]?.attrs.href ?? '',
+        });
+      } else {
         if (title) titles.set(title, [...(titles.get(title) ?? []), path]);
         if (description)
           descriptions.set(description, [...(descriptions.get(description) ?? []), path]);
@@ -218,6 +275,12 @@ export const seo: Audit = {
             path,
           );
         seen.add(lang);
+        if (lang !== 'x-default' && !LANG_CODE.test(lang))
+          report(
+            `invalid hreflang code "${lang}"`,
+            'Use a language code such as "en" or "pt-BR" (ISO 639-1, optional region), or "x-default".',
+            path,
+          );
         const href = link.attrs.href ?? '';
         const target = resolveHref(href, path, config.siteUrl);
         if (!target?.absolute) {
@@ -240,9 +303,25 @@ export const seo: Audit = {
             undefined,
             `${path}: ${href}`,
           );
-        else targets.add(file);
+        else {
+          targets.add(file);
+          if (file !== page.file) pointers.push({ page, kind: 'hreflang', file, href });
+        }
       }
       alternates.set(page.file, targets);
+      if (seen.size && !targets.has(page.file))
+        report(
+          'hreflang missing self-reference',
+          'Add a <link rel="alternate" hreflang> pointing at the page itself to its own hreflang set.',
+          path,
+        );
+      if (seen.size && !seen.has('x-default'))
+        report(
+          'hreflang set has no x-default',
+          'Add <link rel="alternate" hreflang="x-default" href="…"> pointing at the fallback page.',
+          path,
+          'warn',
+        );
 
       if (options.h1) {
         const h1s = tags(html, 'h1').length;
@@ -261,6 +340,28 @@ export const seo: Audit = {
             'warn',
           );
       }
+    }
+
+    for (const { page, kind, file, href } of pointers) {
+      const target = byFile.get(file);
+      if (!target) continue;
+      const bad = redirects.has(target)
+        ? 'a redirect'
+        : noindex.has(target)
+          ? 'a noindex page'
+          : kind === 'canonical' && canonicalized.has(target)
+            ? 'a page with a different canonical'
+            : null;
+      if (bad)
+        report(
+          `${kind} points to ${bad}`,
+          kind === 'canonical'
+            ? 'Point the canonical at the final, indexable, self-canonical page.'
+            : 'Point the hreflang href at the final, indexable page, or remove the alternate link.',
+          page.path,
+          undefined,
+          `${page.path}: ${href}`,
+        );
     }
 
     for (const [file, targets] of alternates) {
@@ -304,11 +405,14 @@ export const seo: Audit = {
       (page) => !noindex.has(page) && !redirects.has(page) && !canonicalized.has(page),
     );
     const robotsFile = join(dist, 'robots.txt');
-    const robots = existsSync(robotsFile)
-      ? robotsRules(readFileSync(robotsFile, 'utf8'))
-      : undefined;
+    const robots =
+      !base && existsSync(robotsFile) ? robotsRules(readFileSync(robotsFile, 'utf8')) : undefined;
+    if (options.robots && base)
+      log(
+        `robots.txt check skipped: the site is served under ${base}/, robots.txt belongs at the origin root`,
+      );
 
-    if (options.robots) {
+    if (options.robots && !base) {
       if (!robots)
         report(
           'no robots.txt',
@@ -317,16 +421,26 @@ export const seo: Audit = {
           'warn',
         );
       else {
-        if (robots.blocksAll) {
+        for (const agent of robots.blocked) {
           report(
-            'robots.txt disallows everything for User-agent: *',
-            'Remove "Disallow: /" from the User-agent: * group in robots.txt so crawlers can index the site.',
+            `robots.txt disallows everything for User-agent: ${agent}`,
+            `Remove the full "Disallow" rule (/ or /*) from the User-agent: ${agent} group in robots.txt so crawlers can index the site.`,
             null,
-            undefined,
+            agent === '*' ? undefined : 'warn',
             undefined,
             robotsFile,
           );
         }
+        for (const page of indexable)
+          if (isDisallowed(robots.groups, page.path))
+            report(
+              'indexable page disallowed by robots.txt',
+              'Remove the matching Disallow rule from robots.txt, or add robots noindex and drop the page from the sitemap if it should stay out of search.',
+              page.path,
+              'warn',
+              undefined,
+              robotsFile,
+            );
         if (!robots.sitemaps.length)
           report(
             'robots.txt has no Sitemap line',
@@ -345,7 +459,42 @@ export const seo: Audit = {
         .filter((path): path is string => path !== null);
       const sitemaps = readSitemaps(dist, config.siteUrl, fromRobots);
       const listed = new Set<string>();
-      for (const { file: sitemapFile, urls } of sitemaps) {
+      const checkTarget = (loc: string, from: string) => {
+        let url: URL;
+        try {
+          url = new URL(loc);
+        } catch {
+          return;
+        }
+        const missing =
+          sameOrigin(url) && !localFile(dist, stripBase(url.pathname, config.siteUrl));
+        if (sameOrigin(url) && !missing) return;
+        report(
+          missing
+            ? 'sitemap target is missing from the build'
+            : `sitemap target outside ${siteOrigin}`,
+          missing
+            ? 'Generate the referenced sitemap in the build output, or remove the reference.'
+            : `Point the reference at ${siteOrigin}, or fix siteUrl if the origin is wrong.`,
+          loc,
+          undefined,
+          undefined,
+          from,
+        );
+      };
+      for (const loc of robots?.sitemaps ?? []) checkTarget(loc, robotsFile);
+      for (const { file: sitemapFile, urls, children, bytes } of sitemaps) {
+        if (urls.length > 50_000 || bytes > 52_428_800) {
+          report(
+            'sitemap exceeds the protocol limits (50,000 URLs, 50 MB uncompressed)',
+            'Split the sitemap into several files and reference them from a sitemap index.',
+            null,
+            undefined,
+            `${urls.length} URLs, ${bytes} bytes`,
+            sitemapFile,
+          );
+        }
+        for (const loc of children) checkTarget(loc, sitemapFile);
         for (const loc of urls) {
           let url: URL;
           try {

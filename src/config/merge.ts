@@ -8,6 +8,7 @@ const OPEN_RECORDS = new Set([
   'forms.values',
   'severity',
   'security.require',
+  'budget.routes',
   'html.rules',
   'browser.state.localStorage',
   'browser.state.sessionStorage',

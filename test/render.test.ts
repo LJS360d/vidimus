@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { run } from '../src/index.ts';
+import { type Audit, run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
 const browserPath = async () => {
@@ -188,5 +188,58 @@ document.body.dataset.ready = '';
     ]);
     const shell = await audit('links', { links: { retry: false } });
     assert.deepEqual(shell.findings, []);
+  });
+});
+
+describe('browser close order', { skip: noBrowser }, () => {
+  it('closes the server even when closing the renderer browser throws', async () => {
+    const cwd = fixture({
+      'dist/index.html': SHELL,
+      'dist/app.js': "document.getElementById('root').dataset.ready = '';",
+    });
+    let origin = '';
+    let restore = () => {};
+    const audit: Audit = {
+      name: 'break-close',
+      description: 'makes the renderer browser fail to close',
+      requires: 'server',
+      run: async (context) => {
+        origin = context.origin;
+        const puppeteer = await context.importPeer<{
+          default: { launch: (...args: unknown[]) => Promise<{ close: () => Promise<void> }> };
+        }>('puppeteer');
+        const launch = puppeteer.default.launch;
+        puppeteer.default.launch = async (...args) => {
+          const browser = await launch(...args);
+          const close = browser.close.bind(browser);
+          browser.close = async () => {
+            await close();
+            throw new Error('close failed');
+          };
+          return browser;
+        };
+        restore = () => {
+          puppeteer.default.launch = launch;
+        };
+        await context.renderPage?.(`${context.origin}/`);
+        return { summary: 'ok' };
+      },
+    };
+    try {
+      await run({
+        cwd,
+        env: {},
+        audits: ['break-close'],
+        reporters: [],
+        overrides: {
+          port: 0,
+          plugins: [audit],
+          render: { mode: 'on', waitFor: '#root[data-ready]' },
+        },
+      });
+    } finally {
+      restore();
+    }
+    await assert.rejects(fetch(origin));
   });
 });

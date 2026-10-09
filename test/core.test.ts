@@ -119,6 +119,20 @@ describe('parallel helpers', () => {
     }
   });
 
+  it('stops pulling items after a failure and rejects with the first error', async () => {
+    const seen: number[] = [];
+    await assert.rejects(
+      inParallel(2, [1, 2, 3, 4, 5, 6], async (item) => {
+        seen.push(item);
+        if (item === 1) throw new Error('first');
+        await new Promise((r) => setTimeout(r, 20));
+      }),
+      /first/,
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(seen, [1, 2]);
+  });
+
   it('closes tabs when the work throws', async () => {
     const { browser, opened } = fakeBrowser();
     await assert.rejects(
@@ -156,6 +170,28 @@ describe('parallel helpers', () => {
     assert.equal(closes(), 1);
     await (await shared()).close();
     assert.equal(launches, 2);
+  });
+
+  it('releases a user whose context failed, and force-closes a leaked browser', async () => {
+    const { browser, closes } = fakeBrowser();
+    let failContext = true;
+    const flaky = new Proxy(browser, {
+      get(target, property) {
+        if (property === 'createBrowserContext' && failContext) {
+          failContext = false;
+          return async () => {
+            throw new Error('no context');
+          };
+        }
+        return Reflect.get(target, property, target);
+      },
+    });
+    const shared = sharedBrowser(async () => flaky);
+    await assert.rejects(shared(), /no context/);
+    assert.equal(closes(), 1);
+    await shared();
+    await shared.closeAll();
+    assert.equal(closes(), 2);
   });
 
   it('retries a launch that failed, and names a missing peer dependency', async () => {
@@ -234,6 +270,22 @@ const probe = (name: string, seen: string[] = []): Audit => ({
 });
 
 describe('runAudits', () => {
+  it('warns on stderr when no audit is selected', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    const write = process.stderr.write;
+    let output = '';
+    process.stderr.write = ((chunk: string) => {
+      output += chunk;
+      return true;
+    }) as typeof write;
+    try {
+      await run({ cwd, env: {}, reporters: [], overrides: { port: 0, audits: [] } });
+    } finally {
+      process.stderr.write = write;
+    }
+    assert.match(output, /no audits selected/);
+  });
+
   it('serves on a free port with port 0 and points audits at it', async () => {
     const seen: string[] = [];
     const cwd = fixture({ 'dist/index.html': 'home' });
@@ -287,6 +339,62 @@ describe('runAudits', () => {
     );
     const { ok } = await run({ ...options, reporters: [] });
     assert.equal(ok, true);
+  });
+
+  it('waits for every parallel audit before closing after a reporter fails', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    let finished = false;
+    const slow: Audit = {
+      name: 'slow',
+      description: 'slow',
+      requires: 'source',
+      run: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        finished = true;
+        return { summary: 'ok' };
+      },
+    };
+    await assert.rejects(
+      run({
+        cwd,
+        env: {},
+        audits: ['probe', 'slow'],
+        reporters: [
+          {
+            name: 'broken',
+            onAuditEnd: (result) => {
+              if (result.name === 'probe') throw new Error('EPIPE');
+            },
+          },
+        ],
+        overrides: { port: 0, plugins: [probe('probe'), slow] },
+      }),
+      /EPIPE/,
+    );
+    assert.equal(finished, true);
+  });
+
+  it('errors an audit that hangs past auditTimeout and stops the run at timeout', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    const hang: Audit = { ...probe('hang'), run: () => new Promise(() => {}) };
+    const options = { cwd, env: {}, audits: ['probe', 'hang'], reporters: [] };
+    const plugins = [probe('probe'), hang];
+    const audit = await run({ ...options, overrides: { port: 0, plugins, auditTimeout: 50 } });
+    assert.deepEqual(
+      audit.results.map(({ name, status }) => [name, status]),
+      [
+        ['probe', 'passed'],
+        ['hang', 'errored'],
+      ],
+    );
+    assert.match(audit.results[1]?.findings[0]?.fix ?? '', /auditTimeout/);
+    const whole = await run({ ...options, overrides: { port: 0, plugins, timeout: 50 } });
+    assert.equal(whole.timedOut, true);
+    assert.equal(whole.ok, false);
+    assert.deepEqual(
+      whole.results.map(({ name }) => name),
+      ['probe'],
+    );
   });
 
   it('runs every audit plus named ones for "all"', async () => {

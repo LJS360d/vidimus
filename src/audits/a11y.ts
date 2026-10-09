@@ -1,10 +1,11 @@
 import type { Audit, Finding } from '../core/types.ts';
-import { inParallel, onePagePerTemplate, pathOf } from '../core/util.ts';
+import { inParallel, navigate, onePagePerTemplate, pathOf } from '../core/util.ts';
 
 interface Pa11yIssue {
   code: string;
   message: string;
   selector: string;
+  type?: string;
   context: string | null;
 }
 
@@ -41,7 +42,17 @@ export const a11y: Audit = {
   name: 'a11y',
   description: 'pa11y (HTML_CodeSniffer) finds no WCAG violations',
   async run({ config, origin, pageUrls, importPeer, launchBrowser, log }) {
-    const { standard, timeout, concurrency, hideElements, ignore, exclude, sample } = config.a11y;
+    const {
+      standard,
+      runner,
+      includeWarnings,
+      timeout,
+      concurrency,
+      hideElements,
+      ignore,
+      exclude,
+      sample,
+    } = config.a11y;
     await importPeer('puppeteer');
     const { default: pa11y } = await importPeer<{ default: Pa11y }>('pa11y');
     const urls = onePagePerTemplate(pageUrls({ exclude }), sample, origin);
@@ -53,13 +64,17 @@ export const a11y: Audit = {
       await inParallel(concurrency, urls, async (url) => {
         const page = await browser.newPage();
         try {
+          await navigate(page, url, { waitFor: config.render.waitFor, timeout });
           const { issues } = await pa11y(url, {
             browser,
             page,
             standard,
+            runners: [runner],
+            includeWarnings,
             timeout,
             hideElements,
             ignore,
+            ignoreUrl: true,
           });
           for (const issue of issues) {
             const key = [issue.code, issue.selector].join(' | ');
@@ -68,6 +83,7 @@ export const a11y: Audit = {
               details: [issue.selector, issue.code, ...(issue.context ? [issue.context] : [])],
               where: [],
               fix: issueFix(issue.code),
+              ...(issue.type === 'warning' && { severity: 'warn' as const }),
             };
             finding.where.push(pathOf(url, origin));
             byIssue.set(key, finding);
@@ -75,7 +91,7 @@ export const a11y: Audit = {
         } catch (error) {
           failedToLoad.push(`${pathOf(url, origin)}: ${(error as Error).message}`);
         } finally {
-          await page.close();
+          await page.close().catch(() => {});
         }
       });
     } finally {

@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { imageSize, imageSizeOf } from '../src/audits/image-size.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
+
+const browser = await import('puppeteer')
+  .then(async ({ default: puppeteer }) => existsSync(await puppeteer.executablePath()))
+  .catch(() => false);
 
 const pngBuffer = (width: number, height: number, padding = 0) => {
   const header = Buffer.alloc(24);
@@ -31,6 +35,26 @@ const audit = async (files: Record<string, string>, budget = {}, binary = {}) =>
 };
 
 const img = '<img src="/a.png" width="10" height="10">';
+
+describe('budget compression', () => {
+  const files = {
+    'dist/index.html': '<script src="/a.js"></script>',
+    'dist/a.js': `//${noise(9000)}`,
+    'dist/a.js.br': 'x'.repeat(50),
+  };
+
+  it('uses precompressed siblings and the configured codec', async () => {
+    const sibling = await audit(files, { js: 100 });
+    assert.deepEqual(sibling.findings, []);
+    const { 'dist/a.js.br': _, ...plain } = files;
+    const gzip = await audit(plain, { js: 100 });
+    assert.match(gzip.findings[0]?.message ?? '', /gzipped/);
+    const brotli = await audit(plain, { js: 100, compression: 'brotli' });
+    assert.match(brotli.findings[0]?.message ?? '', /brotli/);
+    const none = await audit(plain, { js: 100, compression: 'none' });
+    assert.match(none.findings[0]?.message ?? '', /12 kB raw/);
+  });
+});
 
 describe('imageSize', () => {
   it('reads PNG', () => {
@@ -141,6 +165,62 @@ describe('budget audit', () => {
     assert.deepEqual(result.findings[4]?.where, ['/']);
   });
 
+  it('counts preloaded and @font-face fonts in the page total', async () => {
+    const result = await audit(
+      {
+        'dist/index.html': `<link rel="stylesheet" href="/css/a.css"><link rel="preload" as="font" href="/p.woff2">`,
+        'dist/css/a.css': `@font-face{font-family:A;src:url(../f.woff2) format("woff2")}`,
+        'dist/f.woff2': noise(4000),
+        'dist/p.woff2': noise(4000),
+      },
+      { page: 6000 },
+    );
+    assert.equal(result.status, 'failed');
+  });
+
+  it('measures compressible SVG gzipped and PNG raw', async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">${'<path d="M0 0h10v10z"/>'.repeat(500)}</svg>`;
+    const page = (src: string) => `<img src="${src}" width="10" height="10">`;
+    const light = await audit(
+      { 'dist/index.html': page('/a.svg'), 'dist/a.svg': svg },
+      { page: 3000 },
+    );
+    assert.equal(light.status, 'passed');
+    const heavy = await audit(
+      { 'dist/index.html': page('/a.png') },
+      { page: 3000 },
+      { 'dist/a.png': pngBuffer(10, 10, 4000) },
+    );
+    assert.equal(heavy.status, 'failed');
+  });
+
+  it('counts one candidate per picture and srcset', async () => {
+    const result = await audit(
+      {
+        'dist/index.html': `<picture><source srcset="/b.png 1x, /c.png 2x"><img src="/a.png" srcset="/b.png 2x" width="10" height="10"></picture>`,
+      },
+      { page: 3000 },
+      {
+        'dist/a.png': pngBuffer(10, 10),
+        'dist/b.png': pngBuffer(10, 10, 5000),
+        'dist/c.png': pngBuffer(10, 10, 5000),
+      },
+    );
+    assert.equal(result.status, 'passed');
+  });
+
+  it('skips nomodule scripts in the js total', async () => {
+    const result = await audit(
+      {
+        'dist/index.html': `<script type="module" src="/modern.js"></script><script nomodule src="/legacy.js"></script>`,
+        'dist/modern.js': 'console.log(1)',
+        'dist/legacy.js': `//${noise(6000)}`,
+      },
+      { js: 2000 },
+    );
+    assert.equal(result.status, 'passed');
+  });
+
   it('treats 0 as disabled', async () => {
     const result = await audit(
       {
@@ -216,5 +296,39 @@ describe('budget audit', () => {
     for (const { fix } of result.findings) assert.ok(fix?.trim());
     const dimensions = result.findings.find(({ message }) => message.includes('no width'));
     assert.match(dimensions?.fix ?? '', /width="64" height="32"/);
+  });
+});
+
+describe('budget routes', () => {
+  it('overrides limits for matching pages only', async () => {
+    const files = {
+      'dist/index.html': '<script src="/a.js"></script>',
+      'dist/big/index.html': '<script src="/a.js"></script>',
+      'dist/a.js': `//${noise(9000)}`,
+    };
+    const result = await audit(files, { js: 100, routes: { '^/big/': { js: 0 } } });
+    assert.deepEqual(
+      result.findings.map((f) => f.where),
+      [['/']],
+    );
+  });
+});
+
+describe('budget request counts', { skip: !browser }, () => {
+  it('flags pages over the request and third-party limits', async () => {
+    const cwd = fixture({
+      'dist/index.html':
+        '<img src="/a.png" width="1" height="1"><img src="http://example.invalid/t.png" width="1" height="1"><img src="http://example.invalid/u.png" width="1" height="1">',
+      'dist/a.png': 'x',
+      'vidimus.config.json': JSON.stringify({
+        budget: { requests: 2, thirdParty: 1, legacyImage: 0 },
+        render: { mode: 'on' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['budget'], reporters: [] });
+    const messages = results[0]?.findings.map(({ message }) => message);
+    assert.equal(messages?.length, 2);
+    assert.match(messages?.[0] ?? '', /^\d+ requests > 2 budget$/);
+    assert.equal(messages?.[1], '2 third-party requests > 1 budget');
   });
 });

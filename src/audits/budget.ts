@@ -1,5 +1,5 @@
-import { readFileSync, statSync } from 'node:fs';
-import { gzipSync } from 'node:zlib';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 import {
   type BuiltPage,
   linksWithRel,
@@ -10,7 +10,7 @@ import {
   tags,
 } from '../core/html.ts';
 import type { Audit, Finding, PageSource } from '../core/types.ts';
-import { matchesAny, stripBase } from '../core/util.ts';
+import { matchesAny, regex, stripBase } from '../core/util.ts';
 import { imageSizeOf } from './image-size.ts';
 
 type Kind = 'html' | 'css' | 'js' | 'page';
@@ -27,6 +27,7 @@ interface Group {
 }
 
 const LEGACY = /\.(png|jpe?g|gif)$/i;
+const TEXTUAL = /\.(svg|json|wasm|xml|txt|webmanifest)$/i;
 const MODERN = /^image\/(avif|webp)$/i;
 const MODERN_FILE = /\.(avif|webp)(\?|#|$)/i;
 
@@ -84,8 +85,16 @@ export const budget: Audit = {
     );
     if (pages.length === 0) return { status: 'skipped', summary: 'no built pages' };
 
-    const gzipped = memo((file) => gzipSync(readFileSync(file)).length);
     const raw = memo((file) => statSync(file).size);
+    const codec = { gzip: gzipSync, brotli: brotliCompressSync, none: undefined }[
+      options.compression
+    ];
+    const gzipped = memo((file) => {
+      const sibling = ['.br', '.gz'].find((ext) => existsSync(file + ext));
+      if (sibling) return raw(file + sibling);
+      return codec ? codec(readFileSync(file)).length : raw(file);
+    });
+    const sized = (file: string) => (TEXTUAL.test(file) ? gzipped(file) : raw(file));
     const dimensionsOf = memo(imageSizeOf);
     const groups = new Map<string, Group>();
     const report = (key: string, finding: Finding, where: string) => {
@@ -129,6 +138,10 @@ export const budget: Audit = {
 
     for (const page of pages) {
       const { html } = page;
+      const route = Object.entries(options.routes).find(([pattern]) =>
+        regex(pattern).test(page.path),
+      );
+      const limits = { ...options, ...route?.[1] };
       const htmlAsset = { url: page.path, file: page.file, size: gzipped(page.file) };
       // A rendered page measures what the browser loaded, lazy chunks and fonts included.
       const network = page.requests !== undefined;
@@ -142,25 +155,33 @@ export const budget: Audit = {
       const js = network
         ? requested(page, ['script'], gzipped)
         : distinct([
-            ...tags(html, 'script').map(({ attrs }) =>
-              attrs.src ? local(attrs.src, page, gzipped) : undefined,
-            ),
+            ...tags(html, 'script')
+              .filter(({ attrs }) => !Object.hasOwn(attrs, 'nomodule'))
+              .map(({ attrs }) => (attrs.src ? local(attrs.src, page, gzipped) : undefined)),
             ...linksWithRel(html, 'modulepreload').map(({ attrs }) =>
               local(attrs.href ?? '', page, gzipped),
             ),
           ]);
-      const images = tags(html, 'img', 'source');
+      const images = tags(html, 'img');
       const imageAssets = network
-        ? requested(page, ['image'], raw)
+        ? requested(page, ['image'], sized)
         : distinct(
-            images.flatMap(({ name, attrs }) =>
-              [
-                ...(name === 'img' && attrs.src ? [attrs.src] : []),
-                ...srcsetUrls(attrs.srcset),
-              ].map((ref) => local(ref, page, raw)),
+            images.map(({ attrs }) =>
+              local(attrs.src ?? srcsetUrls(attrs.srcset)[0] ?? '', page, sized),
             ),
           );
-      const other = network ? requested(page, OTHER_REQUESTS, raw) : [];
+      const other = network
+        ? requested(page, OTHER_REQUESTS, sized)
+        : distinct([
+            ...linksWithRel(html, 'preload')
+              .filter(({ attrs }) => attrs.as?.toLowerCase() === 'font')
+              .map(({ attrs }) => local(attrs.href ?? '', page, sized)),
+            ...css.flatMap(({ file, url }) =>
+              [...readFileSync(file, 'utf8').matchAll(/@font-face\s*{[^}]*}/gi)]
+                .flatMap((face) => [...face[0].matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)])
+                .map((ref) => local(ref[2] ?? '', { ...page, path: url }, sized)),
+            ),
+          ]);
 
       const totals: Record<Kind, { size: number; assets: Asset[] }> = {
         html: { size: htmlAsset.size, assets: [htmlAsset] },
@@ -173,11 +194,39 @@ export const budget: Audit = {
       };
       if (totals.page.size > heaviest.size) heaviest = { path: page.path, size: totals.page.size };
 
+      const own = new URL(origin).origin;
+      const urls = (page.requests ?? [])
+        .map(({ url }) => url)
+        .filter((url) => /^https?:/i.test(url));
+      const counts = {
+        requests: urls.length,
+        thirdParty: urls.filter((url) => new URL(url).origin !== own).length,
+      };
+      for (const [key, label] of [
+        ['requests', 'requests'],
+        ['thirdParty', 'third-party requests'],
+      ] as const) {
+        const limit = limits[key];
+        if (!network || !limit || counts[key] <= limit) continue;
+        report(
+          `${key} ${page.path}`,
+          {
+            message: `${counts[key]} ${label} > ${limit} budget`,
+            file: page.file,
+            fix: `Remove, bundle or lazy-load requests the page makes (third-party scripts, fonts, trackers), or raise budget.${key}.`,
+          },
+          page.path,
+        );
+      }
+
       for (const kind of ['html', 'css', 'js', 'page'] as const) {
-        const limit = options[kind];
+        const limit = limits[kind];
         const { size, assets } = totals[kind];
         if (!limit || size <= limit) continue;
-        const measured = kind === 'page' ? 'total' : 'gzipped';
+        const measured =
+          kind === 'page'
+            ? 'total'
+            : { gzip: 'gzipped', brotli: 'brotli', none: 'raw' }[options.compression];
         report(
           `${kind} ${page.path}`,
           {
@@ -191,11 +240,11 @@ export const budget: Audit = {
       }
 
       for (const image of imageAssets) {
-        if (!options.image || image.size <= options.image) continue;
+        if (!limits.image || image.size <= limits.image) continue;
         report(
           `image ${image.file}`,
           {
-            message: `image ${image.url} ${formatBytes(image.size)} > ${formatBytes(options.image)} budget`,
+            message: `image ${image.url} ${formatBytes(image.size)} > ${formatBytes(limits.image)} budget`,
             file: image.file,
             fix: 'Resize/compress it (e.g. with sharp or squoosh) and serve AVIF/WebP, or raise budget.image.',
           },

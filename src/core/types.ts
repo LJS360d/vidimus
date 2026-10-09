@@ -13,6 +13,8 @@ export interface Finding {
   where?: string[];
   details?: string[];
   file?: string;
+  /** 1-based line in `file`; used by annotations, never by baseline fingerprints. */
+  line?: number;
   severity?: Severity;
   fix?: string;
 }
@@ -75,5 +77,6 @@ export interface RunReport {
   startedAt: string;
   durationMs: number;
   results: AuditResult[];
+  timedOut?: boolean;
   profile?: ProfileSummary;
 }

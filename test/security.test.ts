@@ -88,6 +88,35 @@ describe('security audit', () => {
     assert.match(result.summary, /1 pages, headers from _headers, no problems/);
   });
 
+  it('reads headers from vercel.json, netlify.toml, firebase.json and staticwebapp.config.json', async () => {
+    const wanted: [string, string][] = [
+      ['strict-transport-security', 'max-age=63072000'],
+      ['x-content-type-options', 'nosniff'],
+      ['referrer-policy', 'strict-origin-when-cross-origin'],
+      ['permissions-policy', 'camera=()'],
+      ['x-frame-options', 'DENY'],
+    ];
+    const list = wanted.map(([key, value]) => ({ key, value }));
+    const object = Object.fromEntries(wanted);
+    const files: Record<string, string> = {
+      'vercel.json': JSON.stringify({ headers: [{ source: '/(.*)', headers: list }] }),
+      'netlify.toml': `[[headers]]\n  for = "/*"\n  [headers.values]\n${wanted
+        .map(([key, value]) => `    ${key} = "${value}"`)
+        .join('\n')}\n`,
+      'firebase.json': JSON.stringify({ hosting: { headers: [{ source: '**', headers: list }] } }),
+      'staticwebapp.config.json': JSON.stringify({ globalHeaders: object }),
+    };
+    for (const [name, content] of Object.entries(files)) {
+      const result = await audit({ 'dist/index.html': page(), [`dist/${name}`]: content });
+      assert.equal(result.status, 'passed', name);
+      assert.match(result.summary, new RegExp(`headers from ${name.replace('.', '\\.')}`));
+    }
+    const rooted = await audit({ 'dist/index.html': page(), 'vercel.json': files['vercel.json'] });
+    assert.equal(rooted.status, 'passed');
+    const broken = await audit({ 'dist/index.html': page(), 'dist/vercel.json': '{' });
+    assert.match(broken.summary, /headers from nowhere/);
+  });
+
   it('fails on missing and weak headers, grouped across pages', async () => {
     const result = await audit({
       'dist/index.html': page(),
@@ -417,5 +446,35 @@ describe('security audit following redirects', () => {
     const onHome = result.findings.filter(({ where }) => where?.includes('/'));
     assert.deepEqual(onHome, []);
     assert.ok(result.findings.some(({ where }) => where?.includes('/away/')));
+  });
+});
+
+describe('security audit against an origin serving an error page', () => {
+  let server: Server;
+  let origin = '';
+
+  before(async () => {
+    server = createServer((_req, res) => {
+      res
+        .writeHead(404, {
+          'strict-transport-security': 'max-age=31536000',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+          'permissions-policy': 'camera=()',
+          'x-frame-options': 'DENY',
+        })
+        .end('not found');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => new Promise((resolve) => server.close(resolve)));
+
+  it('reports the failed fetch instead of auditing the error page headers', async () => {
+    const result = await audit({ 'dist/index.html': page(), 'dist/_headers': '' }, { origin });
+    assert.deepEqual(messages(result), ['could not fetch headers']);
+    assert.match(result.findings[0]?.details?.[0] ?? '', /responded 404/);
+    assert.match(result.findings[0]?.fix ?? '', /serves/);
   });
 });

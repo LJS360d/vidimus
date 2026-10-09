@@ -7,11 +7,18 @@ import { createReporters } from '../reporters/registry.ts';
 import type { Progress, Reporter } from '../reporters/types.ts';
 import { serveCommand } from './command-server.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
-import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
+import {
+  applyIgnore,
+  countStale,
+  readBaseline,
+  settle,
+  subtractBaseline,
+  writeBaseline,
+} from './findings.ts';
 import { createPageReader } from './html.ts';
 import { createPageUrls, pageUrlOf } from './pages.ts';
 import { importPeer, launchBrowser, sharedBrowser, withState } from './peer.ts';
-import type { Browser } from './peer-types.ts';
+import type { Browser, LaunchOptions } from './peer-types.ts';
 import { type ProfileLevel, span, startProfile, stopProfile } from './profile.ts';
 import { createRenderer } from './render.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
@@ -75,6 +82,17 @@ const startServer = (config: VidimusConfig, dist: string, snapshot: Parameters<t
         log: resolve(config.root, config.outDir, 'server.log'),
       })
     : serve(dist, config.port, config.server, config.siteUrl, snapshot);
+
+const TIMED_OUT = Symbol('timed out');
+
+const within = <T>(ms: number, work: Promise<T>): Promise<T | typeof TIMED_OUT> => {
+  if (!ms) return work;
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(resolve, ms, TIMED_OUT);
+  });
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer));
+};
 
 export const runAudits = async (
   config: VidimusConfig,
@@ -146,6 +164,12 @@ const execute = async (
     withState(await launched, config.browser.state, origin);
   const browser = sharedBrowser(() => launchBrowser(config));
   const statefulBrowser = () => stateful(browser());
+  const launched = new Set<Promise<Browser>>();
+  const launchOwn = (options: LaunchOptions) => {
+    const launching = launchBrowser(config, options);
+    launched.add(launching);
+    return launching;
+  };
   const renderer = createRenderer(config, statefulBrowser);
   const server =
     needsServer && !config.origin
@@ -184,7 +208,10 @@ const execute = async (
     );
   };
 
+  const finished = new Map<Audit, AuditResult>();
+  let timedOut = false;
   const runOne = async (audit: Audit): Promise<AuditResult> => {
+    if (timedOut) throw new Error('run timed out');
     const log: string[] = [];
     const started = performance.now();
     const context: AuditContext = {
@@ -200,25 +227,32 @@ const execute = async (
       log: (line = '') => log.push(...line.split('\n')),
       span,
       importPeer,
-      launchBrowser: (options) => stateful(options ? launchBrowser(config, options) : browser()),
+      launchBrowser: (options) => stateful(options ? launchOwn(options) : browser()),
     };
     let settled: Pick<AuditResult, 'status' | 'summary' | 'findings'>;
     let suppressed = 0;
     try {
       const outcome = await span(`audit ${audit.name}`, () =>
-        task(audit.name, () => audit.run(context)),
+        task(audit.name, () => within(config.auditTimeout, audit.run(context))),
       );
-      const raw = outcome.findings ?? [];
-      const kept = applyIgnore(audit.name, raw, config.ignore);
-      unsuppressed.set(audit.name, kept);
-      const fresh = config.baseline.update
-        ? []
-        : subtractBaseline(config.root, audit.name, kept, baseline);
-      suppressed = raw.length - fresh.length;
-      settled = settle(outcome, fresh, {
-        severity: config.severity[audit.name],
-        strict: config.strict,
-      });
+      if (outcome === TIMED_OUT) {
+        const summary = `did not finish within auditTimeout (${config.auditTimeout} ms)`;
+        const fix =
+          'raise auditTimeout, or rerun this audit alone with --profile to see where it hangs';
+        settled = { status: 'errored', summary, findings: [{ message: summary, fix }] };
+      } else {
+        const raw = outcome.findings ?? [];
+        const kept = applyIgnore(audit.name, raw, config.ignore);
+        if (outcome.status !== 'skipped') unsuppressed.set(audit.name, kept);
+        const fresh = config.baseline.update
+          ? []
+          : subtractBaseline(config.root, audit.name, kept, baseline, config.baseline.matchWhere);
+        suppressed = raw.length - fresh.length;
+        settled = settle(outcome, fresh, {
+          severity: config.severity[audit.name],
+          strict: config.strict,
+        });
+      }
     } catch (error) {
       const missingPeer = error instanceof MissingPeerError;
       if (!missingPeer && error instanceof Error && error.stack)
@@ -236,12 +270,13 @@ const execute = async (
       log,
       durationMs: performance.now() - started,
     };
+    if (timedOut) return result;
     for (const reporter of reporters) await reporter.onAuditEnd?.(result);
+    finished.set(audit, result);
     return result;
   };
 
-  const results: AuditResult[] = [];
-  try {
+  const work = async () => {
     const hint = needsServer ? clientRenderedHint(config, bundle) : undefined;
     for (const reporter of reporters) {
       await reporter.onStart?.({
@@ -258,27 +293,43 @@ const execute = async (
       pageUrls = createPageUrls(config, dist, builtPages, origin, routes);
     }
     const parallel = options.serial ? [] : audits.filter((audit) => !audit.exclusive);
-    results.push(...(await Promise.all(parallel.map(runOne))));
-    for (const audit of audits.filter((audit) => !parallel.includes(audit)))
-      results.push(await runOne(audit));
+    const settled = await Promise.allSettled(parallel.map(runOne));
+    const rejected = settled.find((outcome) => outcome.status === 'rejected');
+    if (rejected) throw rejected.reason;
+    for (const audit of audits.filter((audit) => !parallel.includes(audit))) await runOne(audit);
+  };
+  try {
+    timedOut = (await within(config.timeout, work())) === TIMED_OUT;
   } finally {
     running.clear();
     publish();
-    await renderer.close();
-    await server?.close();
+    await Promise.allSettled([
+      renderer.close(),
+      ...[...launched].map((launching) => launching.then((own) => own.close())),
+      browser.closeAll(),
+      server?.close(),
+    ]);
   }
 
   if (baselineFile && config.baseline.update) {
-    writeBaseline(baselineFile, config.root, unsuppressed);
+    writeBaseline(baselineFile, config.root, unsuppressed, config.baseline.matchWhere);
+  } else if (baselineFile) {
+    const stale = countStale(config.root, unsuppressed, baseline, config.baseline.matchWhere);
+    if (stale)
+      process.stderr.write(
+        `vidimus: ${stale} stale baseline ${stale === 1 ? 'entry' : 'entries'} no longer occur, re-run with --accept-findings to prune\n`,
+      );
   }
 
   const profile = await stopProfile(resolve(config.root, config.outDir, 'profile'), config.root);
+  const results = audits.flatMap((audit) => finished.get(audit) ?? []);
   const report: RunReport = {
-    ok: results.every(({ status }) => status !== 'failed' && status !== 'errored'),
+    ok: !timedOut && results.every(({ status }) => status !== 'failed' && status !== 'errored'),
     origin: needsServer ? origin : '',
     startedAt: startedAt.toISOString(),
     durationMs: Date.now() - startedAt.getTime(),
     results,
+    ...(timedOut && { timedOut }),
     ...(profile && { profile }),
   };
   for (const reporter of reporters) await reporter.onEnd?.(report);
@@ -295,6 +346,7 @@ export const run = async ({
 }: RunOptions = {}) => {
   const config = preloaded ?? (await loadConfig(loadOptions)).config;
   const selected = selectAudits(auditRegistry(config), audits, config);
+  if (!selected.length) process.stderr.write('vidimus: no audits selected, nothing to run\n');
   return runAudits(
     config,
     selected,

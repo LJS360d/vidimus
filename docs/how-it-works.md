@@ -187,7 +187,8 @@ export default defineConfig({
 
 - `routes.paths` lists paths relative to the `siteUrl` base path, each starting with `/`.
 - `routes.discover: 'sitemap'` adds the URLs of `sitemap.xml`, `sitemap-index.xml` or
-  `sitemap_index.xml` in `distDir`, following sitemap indexes. URLs on another origin than
+  `sitemap_index.xml` in `distDir`, plus the sitemaps named by `Sitemap:` lines in `robots.txt`
+  (`.xml.gz` is read too), following sitemap indexes. URLs on another origin than
   `siteUrl` are skipped.
 - `routes.discover: 'crawl'` opens the built pages and `routes.paths` in the browser, waits for
   `render.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
@@ -248,7 +249,7 @@ Only built files are rendered for the `dist` audits; [`routes`](#client-rendered
 without a file reach the server audits only. A page that fails to render within
 `render.timeout` is read from its file, with a line in the audit log.
 
-`render.waitFor` also decides when `r12s`, `privacy` and `shots` consider a page loaded, whether
+`render.waitFor` also decides when `a11y`, `r12s`, `privacy` and `shots` consider a page loaded, whether
 or not `render.mode` is on: the `load` event fires before most apps fetch data and render.
 
 ### Locales

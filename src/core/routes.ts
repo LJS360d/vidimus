@@ -4,7 +4,7 @@ import type { VidimusConfig } from '../config/types.ts';
 import { UsageError } from './errors.ts';
 import { localFile, originOf, type PageReader } from './html.ts';
 import type { Renderer } from './render.ts';
-import { pathnameOf, readSitemaps } from './sitemap.ts';
+import { pathnameOf, readSitemaps, robotsSitemapPaths } from './sitemap.ts';
 import { fallbackFor, firstFew, matchesAny } from './util.ts';
 
 const SPA_BUNDLE_BYTES = 100_000;
@@ -29,7 +29,7 @@ const routeOf = (href: string, origin: string) => {
 
 const fromSitemap = (config: VidimusConfig, dist: string) => {
   const siteOrigin = originOf(config.siteUrl);
-  return readSitemaps(dist, config.siteUrl)
+  return readSitemaps(dist, config.siteUrl, robotsSitemapPaths(dist, config.siteUrl))
     .flatMap(({ urls }) => urls)
     .filter((url) => !siteOrigin || originOf(url) === siteOrigin)
     .map((url) => pathnameOf(url, config.siteUrl))

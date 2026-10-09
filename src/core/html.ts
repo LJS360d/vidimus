@@ -154,21 +154,30 @@ export const tags = (html: string, ...names: string[]): Tag[] => {
   return all.filter(({ name }) => wanted.has(name));
 };
 
-export const textOf = (html: string, name: string) => {
-  const match = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}\\s*>`, 'id').exec(
-    parse(html).stripped,
-  );
+export const textOf = (html: string, name: string, within?: string) => {
+  let { stripped } = parse(html);
+  let offset = 0;
+  if (within) {
+    const scope = new RegExp(`<${within}\\b[^>]*>([\\s\\S]*?)</${within}\\s*>`, 'id').exec(
+      stripped,
+    );
+    const bodyAt = stripped.search(/<body\b/i);
+    const [from, to] = scope?.indices?.[1] ?? [0, bodyAt < 0 ? stripped.length : bodyAt];
+    stripped = stripped.slice(from, to);
+    offset = from;
+  }
+  const match = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}\\s*>`, 'id').exec(stripped);
   const [start, end] = match?.indices?.[1] ?? [];
   if (start === undefined || end === undefined) return undefined;
-  return decodeEntities(html.slice(start, end).replace(/<[^>]*>/g, ''))
+  return decodeEntities(html.slice(offset + start, offset + end).replace(/<[^>]*>/g, ''))
     .replace(/\s+/g, ' ')
     .trim();
 };
 
 export const meta = (html: string, key: string) => {
   const wanted = key.toLowerCase();
-  return tags(html, 'meta').find(
-    ({ attrs }) => (attrs.name ?? attrs.property ?? '').toLowerCase() === wanted,
+  return tags(html, 'meta').find(({ attrs }) =>
+    [attrs.name, attrs.property].some((value) => value?.toLowerCase() === wanted),
   )?.attrs.content;
 };
 
@@ -243,7 +252,8 @@ const ROBOTS_META = new Set(['robots', 'googlebot']);
 export const isNoindex = (html: string) =>
   tags(html, 'meta').some(
     ({ attrs }) =>
-      ROBOTS_META.has((attrs.name ?? '').toLowerCase()) && /\bnoindex\b/i.test(attrs.content ?? ''),
+      ROBOTS_META.has((attrs.name ?? '').toLowerCase()) &&
+      /\b(noindex|none)\b/i.test(attrs.content ?? ''),
   );
 
 export const isFile = (path: string) =>

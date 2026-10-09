@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { extname, join } from 'node:path';
 import {
   isFile,
   isNoindex,
@@ -14,10 +14,16 @@ import { isPlainObject, matchesAny } from '../core/util.ts';
 import { imageSizeOf as measure } from './image-size.ts';
 import { siteFileFindings } from './site-files.ts';
 
+const OG_WARN_BYTES = 1024 * 1024;
+const OG_ERROR_BYTES = 8 * 1024 * 1024;
+const OG_UNSUPPORTED = new Set(['svg', 'avif']);
+
 interface Group {
   finding: Finding;
   where: Set<string>;
 }
+
+const DISPLAY_MODES = new Set(['fullscreen', 'standalone', 'minimal-ui', 'browser']);
 
 const largestDeclared = (sizes: unknown) =>
   typeof sizes !== 'string'
@@ -162,6 +168,54 @@ export const assets: Audit = {
           );
           continue;
         }
+        const scopeValue = typeof manifest.scope === 'string' ? manifest.scope : '.';
+        const scope = resolveHref(scopeValue, path, config.siteUrl)?.path;
+        const startValue = typeof manifest.start_url === 'string' ? manifest.start_url : '';
+        if (!startValue) {
+          problem(
+            `manifest ${path} has no start_url`,
+            `Add "start_url": "/" to ${path}.`,
+            file,
+            'warn',
+          );
+        } else {
+          const start = resolveHref(startValue, path, config.siteUrl)?.path;
+          const root = scope?.endsWith('/') ? scope : `${scope}/`;
+          if (!scope || !start || (start !== root.slice(0, -1) && !start.startsWith(root))) {
+            problem(
+              `manifest ${path} start_url ${startValue} is outside scope ${scopeValue}`,
+              `Set "start_url" inside "scope" in ${path}, or widen "scope".`,
+              file,
+            );
+          } else if (!localFile(dist, start)) {
+            problem(
+              `manifest start_url ${start} not found`,
+              `Add ${start} to the build or fix "start_url" in ${path}.`,
+              file,
+            );
+          }
+        }
+        if (manifest.display !== undefined && !DISPLAY_MODES.has(String(manifest.display))) {
+          problem(
+            `manifest ${path} display "${manifest.display}" is not valid`,
+            `Set "display" in ${path} to one of ${[...DISPLAY_MODES].join(', ')}.`,
+            file,
+          );
+        }
+        if (
+          !icons.some((icon) =>
+            String(icon.purpose ?? '')
+              .split(/\s+/)
+              .includes('maskable'),
+          )
+        ) {
+          problem(
+            `manifest ${path} has no maskable icon`,
+            `Add a 512x512 icon with "purpose": "maskable" to "icons" in ${path}.`,
+            file,
+            'warn',
+          );
+        }
         let largest = 0;
         for (const icon of icons) {
           const src = typeof icon.src === 'string' ? icon.src : '';
@@ -176,10 +230,20 @@ export const assets: Audit = {
             continue;
           }
           const measured = iconFile ? measure(iconFile) : undefined;
+          if (measured && typeof icon.sizes === 'string') {
+            const actual = `${measured.width}x${measured.height}`;
+            const declared = icon.sizes.toLowerCase().split(/\s+/);
+            if (!declared.includes(actual) && !declared.includes('any'))
+              problem(
+                `manifest icon ${resolved?.path} declares ${icon.sizes} but is ${actual}`,
+                `Set "sizes" to "${actual}" for this icon in ${path}.`,
+                file,
+                'warn',
+              );
+          }
           largest = Math.max(
             largest,
-            largestDeclared(icon.sizes),
-            measured ? Math.min(measured.width, measured.height) : 0,
+            measured ? Math.min(measured.width, measured.height) : largestDeclared(icon.sizes),
           );
         }
         if (largest < 512)
@@ -234,6 +298,30 @@ export const assets: Audit = {
             );
           } else {
             const size = measure(file);
+            const format = size?.type ?? extname(file).slice(1).toLowerCase();
+            if (OG_UNSUPPORTED.has(format)) {
+              report(
+                {
+                  message: `og:image ${resolved.path} is ${format.toUpperCase()}, which social crawlers do not accept`,
+                  file,
+                  fix: 'Export the image as PNG or JPEG and point og:image at it.',
+                },
+                page.path,
+              );
+            }
+            const bytes = statSync(file).size;
+            if (bytes > OG_WARN_BYTES) {
+              const mb = (bytes / OG_WARN_BYTES).toFixed(1);
+              report(
+                {
+                  message: `og:image ${resolved.path} is ${mb} MB, over the ${bytes > OG_ERROR_BYTES ? 8 : 1} MB limit`,
+                  file,
+                  severity: bytes > OG_ERROR_BYTES ? 'error' : 'warn',
+                  fix: 'Compress the image below 1 MB; crawlers such as Facebook reject files over 8 MB.',
+                },
+                page.path,
+              );
+            }
             if (size && (size.width < minWidth || size.height < minHeight)) {
               report(
                 {
@@ -245,6 +333,62 @@ export const assets: Audit = {
                 page.path,
               );
             }
+          }
+        }
+
+        if (image && !meta(page.html, 'og:image:alt')?.trim()) {
+          report(
+            {
+              message: 'missing <meta property="og:image:alt"> for og:image',
+              severity: 'warn',
+              fix: 'Add <meta property="og:image:alt" content="..."> describing the image for screen readers.',
+            },
+            page.path,
+          );
+        }
+        const ogFile = resolved?.path ? localFile(dist, resolved.path) : null;
+        const ogSize = ogFile ? measure(ogFile) : undefined;
+        for (const [key, actual] of [
+          ['width', ogSize?.width],
+          ['height', ogSize?.height],
+        ] as const) {
+          const declared = meta(page.html, `og:image:${key}`)?.trim();
+          if (declared && actual && Number(declared) !== actual) {
+            report(
+              {
+                message: `og:image:${key} is ${declared} but ${resolved?.path} is ${actual}`,
+                severity: 'warn',
+                fix: `Set <meta property="og:image:${key}" content="${actual}"> to the real image ${key}.`,
+              },
+              page.path,
+            );
+          }
+        }
+
+        const twitterImage = meta(page.html, 'twitter:image')?.trim();
+        const twitterResolved = twitterImage
+          ? resolveHref(twitterImage, page.path, config.siteUrl)
+          : null;
+        if (twitterResolved?.path) {
+          const file = localFile(dist, twitterResolved.path);
+          const format = file ? (measure(file)?.type ?? extname(file).slice(1).toLowerCase()) : '';
+          if (!file) {
+            report(
+              {
+                message: `twitter:image ${twitterResolved.path} not found`,
+                fix: `Add ${twitterResolved.path} to the build, or remove twitter:image so it falls back to og:image.`,
+              },
+              page.path,
+            );
+          } else if (OG_UNSUPPORTED.has(format)) {
+            report(
+              {
+                message: `twitter:image ${twitterResolved.path} is ${format.toUpperCase()}, which social crawlers do not accept`,
+                file,
+                fix: 'Export the image as PNG or JPEG and point twitter:image at it.',
+              },
+              page.path,
+            );
           }
         }
 

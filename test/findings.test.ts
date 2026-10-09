@@ -107,6 +107,31 @@ describe('findings baseline', () => {
     );
   });
 
+  it('ignores line and column numbers in details when matching accepted findings', async () => {
+    const cwd = fixture({});
+    const at = (location: string): Finding => ({
+      message: 'broken',
+      details: [`${location} <div>`],
+    });
+    await probe([at('/a/index.html:3:9')], { overrides: { baseline: { update: true } } }, cwd);
+    const moved = await probe([at('/a/index.html:12:4')], {}, cwd);
+    assert.equal(moved.ok, true);
+    assert.equal(moved.results[0]?.suppressed, 1);
+  });
+
+  it('treats the same finding on other pages as new when baseline.matchWhere is on', async () => {
+    const cwd = fixture({});
+    const on = { baseline: { matchWhere: true } };
+    const at = (...where: string[]): Finding => ({ message: 'broken', where });
+    await probe([at('/a/')], { overrides: { baseline: { update: true, matchWhere: true } } }, cwd);
+    const same = await probe([at('/a/')], { overrides: on }, cwd);
+    assert.equal(same.ok, true);
+    const grown = await probe([at('/a/', '/b/')], { overrides: on }, cwd);
+    assert.equal(grown.ok, false);
+    const plain = await probe([at('/a/', '/b/')], {}, cwd);
+    assert.equal(plain.ok, true);
+  });
+
   it('keeps accepted findings of audits that did not run', async () => {
     const cwd = fixture({
       'vidimus.baseline.json': JSON.stringify({
@@ -119,6 +144,57 @@ describe('findings baseline', () => {
       readFileSync(join(cwd, 'vidimus.baseline.json'), 'utf8'),
     ).findings.map(({ audit }: { audit: string }) => audit);
     assert.deepEqual(audits, ['links', 'probe']);
+  });
+
+  it('keeps accepted findings of audits that were skipped in this run', async () => {
+    const cwd = fixture({
+      'vidimus.baseline.json': JSON.stringify({
+        version: 1,
+        findings: [{ audit: 'probe', message: 'broken' }],
+      }),
+    });
+    const skipped: Audit = {
+      name: 'probe',
+      description: 'skips this run',
+      requires: 'source',
+      run: async () => ({ status: 'skipped', summary: 'no pages to check' }),
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [],
+      overrides: { plugins: [skipped], baseline: { update: true } },
+    });
+    const messages = JSON.parse(
+      readFileSync(join(cwd, 'vidimus.baseline.json'), 'utf8'),
+    ).findings.map(({ message }: { message: string }) => message);
+    assert.deepEqual(messages, ['broken']);
+  });
+
+  it('reports baseline entries that no longer occur on stderr', async () => {
+    const cwd = fixture({
+      'vidimus.baseline.json': JSON.stringify({
+        version: 1,
+        findings: [
+          { audit: 'probe', message: 'fixed' },
+          { audit: 'links', message: '404 https://gone.test' },
+        ],
+      }),
+    });
+    const write = process.stderr.write;
+    let written = '';
+    process.stderr.write = ((chunk: string) => {
+      written += chunk;
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await probe([], {}, cwd);
+    } finally {
+      process.stderr.write = write;
+    }
+    assert.match(written, /1 stale baseline entry/);
+    assert.match(written, /--accept-findings/);
   });
 
   it('rejects a malformed baseline file', async () => {

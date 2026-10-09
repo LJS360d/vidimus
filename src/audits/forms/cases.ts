@@ -231,12 +231,17 @@ const fit = (value: string, field: FieldInfo) => {
   return out;
 };
 
+const picks = (field: FieldInfo) =>
+  field.type === 'radio' ||
+  field.tag === 'select' ||
+  (field.type === 'checkbox' && field.options.length > 0);
+
 const firstOption = (field: FieldInfo) =>
   field.options.find((o) => !o.disabled && o.value !== '')?.value ?? null;
 
 const baselineFor = (field: FieldInfo, configured: Record<string, string> = {}): Value => {
+  if (picks(field)) return firstOption(field);
   if (field.type === 'checkbox') return true;
-  if (field.type === 'radio' || field.tag === 'select') return firstOption(field);
   if (field.type === 'file') return 'file';
   const user = Object.entries(configured).find(([pattern]) =>
     [field.name, field.id, field.label].some((word) => word && new RegExp(pattern, 'i').test(word)),
@@ -296,7 +301,7 @@ const ALTERNATES: Record<Kind, string[]> = {
 };
 
 export const alternatesFor = (field: FieldInfo): Value[] => {
-  if (field.type === 'radio' || field.tag === 'select')
+  if (picks(field))
     return field.options.filter((o) => !o.disabled && o.value !== '').map((o) => o.value);
   if (field.type === 'number') return ['18', '21', '42', '100', '1000', '0', '-1', '0.5'];
   if (field.type === 'date') return ['2030-01-15', '1990-01-15', '2000-01-01'];
@@ -334,12 +339,14 @@ export const casesFor = (
     const required: Expect = field.required ? 'invalid' : 'valid';
     const kind = kindOf(field);
 
-    if (field.type === 'checkbox') {
+    if (field.type === 'checkbox' && !field.options.length) {
       one(field, 'unchecked', false, required, field.required ? 'required' : 'optional');
       continue;
     }
-    if (field.type === 'radio' || field.tag === 'select') {
-      for (const option of field.options.filter((o) => !o.disabled).slice(0, 20)) {
+    if (picks(field)) {
+      for (const option of field.options
+        .filter((o) => !o.disabled && field.type !== 'checkbox')
+        .slice(0, 20)) {
         if (option.value === base) continue;
         const empty = option.value === '';
         one(
@@ -350,7 +357,7 @@ export const casesFor = (
           empty ? 'required' : 'option',
         );
       }
-      if (field.type === 'radio') one(field, 'none', null, required, 'required');
+      if (field.tag !== 'select' || field.multiple) one(field, 'none', null, required, 'required');
       continue;
     }
     if (field.type === 'file') {
@@ -432,8 +439,8 @@ export const casesFor = (
   }
 
   const emptyOf = (f: FieldInfo): Value => {
-    if (f.type === 'checkbox') return false;
-    if (f.type === 'radio' || f.type === 'file') return null;
+    if (f.type === 'checkbox') return f.options.length ? null : false;
+    if (f.type === 'radio' || f.type === 'file' || (f.tag === 'select' && f.multiple)) return null;
     // A select without an empty option cannot be emptied by a user.
     if (f.tag === 'select')
       return f.options.some((o) => o.value === '') ? '' : (baseline[f.key] ?? null);

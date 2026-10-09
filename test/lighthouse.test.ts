@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { selectUrls, thresholdsFor } from '../src/audits/lighthouse.ts';
+import { lighthouse, selectUrls, thresholdsFor } from '../src/audits/lighthouse.ts';
 import { defaults } from '../src/config/defaults.ts';
 import { merge } from '../src/config/merge.ts';
 import type { UserConfig } from '../src/config/types.ts';
@@ -73,6 +73,88 @@ describe('lighthouse thresholds', () => {
     assert.deepEqual(thresholdsFor(config, '/docs/'), { performance: 0.9, seo: 1 });
     assert.deepEqual(thresholdsFor(config, '/app/docs'), { performance: 0.85, seo: 1 });
     assert.deepEqual(thresholdsFor(config, '/app/showcase'), { performance: 0.75, seo: 1 });
+  });
+});
+
+describe('lighthouse categories', () => {
+  it('runs override-only categories and reports a null score as unavailable', async () => {
+    const cwd = fixture({ 'dist/index.html': '<!doctype html><title>x</title>' });
+    const config = defaults(cwd);
+    config.lighthouse = {
+      ...config.lighthouse,
+      urls: ['/'],
+      thresholds: { seo: 1 },
+      overrides: [{ match: '^/$', thresholds: { accessibility: 1 } }],
+    };
+    const ran: string[][] = [];
+    const context = {
+      config,
+      root: cwd,
+      origin: ORIGIN,
+      resolve: (...parts: string[]) => join(cwd, ...parts),
+      importPeer: async () => ({
+        default: async (_url: string, flags: { onlyCategories: string[] }) => {
+          ran.push(flags.onlyCategories);
+          return {
+            lhr: {
+              categories: {
+                seo: { score: 1, auditRefs: [] },
+                accessibility: { score: null, auditRefs: [] },
+              },
+              audits: {},
+            },
+            report: '<html></html>',
+          };
+        },
+      }),
+      launchBrowser: async () => ({ wsEndpoint: () => 'ws://127.0.0.1:9/', close: async () => {} }),
+      pageUrls: () => [],
+      log: () => {},
+    } as unknown as AuditContext;
+    const result = await lighthouse.run(context);
+    assert.deepEqual(ran, [['seo', 'accessibility']]);
+    assert.deepEqual(result?.findings, []);
+  });
+});
+
+describe('lighthouse runs', () => {
+  it('scores the median of several runs and passes the desktop preset', async () => {
+    const cwd = fixture({});
+    const config = defaults(cwd);
+    config.lighthouse = {
+      ...config.lighthouse,
+      urls: ['/'],
+      thresholds: { performance: 0 },
+      preset: 'desktop',
+      runs: 3,
+    };
+    const scores = [0.9, 0.5, 0.7];
+    const seen: unknown[] = [];
+    const logged: string[] = [];
+    const context = {
+      config,
+      root: cwd,
+      origin: ORIGIN,
+      resolve: (...parts: string[]) => join(cwd, ...parts),
+      importPeer: async () => ({
+        default: async (_url: string, flags: { formFactor?: string }) => {
+          seen.push(flags.formFactor);
+          return {
+            lhr: {
+              categories: { performance: { score: scores.shift(), auditRefs: [] } },
+              audits: {},
+            },
+            report: '<html></html>',
+          };
+        },
+      }),
+      launchBrowser: async () => ({ wsEndpoint: () => 'ws://127.0.0.1:9/', close: async () => {} }),
+      pageUrls: () => [],
+      log: (line: string) => logged.push(line),
+    } as unknown as AuditContext;
+    await lighthouse.run(context);
+    assert.deepEqual(seen, ['desktop', 'desktop', 'desktop']);
+    assert.match(logged[0] ?? '', /performance 70/);
   });
 });
 
