@@ -1,5 +1,29 @@
 # vidimus
 
+## 0.15.0
+
+### Minor Changes
+
+- 05e05f7: The csp audit now reports `style=` attributes, `on*=` event handlers and `javascript:` hrefs that the page CSP blocks.
+- 05e05f7: forms: the CSRF check now also covers POSTs sent by fetch/XHR from the submit handler, not only native form submits.
+- 05e05f7: Add `forms.ignoreRequests` to leave matching URLs (analytics beacons) out of the requests the forms audit records.
+- 05e05f7: Add `links.checkFragments`, `links.checkCss` and `links.warnRedirects` options that map to linkinator and report redirects as warnings.
+- 05e05f7: security audit now flags `*`, `https:` and `data:` in script-src, missing object-src and base-uri, and frame-ancestors, report-uri and sandbox in a meta CSP.
+
+### Patch Changes
+
+- 05e05f7: forms: reload the form before every case so canary values from a blocked or not-submitted case no longer leak into the next one.
+- 05e05f7: CSP parsing keeps the case of source paths and uses the first of duplicate directives, as the spec requires.
+- 05e05f7: The dist root no longer resolves to a sibling `dist.html` outside the build directory.
+- 05e05f7: A root href without the siteUrl base path no longer resolves to the build, so `links` reports it as broken.
+- 05e05f7: With `links.checkExternal: false`, absolute links to `siteUrl` are checked against the build instead of being skipped.
+- 05e05f7: csp audit now checks inline blocks against their effective directive (script-src/style-src, falling back to default-src), accepts sha384/sha512 hashes, and ignores non-JS script types.
+- 05e05f7: forms: count only requests sent after submit, so background fetches no longer cause false "sent empty" errors.
+- 05e05f7: Translated pages named by a bare locale or `.html` file (`/fr` and `fr.html`) are now left out of the default page list, like the `fr/` pages.
+- 05e05f7: The csp audit now reads meta CSP tags regardless of attribute order, quoting or line breaks, so inline hashes on such pages are checked.
+- 05e05f7: Page URLs now percent-encode `#`, `?` and `%` in filenames, so such pages are no longer cut at the fragment or query or left undecodable.
+- 05e05f7: Page filenames for shots, lighthouse and forms no longer collide when URLs differ only by `/` versus `_` (such as `/a/b/` and `/a_b/`), so existing baselines for paths containing `_` or `%` may be renamed.
+
 ## 0.14.1
 
 ### Patch Changes
