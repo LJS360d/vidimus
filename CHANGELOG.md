@@ -1,5 +1,72 @@
 # vidimus
 
+## 0.16.0
+
+### Minor Changes
+
+- 58f8a26: a11y audit waits for `render.waitFor` before running pa11y, so client-rendered content is tested.
+- 58f8a26: Add `shots.antialiasing` to ignore anti-aliased edge pixels when comparing screenshots.
+- 58f8a26: Add `a11y.runner` (`htmlcs` or `axe`) and `a11y.includeWarnings` to pick the pa11y runner and report pa11y warnings as `warn` findings.
+- 58f8a26: budget audit can measure with brotli or no compression (`budget.compression`) and uses precompressed `.br`/`.gz` files next to assets by their size on disk.
+- 58f8a26: The budget audit now counts preloaded and @font-face fonts in the page total in static mode.
+- 58f8a26: budget counts one image candidate per `<img>`/`<picture>` instead of every `srcset` and `<source>` variant.
+- 58f8a26: budget audit caps requests per rendered page and third-party requests (`budget.requests`, `budget.thirdParty`).
+- 58f8a26: SEO audit now warns about indexable pages that robots.txt rules disallow for `User-agent: *` (or Googlebot).
+- 58f8a26: `routes.discover: 'sitemap'` now follows `Sitemap:` lines in robots.txt and reads `.xml.gz` sitemaps.
+- 58f8a26: Config validation now rejects invalid `server.fallbackStatus`, `a11y.standard` and `forms.stub` values, and a run with no audits selected warns on stderr.
+- 58f8a26: The forms audit now discovers and probes form-associated custom elements as fields.
+- 58f8a26: The i18n audit reads gettext PO locale files as well as JSON.
+- 58f8a26: The security audit now also reads headers from vercel.json, netlify.toml, firebase.json and staticwebapp.config.json.
+- 58f8a26: SEO audit now validates hreflang language codes, self-reference and x-default.
+- 58f8a26: The html audit now also reads `.htmlvalidate.js`, `.htmlvalidate.cjs` and `.htmlvalidate.mjs` config files.
+- 58f8a26: Add `lighthouse.preset` (`desktop`) and `lighthouse.runs` to score each page by the median of several Lighthouse runs.
+- 58f8a26: Findings can carry an optional `line`; the `html` audit sets it and the GitHub reporter emits `line=` in annotations.
+- 58f8a26: The assets audit now validates the web app manifest's `start_url`, `scope`, `display` and maskable icon, and warns when an icon's declared `sizes` differ from its measured size.
+- 58f8a26: Check `og:image:alt`, `og:image:width`/`height` against the measured image, and a missing or unsupported `twitter:image` in the assets audit.
+- 58f8a26: The assets audit flags an og:image in SVG or AVIF format, or heavier than 1 MB (error over 8 MB).
+- 58f8a26: budget audit accepts per-route limit overrides (`budget.routes`, pattern to limits, first match wins).
+- 58f8a26: The i18n audit now warns when a translation drops or adds a placeholder (`{name}`, `{{name}}`, ICU argument) compared with the default locale.
+- 58f8a26: Added a `sarif` reporter that writes a SARIF 2.1.0 log for GitHub code scanning.
+- 58f8a26: SEO audit now reads the page title from `<head>` only and reports invalid `<html lang>` codes.
+- 58f8a26: The seo audit now reads gzipped `.xml.gz` sitemaps and reports sitemaps over the 50,000 URL or 50 MB limits.
+- 58f8a26: Runs now print a stderr note counting stale baseline entries of the audits that ran, with a hint to re-run `--accept-findings` to prune them.
+- 58f8a26: Add `timeout` and `auditTimeout` (`--timeout`, `--audit-timeout`) so a hung audit errors, or the whole run stops with exit code `2`, instead of hanging CI.
+- 58f8a26: Add `shots.overrides` to set `tolerance` and `maxDiff` per page pattern and per viewport width.
+- 58f8a26: Add opt-in `baseline.matchWhere` to match accepted findings by their page list too.
+- 58f8a26: forms audit now probes contenteditable and role=textbox fields, select multiple, and checkbox groups.
+- 58f8a26: The seo audit now treats an `X-Robots-Tag: noindex` response header (live or from `_headers`) as noindex.
+
+### Patch Changes
+
+- 58f8a26: `--accept-findings` now keeps the accepted baseline entries of audits that were skipped in the run, instead of dropping them.
+- 58f8a26: SEO audit now flags robots.txt `Disallow: /*` and full blocks for named user agents, not only `Disallow: /` under `User-agent: *`.
+- 58f8a26: A failing renderer close no longer skips closing the static server and the browsers, so a run can no longer hang after one.
+- 58f8a26: r12s and a11y audits report a failing per-page setViewport as a finding and ignore failing page close instead of failing the whole audit.
+- 58f8a26: A malformed or non-object `.htmlvalidate.json` now fails the html audit with an error naming the file, instead of a raw parse exception.
+- 58f8a26: Lighthouse audit now runs categories that appear only in overrides and reports a null category score as unavailable instead of 0.
+- 58f8a26: SEO audit now treats robots meta `content="none"` as noindex, as the robots spec defines it.
+- 58f8a26: SEO audit now treats a meta refresh with a delay and bare URL (e.g. `content="0; /new/"`) as a redirect stub, skipping it like `url=` redirects.
+- 58f8a26: SEO audit now reports hreflang targets and canonical links that point at a noindex page or redirect, and canonical chains.
+- 58f8a26: SEO audit now reports robots.txt `Sitemap:` lines and sitemap index entries that point at a foreign origin or at a file missing from the build.
+- 58f8a26: The SEO audit now skips its robots.txt checks when the site is served under a base path, since robots.txt only applies at the host root.
+- 58f8a26: The i18n audit now ignores plural-suffix differences between locales and compares array items.
+- 58f8a26: The forms audit now closes the browser context of a page that fails to open instead of leaking it.
+- 58f8a26: Forms audit now re-finds each form by fingerprint when it reopens a page, so a form that mounts earlier on a later load no longer gets another form's cases; forms whose DOM order changed between loads may be named differently in `.vidimus/forms/` baselines.
+- 58f8a26: A shot whose baseline cannot be compared is now reported as a finding for that shot instead of failing the whole shots audit.
+- 58f8a26: `meta()` audits now match a `<meta>` tag by either its `name` or its `property` attribute.
+- 58f8a26: Manifest icons are now checked by their measured pixel size when the file can be read, so a 192px icon no longer passes the 512px check by declaring `sizes: "512x512"`.
+- 58f8a26: Budget audit no longer counts `nomodule` legacy scripts toward the JS total.
+- 58f8a26: Accepted-baseline matching now ignores `:line:col` locations in finding details, so editing a file no longer reopens accepted findings; baselines whose details contain such locations need re-accepting once.
+- 58f8a26: The shared browser is now released when opening its context fails, and every browser an audit launched is closed at the end of a run so Chrome never outlives vidimus.
+- 58f8a26: Config validation now rejects `severity` keys that are not audit names and values that are not `error`, `warn` or `off`, instead of silently ignoring them.
+- 58f8a26: Config validation no longer rejects CSS selectors in `forms.skip` as invalid regular expressions.
+- 58f8a26: A reporter failing during one audit no longer closes the server and browser while other audits are still running.
+- 58f8a26: Stop parallel workers from taking new items once one task has failed.
+- 58f8a26: The budget audit now measures SVG, JSON, XML, text and wasm files gzipped instead of raw, so page totals may drop.
+- 58f8a26: Security header check now reports a non-2xx response instead of auditing the error page's headers.
+- 58f8a26: Forms audit no longer lets a failed screenshot setup or upload leak page handles or abort the form check.
+- 58f8a26: Fix false "missing title" errors on pages that omit the optional head element.
+
 ## 0.15.0
 
 ### Minor Changes
