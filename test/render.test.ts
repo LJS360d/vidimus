@@ -101,6 +101,43 @@ describe('rendered DOM', { skip: noBrowser }, () => {
     assert.ok(!rendered.includes('no <h1>'));
   });
 
+  it('seeds browser.state before the page scripts run', async () => {
+    const cwd = fixture({
+      'dist/index.html': `<!doctype html><html lang="en"><body><div id="root"></div>
+<script>
+document.title = [localStorage.getItem('consent'), sessionStorage.getItem('tab'),
+  document.cookie, window.injected].join(' ');
+document.body.dataset.ready = '';
+</script></body></html>`,
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['seo'],
+      reporters: [],
+      overrides: {
+        port: 0,
+        siteUrl: 'https://example.com',
+        render: { mode: 'on', waitFor: 'body[data-ready]' },
+        // Only the fully seeded title, 'denied two c=1 yes', is 18 characters long.
+        seo: { titleLength: { min: 18, max: 18 } },
+        browser: {
+          state: {
+            localStorage: { consent: 'denied' },
+            sessionStorage: { tab: 'two' },
+            cookies: [{ name: 'c', value: '1' }],
+            script: 'window.injected = "yes"',
+          },
+        },
+      },
+    });
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.ok(
+      !messages.some((message) => message.startsWith('title outside')),
+      messages.join('\n'),
+    );
+  });
+
   it('renders only the pages render.include matches', async () => {
     const rendered = { mode: 'on', waitFor: '#root[data-ready]' };
     const skipped = messages(

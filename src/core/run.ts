@@ -10,7 +10,8 @@ import { MissingPeerError, UsageError } from './errors.ts';
 import { applyIgnore, readBaseline, settle, subtractBaseline, writeBaseline } from './findings.ts';
 import { createPageReader } from './html.ts';
 import { createPageUrls, pageUrlOf } from './pages.ts';
-import { importPeer, launchBrowser, sharedBrowser } from './peer.ts';
+import { importPeer, launchBrowser, sharedBrowser, withState } from './peer.ts';
+import type { Browser } from './peer-types.ts';
 import { type ProfileLevel, span, startProfile, stopProfile } from './profile.ts';
 import { createRenderer } from './render.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
@@ -140,8 +141,12 @@ const execute = async (
     }
   };
 
+  // `origin` is read lazily: no page opens before the server answers.
+  const stateful = async (launched: Promise<Browser>) =>
+    withState(await launched, config.browser.state, origin);
   const browser = sharedBrowser(() => launchBrowser(config));
-  const renderer = createRenderer(config, browser);
+  const statefulBrowser = () => stateful(browser());
+  const renderer = createRenderer(config, statefulBrowser);
   const server =
     needsServer && !config.origin
       ? await span('serve', () => startServer(config, dist, renderer.snapshot))
@@ -195,7 +200,7 @@ const execute = async (
       log: (line = '') => log.push(...line.split('\n')),
       span,
       importPeer,
-      launchBrowser: (options) => (options ? launchBrowser(config, options) : browser()),
+      launchBrowser: (options) => stateful(options ? launchBrowser(config, options) : browser()),
     };
     let settled: Pick<AuditResult, 'status' | 'summary' | 'findings'>;
     let suppressed = 0;

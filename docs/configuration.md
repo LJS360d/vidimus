@@ -147,6 +147,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `reports` | `[]` | `json` and/or `junit`, always written to `<outDir>/report.json` / `report.xml` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
+| `browser.state` | `{}` | `localStorage`, `sessionStorage`, `cookies` and a `script` seeded into every page a browser audit opens, see [below](#browser-state) |
 | `server.command` | `''` | serve the build with this shell command instead of the built-in server; `{port}` and `{dist}` are filled in (`--serve`), see [Serving the build](./serving) |
 | `server.startTimeout` | `60000` | milliseconds to wait for `server.command` to answer |
 | `server.gzip` | `true` | gzip text responses of the built-in server |
@@ -163,6 +164,28 @@ opened, under it. See [How it works](./how-it-works#base-paths).
 
 `browser.args` is an array, so setting it replaces the defaults: keep `--no-sandbox` in the list
 when Chrome runs as root in a container.
+
+### Browser state
+
+`browser.state` puts every page that a browser audit opens (rendering, `a11y`, `r12s`, `shots`,
+`privacy`, `forms`, plugins through `launchBrowser`) in a known state before its own scripts run:
+a dismissed consent banner, a signed-in session, a feature flag.
+
+```ts
+browser: {
+  state: {
+    localStorage: { consent: 'denied' },
+    sessionStorage: { tour: 'done' },
+    cookies: [{ name: 'session', value: process.env.SESSION ?? '' }],
+    script: 'window.__E2E__ = true',
+  },
+},
+```
+
+Storage and `script` run on every new document, before any page script. Cookies default to the
+audited origin's host and path `/`; set `domain`, `path`, `secure`, `httpOnly` or `sameSite` to
+change that. `script` is JavaScript source, not a function, so it cannot close over config values:
+build the string instead. Lighthouse runs its own navigation and does not see the state.
 
 ## Severity, ignores and the findings baseline
 

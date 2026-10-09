@@ -1,6 +1,6 @@
-import type { VidimusConfig } from '../config/types.ts';
+import type { BrowserState, VidimusConfig } from '../config/types.ts';
 import { MissingPeerError } from './errors.ts';
-import type { Browser, LaunchOptions } from './peer-types.ts';
+import type { Browser, LaunchOptions, Page } from './peer-types.ts';
 import { instrument, span } from './profile.ts';
 
 const isMissing = (error: unknown, peer: string) =>
@@ -59,6 +59,47 @@ export const sharedBrowser = (launch: () => Promise<Browser>) => {
       },
     });
   };
+};
+
+// Runs in the page before its own scripts, so it must stay self-contained.
+const seed = (local: Record<string, string>, session: Record<string, string>) => {
+  try {
+    for (const [key, value] of Object.entries(local)) localStorage.setItem(key, value);
+    for (const [key, value] of Object.entries(session)) sessionStorage.setItem(key, value);
+  } catch {} // about:blank and opaque origins have no storage
+};
+
+// Every page opened through the returned browser, or a context it creates, gets `state`.
+export const withState = (browser: Browser, state: BrowserState, origin: string): Browser => {
+  const { localStorage, sessionStorage, cookies, script } = state;
+  const storage = Object.keys(localStorage).length + Object.keys(sessionStorage).length > 0;
+  if (!storage && !cookies.length && !script) return browser;
+  const prepare = async (page: Page) => {
+    if (storage) await page.evaluateOnNewDocument(seed, localStorage, sessionStorage);
+    if (script) await page.evaluateOnNewDocument(script);
+    if (cookies.length)
+      await page.browserContext().setCookie(
+        ...cookies.map(({ domain, path = '/', ...cookie }) => ({
+          ...cookie,
+          path,
+          domain: domain ?? new URL(origin).hostname,
+        })),
+      );
+    return page;
+  };
+  const wrap = <T extends object>(target: T): T =>
+    new Proxy(target, {
+      get(object, property) {
+        const value = Reflect.get(object, property, object);
+        if (typeof value !== 'function') return value;
+        if (property === 'newPage')
+          return async (...args: unknown[]) => prepare(await value.apply(object, args));
+        if (property === 'createBrowserContext')
+          return async (...args: unknown[]) => wrap(await value.apply(object, args));
+        return value.bind(object);
+      },
+    });
+  return wrap(browser);
 };
 
 export const launchBrowser = async (

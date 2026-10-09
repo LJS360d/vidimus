@@ -48,6 +48,26 @@ export interface NavigateOptions {
   timeout: number;
 }
 
+export interface StateCookie {
+  name: string;
+  value: string;
+  /** Defaults to the audited origin. */
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}
+
+/** State seeded into every page a browser audit opens, before any page script runs. */
+export interface BrowserState {
+  localStorage: Record<string, string>;
+  sessionStorage: Record<string, string>;
+  cookies: StateCookie[];
+  /** JavaScript source evaluated on every new document, before the page's own scripts. */
+  script: string;
+}
+
 export interface VidimusConfig {
   root: string;
   distDir: string;
@@ -84,6 +104,7 @@ export interface VidimusConfig {
   browser: {
     args: string[];
     executablePath: string;
+    state: BrowserState;
   };
   server: {
     command: string;

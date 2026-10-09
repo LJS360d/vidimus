@@ -9,6 +9,8 @@ const OPEN_RECORDS = new Set([
   'severity',
   'security.require',
   'html.rules',
+  'browser.state.localStorage',
+  'browser.state.sessionStorage',
 ]);
 
 export const checkKeys = (

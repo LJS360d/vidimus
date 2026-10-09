@@ -42,6 +42,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
   browser: {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
     executablePath: '',
+    state: { localStorage: {}, sessionStorage: {}, cookies: [], script: '' },
   },
   server: {
     command: '',
