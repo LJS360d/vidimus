@@ -7,7 +7,7 @@ import { createGzip } from 'node:zlib';
 import type { VidimusConfig } from '../config/types.ts';
 import { UsageError } from './errors.ts';
 import { localFile } from './html.ts';
-import { fallbackFor, regex, stripBase } from './util.ts';
+import { fallbackFor, regex, stripBase, underBase } from './util.ts';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -82,7 +82,7 @@ const handle = (
     res.writeHead(200, { 'content-type': TYPES['.html'] }).end(rendered);
     return;
   }
-  const found = localFile(dist, pathname) ?? localFile(dist, stripBase(pathname, siteUrl));
+  const found = underBase(pathname, siteUrl) ? localFile(dist, stripBase(pathname, siteUrl)) : null;
   const fallbackFile =
     found || !wantsPage(req, pathname)
       ? ''

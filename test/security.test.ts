@@ -12,7 +12,7 @@ const GOOD_HEADERS = `# security headers
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=()
-  Content-Security-Policy: default-src 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'
 `;
 
 const page = (body = '<p>hi</p>') => `<!doctype html><title>t</title>${body}`;
@@ -149,6 +149,28 @@ describe('security audit', () => {
     assert.deepEqual(evals?.where, ['/hashed/']);
   });
 
+  it('warns on weak CSP sources, missing object-src/base-uri and directives meta ignores', async () => {
+    const result = await audit({
+      'dist/index.html': page(
+        `<meta http-equiv="content-security-policy" content="script-src * data:; frame-ancestors 'self'; sandbox">`,
+      ),
+      'dist/ok/index.html': page(
+        `<meta http-equiv="content-security-policy" content="script-src 'self'; object-src 'none'; base-uri 'self'">`,
+      ),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.deepEqual(messages(result), [
+      'CSP script-src allows *',
+      'CSP script-src allows data:',
+      'CSP lacks object-src',
+      'CSP lacks base-uri',
+      '<meta> CSP ignores frame-ancestors',
+      '<meta> CSP ignores sandbox',
+    ]);
+    assert.ok(result.findings.every(({ fix }) => fix));
+    assert.deepEqual(result.findings[0]?.where, ['/']);
+  });
+
   it('fails on mixed content but not on plain http links', async () => {
     const result = await audit({
       'dist/index.html': page(`<img src="http://cdn.test/a.png">
@@ -206,7 +228,7 @@ describe('security audit', () => {
         security: { require: { 'x-custom': '^yes$' } },
       }),
     });
-    assert.equal(result.findings.length, 10);
+    assert.equal(result.findings.length, 12);
     for (const { message, fix } of result.findings) assert.ok(fix?.trim(), message);
     const fixOf = (text: string) =>
       result.findings.find(({ message }) => message.includes(text))?.fix ?? '';

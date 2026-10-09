@@ -124,7 +124,15 @@ const checkIgnoreRules = (rules: unknown) => {
   });
 };
 
-const PATTERN_LISTS = ['exclude', 'include', 'sample', 'allow', 'allowNoindex', 'skip'];
+const PATTERN_LISTS = [
+  'exclude',
+  'include',
+  'sample',
+  'allow',
+  'ignoreRequests',
+  'allowNoindex',
+  'skip',
+];
 
 const checkPattern = (at: string, pattern: unknown) => {
   if (typeof pattern !== 'string') throw new UsageError(`${at}: must be a string`);

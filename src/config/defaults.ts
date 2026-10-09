@@ -78,6 +78,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     maxCases: 200,
     values: {},
     allowRequests: [],
+    ignoreRequests: [],
     stub: 'abort',
     allowRemote: false,
     outDir: 'forms',
@@ -124,6 +125,9 @@ export const defaults = (cwd: string): VidimusConfig => ({
     timeout: 20_000,
     checkExternal: true,
     retry: true,
+    checkFragments: false,
+    checkCss: false,
+    warnRedirects: false,
     notFound: {
       selector: '',
       text: '',

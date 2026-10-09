@@ -31,7 +31,7 @@ A target counts as broken when linkinator reports it `BROKEN`: an HTTP error sta
 
 - **Internal links** are requested from the local server, so they are checked against the files in the build.
 - **Absolute links to your own site** (`https://example.org/about/`) are rewritten onto the audit origin when `siteUrl` is set, so they are checked against the build too, not against the version currently in production. Without `siteUrl` they are checked as external links.
-- **External links** are requested from the internet when `links.checkExternal` is `true` (the default). Their pages are not crawled further. With `checkExternal: false`, every URL outside the audit origin is skipped.
+- **External links** are requested from the internet when `links.checkExternal` is `true` (the default). Their pages are not crawled further. With `checkExternal: false`, every URL outside the audit origin and `siteUrl` is skipped.
 - **Skipped links**: any URL matching a pattern in `links.skip`. `mailto:` and `tel:` are skipped by default.
 
 Each broken target is one finding, however many pages link to it. The message is the status code (or `ERR` when there was no response) and the URL; `on:` lists the pages that link to it, or `(root)` when a start page itself failed.
@@ -75,6 +75,9 @@ Internal targets are shown on the audit origin (`http://localhost:4322/…`), si
 | `links.timeout` | `20000` | ms per request |
 | `links.retry` | `true` | retry `429` responses (after their `retry-after`), `5xx` responses and failed requests |
 | `links.concurrency` | `25` | requests in flight at the same time |
+| `links.checkFragments` | `false` | verify that `#fragment` links match an id on the target page |
+| `links.checkCss` | `false` | also check URLs referenced from CSS |
+| `links.warnRedirects` | `false` | report links that redirect, as warnings that name the final URL |
 | `links.notFound.selector` | `''` | with rendering: a CSS selector of the app's not-found view |
 | `links.notFound.text` | `''` | with rendering: a regular expression matched against the page text of the not-found view |
 | `siteUrl` | `''` | top level: your production origin, so absolute self-links are checked against the build |

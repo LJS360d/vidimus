@@ -15,7 +15,9 @@ describe('csp audit', () => {
 <style>body{color:red}</style>`;
 
   it('flags inline blocks whose hash is missing', async () => {
-    const cwd = fixture({ 'dist/index.html': page(`script-src 'self' '${hash(allowed)}'`) });
+    const cwd = fixture({
+      'dist/index.html': page(`script-src '${hash(allowed)}'; style-src 'self'`),
+    });
     const { ok, results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
     assert.equal(ok, false);
     assert.equal(results[0]?.findings.length, 1);
@@ -33,6 +35,41 @@ describe('csp audit', () => {
     assert.equal(ok, true);
   });
 
+  it('checks hashes per effective directive', async () => {
+    const sha512 = (body: string) => `sha512-${createHash('sha512').update(body).digest('base64')}`;
+    const css = 'body{color:red}';
+    const count = async (policy: string, html = page(policy)) => {
+      const cwd = fixture({ 'dist/index.html': html });
+      const { results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
+      return results[0]?.findings.length ?? 0;
+    };
+    assert.equal(await count(`script-src '${hash(allowed)}'`), 0);
+    assert.equal(await count('upgrade-insecure-requests'), 0);
+    assert.equal(await count("script-src 'unsafe-inline'; style-src 'unsafe-inline'"), 0);
+    assert.equal(await count(`default-src 'self' '${hash(allowed)}' '${hash(css)}'`), 0);
+    assert.equal(await count(`script-src '${sha512(allowed)}'; style-src '${sha512(css)}'`), 0);
+    assert.equal(await count("default-src 'self'; script-src 'unsafe-inline'"), 1);
+    const template = `<meta http-equiv="content-security-policy" content="script-src '${hash(allowed)}'">
+<script>${allowed}</script><script type="text/x-template"><b>hi</b></script>`;
+    assert.equal(await count('', template), 0);
+  });
+
+  it('flags style attributes, event handlers and javascript: URLs the CSP blocks', async () => {
+    const markup = `<p style="color:red" onclick="go()"><a href="javascript:void(0)">x</a></p>`;
+    const count = async (policy: string) => {
+      const cwd = fixture({ 'dist/index.html': page(policy) + markup });
+      const { results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
+      return (
+        results[0]?.findings.filter(({ message }) => /^inline \w+= attr/.test(message)).length ?? 0
+      );
+    };
+    assert.equal(await count("script-src 'self'; style-src 'self'"), 3);
+    assert.equal(await count("default-src 'self'"), 3);
+    assert.equal(await count("script-src 'unsafe-inline'; style-src 'unsafe-inline'"), 0);
+    assert.equal(await count("script-src 'self'; style-src-attr 'unsafe-inline'"), 2);
+    assert.equal(await count("script-src-attr 'unsafe-inline'; script-src 'self'"), 1);
+  });
+
   it('checks uppercase tags and data-src, and ignores commented-out blocks', async () => {
     const policy = `script-src '${hash(allowed)}'`;
     const cwd = fixture({
@@ -47,6 +84,18 @@ describe('csp audit', () => {
       results[0]?.findings.map(({ details }) => details?.[0]),
       ['upper()…', 'inline()…'],
     );
+  });
+
+  it('reads a multi-line meta CSP with content before http-equiv', async () => {
+    const cwd = fixture({
+      'dist/index.html': `<!doctype html>
+<meta
+  content="script-src 'self'"
+  http-equiv=content-security-policy>
+<script>${allowed}</script>`,
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
+    assert.match(results[0]?.findings[0]?.message ?? '', /inline <script> has no CSP hash/);
   });
 
   it('skips when no page declares a CSP', async () => {

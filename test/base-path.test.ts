@@ -17,6 +17,29 @@ describe('sites under a base path', () => {
     assert.equal(resolveHref(`${SITE}/guide`, '/', SITE)?.path, '/guide');
   });
 
+  it('does not resolve root hrefs missing the base path', async () => {
+    assert.equal(resolveHref('/favicon.svg', '/', SITE)?.path, null);
+    assert.equal(resolveHref('/favicon.svg', '/', 'https://example.org')?.path, '/favicon.svg');
+    const cwd = fixture({ 'dist/index.html': '<title>home</title>', 'dist/favicon.svg': '<svg/>' });
+    let status = 0;
+    const probe: Audit = {
+      name: 'probe',
+      description: 'fetches a path without the base',
+      async run({ origin }) {
+        status = (await fetch(`${new URL(origin).origin}/favicon.svg`)).status;
+        return { summary: 'ok' };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['probe'],
+      reporters: [],
+      overrides: { siteUrl: SITE, port: 4392, plugins: [probe] },
+    });
+    assert.equal(status, 404);
+  });
+
   it('finds sitemap entries and assets published under the base path', async () => {
     const head = (path: string) => `<link rel="canonical" href="${SITE}${path}">
 <meta name="description" content="A description that is comfortably long enough for the check of ${path}.">

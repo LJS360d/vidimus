@@ -2,14 +2,23 @@ import { tags } from './html.ts';
 
 export type Policy = Map<string, string[]>;
 
-export const parsePolicy = (policy: string): Policy =>
-  new Map(
-    policy
-      .split(';')
-      .map((directive) => directive.trim().split(/\s+/))
-      .filter(([name]) => name)
-      .map(([name = '', ...values]) => [name.toLowerCase(), values.map((v) => v.toLowerCase())]),
-  );
+const CASE_SENSITIVE = /^'(?:sha\d+|nonce)-/i;
+
+const lowerOrigin = (source: string) =>
+  CASE_SENSITIVE.test(source)
+    ? source
+    : source.replace(/^(?:[^:/\s]+:\/\/)?[^/]*/, (origin) => origin.toLowerCase());
+
+export const parsePolicy = (policy: string): Policy => {
+  const parsed: Policy = new Map();
+  for (const [name = '', ...values] of policy
+    .split(';')
+    .map((directive) => directive.trim().split(/\s+/))) {
+    const key = name.toLowerCase();
+    if (key && !parsed.has(key)) parsed.set(key, values.map(lowerOrigin));
+  }
+  return parsed;
+};
 
 export const headerPolicies = (headers: Record<string, string>) =>
   (headers['content-security-policy'] ?? '').split(',').filter((policy) => policy.trim());

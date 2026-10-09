@@ -99,6 +99,38 @@ const unsafeSources = (policy: Policy) => {
   ];
 };
 
+const META_IGNORED = ['frame-ancestors', 'report-uri', 'sandbox'];
+
+const weakCsp = (policy: Policy, meta: boolean): [string, string][] => {
+  const scripts = policy.get('script-src') ?? policy.get('default-src');
+  if (!scripts) return [];
+  const where = policy.has('script-src') ? 'script-src' : 'default-src';
+  const out: [string, string][] = [];
+  for (const source of ['*', 'https:', 'data:']) {
+    if (scripts.includes(source)) {
+      out.push([
+        `CSP ${where} allows ${source}`,
+        `Replace ${source} in ${where} with the exact origins, nonces or hashes your scripts need.`,
+      ]);
+    }
+  }
+  if (!policy.has('object-src') && !policy.has('default-src')) {
+    out.push(['CSP lacks object-src', "Add object-src 'none' to the CSP."]);
+  }
+  if (!policy.has('base-uri')) {
+    out.push(['CSP lacks base-uri', "Add base-uri 'self' (or 'none') to the CSP."]);
+  }
+  if (meta) {
+    for (const name of META_IGNORED.filter((directive) => policy.has(directive))) {
+      out.push([
+        `<meta> CSP ignores ${name}`,
+        `Move ${name} to a Content-Security-Policy header; browsers ignore it in <meta>.`,
+      ]);
+    }
+  }
+  return out;
+};
+
 const RESOURCES: Record<string, string[]> = {
   script: ['src'],
   img: ['src', 'srcset'],
@@ -383,6 +415,13 @@ export const security: Audit = {
           ...metaPolicies(page.html),
         ];
         const unsafe = new Set(policies.flatMap((policy) => unsafeSources(parsePolicy(policy))));
+        const weak = new Map(
+          [
+            ...(received ? headerPolicies(received) : []).map((policy) => [policy, false] as const),
+            ...metaPolicies(page.html).map((policy) => [policy, true] as const),
+          ].flatMap(([policy, meta]) => weakCsp(parsePolicy(policy), meta)),
+        );
+        for (const [message, fix] of weak) report(message, where, { severity: 'warn', fix });
         for (const keyword of unsafe) {
           report(`CSP allows ${keyword} scripts`, where, {
             severity: 'warn',

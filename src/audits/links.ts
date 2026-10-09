@@ -12,7 +12,10 @@ interface LinkResult {
   parent?: string;
 }
 
-export const brokenLinkFix = (status: number | undefined) => {
+export const brokenLinkFix = (status: number | undefined, url = '') => {
+  if (status === 200 && url.includes('#')) {
+    return 'Fix the #fragment so it matches an id on the target page, or remove it.';
+  }
   if (status === 404 || status === 410) {
     return 'Fix or remove the link on the pages listed, or add a pattern to links.skip if the target blocks bots.';
   }
@@ -65,10 +68,18 @@ export const links: Audit = {
     const site = config.siteUrl.replace(/\/$/, '');
     const checker = new LinkChecker();
     const broken: LinkResult[] = [];
+    const redirected = new Map<string, string>();
+    const parents = new Map<string, Set<string>>();
     let scanned = 0;
 
+    checker.on('redirect', ({ url, targetUrl }: { url: string; targetUrl?: string }) => {
+      redirected.set(url, targetUrl ?? '');
+    });
     checker.on('link', (result: LinkResult) => {
       scanned += 1;
+      const set = parents.get(result.url) ?? new Set();
+      set.add(result.parent ? pathOf(result.parent, origin) : '(root)');
+      parents.set(result.url, set);
       if (result.state === 'BROKEN') broken.push(result);
     });
 
@@ -79,13 +90,20 @@ export const links: Audit = {
       timeout: config.links.timeout,
       retry: config.links.retry,
       retryErrors: config.links.retry,
+      checkCss: config.links.checkCss,
+      checkFragments: config.links.checkFragments,
+      redirects: config.links.warnRedirects ? 'warn' : 'allow',
       ...(snapshots && { headers: { [RENDERED_HEADER]: '1' } }),
       urlRewriteExpressions: site
         ? [{ pattern: new RegExp(`^${escapeRegExp(site)}(?=[/?#]|$)`), replacement: origin }]
         : [],
       linksToSkip: [
         ...config.links.skip,
-        ...(config.links.checkExternal ? [] : [`^(?!${escapeRegExp(origin)})`]),
+        ...(config.links.checkExternal
+          ? []
+          : [
+              `^(?!${[escapeRegExp(origin), site && `${escapeRegExp(site)}(?=[/?#]|$)`].filter(Boolean).join('|')})`,
+            ]),
       ],
     });
 
@@ -99,8 +117,17 @@ export const links: Audit = {
     const findings: Finding[] = [...byTarget].map(([url, { status, sources }]) => ({
       message: `${status || 'ERR'} ${url}`,
       where: [...sources],
-      fix: brokenLinkFix(status),
+      fix: brokenLinkFix(status, url),
     }));
+
+    for (const [url, target] of redirected) {
+      findings.push({
+        message: `redirect ${url}${target ? ` -> ${target}` : ''}`,
+        where: [...(parents.get(url) ?? [])],
+        severity: 'warn',
+        fix: 'Link to the final URL directly to save a request, or add a pattern to links.skip.',
+      });
+    }
 
     const { selector, text } = config.links.notFound;
     if (renderPage && (selector || text)) {
@@ -115,9 +142,10 @@ export const links: Audit = {
       }
     }
     return {
-      summary: findings.length
-        ? `${findings.length} broken target(s) out of ${scanned} links checked`
-        : `${scanned} links checked across ${urls.length} pages, none broken`,
+      summary:
+        findings.length > redirected.size
+          ? `${findings.length - redirected.size} broken target(s) out of ${scanned} links checked`
+          : `${scanned} links checked across ${urls.length} pages, none broken`,
       findings,
     };
   },

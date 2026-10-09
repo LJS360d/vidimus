@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { MissingPeerError } from '../src/core/errors.ts';
 import { decodeEntities, srcsetUrls, stripComments, tags, textOf } from '../src/core/html.ts';
+import { pageUrlOf } from '../src/core/pages.ts';
 import { importPeer, sharedBrowser } from '../src/core/peer.ts';
 import type { Browser, Page } from '../src/core/peer-types.ts';
 import { serve } from '../src/core/server.ts';
-import { inParallel, inParallelTabs } from '../src/core/util.ts';
+import { inParallel, inParallelTabs, slug } from '../src/core/util.ts';
 import { type Audit, loadConfig, run, UsageError } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -89,6 +90,25 @@ const fakeBrowser = () => {
   } as unknown as Browser;
   return { browser, opened, closes: () => closed, contexts: () => contexts };
 };
+
+describe('slug', () => {
+  it('keeps distinct pages on distinct filenames', () => {
+    const urls = ['/a/b/', '/a_b/', '/a%5Fb/', '/a/', '/'].map((p) => `http://x.test${p}`);
+    assert.equal(new Set(urls.map((u) => slug(u))).size, urls.length);
+    assert.equal(slug('http://x.test/blog/post-1/'), 'blog_post-1');
+    assert.equal(slug('http://x.test/'), 'index');
+  });
+});
+
+describe('page urls', () => {
+  it('encodes filename characters that would change the url meaning', () => {
+    assert.equal(
+      pageUrlOf('http://x.test', 'a#b/c?d%e.html'),
+      'http://x.test/a%23b/c%3Fd%25e.html',
+    );
+    assert.equal(pageUrlOf('http://x.test', 'blog/index.html'), 'http://x.test/blog/');
+  });
+});
 
 describe('parallel helpers', () => {
   it('still runs every item with a zero or NaN concurrency', async () => {

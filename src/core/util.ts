@@ -22,6 +22,11 @@ export const stripBase = (pathname: string, siteUrl: string) => {
 };
 
 // The fallback file for a path relative to the base path, or '' when there is none.
+export const underBase = (pathname: string, siteUrl: string) => {
+  const base = basePathOf(siteUrl);
+  return !base || pathname === base || pathname.startsWith(`${base}/`);
+};
+
 export const fallbackFor = (fallback: string | { match: Pattern; file: string }[], path: string) =>
   typeof fallback === 'string'
     ? fallback
@@ -32,6 +37,8 @@ export const pathOf = (url: string, root = '') => stripBase(new URL(url).pathnam
 export const slug = (url: string, root = '') =>
   pathOf(url, root)
     .replace(/^\/|\/$/g, '')
+    .replaceAll('%', '%25')
+    .replaceAll('_', '%5F')
     .replaceAll('/', '_') || 'index';
 
 const compiled = new Map<Pattern, RegExp>();

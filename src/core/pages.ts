@@ -4,7 +4,11 @@ import type { PageQuery } from './types.ts';
 import { matchesAny, pathOf } from './util.ts';
 
 export const pageUrlOf = (origin: string, rel: string) =>
-  `${origin}/${rel.replace(/(^|\/)index\.html$/, '$1')}`;
+  `${origin}/${rel
+    .replace(/(^|\/)index\.html$/, '$1')
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')}`;
 
 export const createPageUrls = (
   config: VidimusConfig,
@@ -15,7 +19,9 @@ export const createPageUrls = (
 ) => {
   const translatedLocales = config.locales.filter((locale) => locale !== config.defaultLocale);
   const isTranslation = (page: string) =>
-    translatedLocales.some((locale) => page.startsWith(`${locale}/`));
+    translatedLocales.some(
+      (locale) => page === locale || page === `${locale}.html` || page.startsWith(`${locale}/`),
+    );
   const toUrl = (page: string) => pageUrlOf(origin, page);
 
   let builtPages: string[] | undefined;

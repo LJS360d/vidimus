@@ -96,6 +96,29 @@ describe('routes', () => {
     ]);
   });
 
+  it('keeps bare and .html translated pages out unless allLocales is set', async () => {
+    const overrides = {
+      server: { fallback: 'index.html' },
+      locales: ['en', 'fr'],
+      defaultLocale: 'en',
+    };
+    const bare = { 'dist/index.html': SHELL };
+    assert.deepEqual((await collect(bare, { ...overrides, routes: { paths: ['/fr'] } })).paths, [
+      '/',
+    ]);
+    assert.deepEqual(
+      (await collect(bare, { ...overrides, routes: { paths: ['/fr'] } }, { allLocales: true }))
+        .paths,
+      ['/', '/fr'],
+    );
+    const html = { 'dist/index.html': SHELL, 'dist/fr.html': SHELL };
+    assert.deepEqual((await collect(html, overrides)).paths, ['/']);
+    assert.deepEqual((await collect(html, overrides, { allLocales: true })).paths.sort(), [
+      '/',
+      '/fr.html',
+    ]);
+  });
+
   it('accepts routes answered by a fallback rule, and rejects the others', async () => {
     const files = { 'dist/index.html': SHELL, 'dist/app/index.html': SHELL };
     const server = { fallback: [{ match: '^/app/', file: 'app/index.html' }] };

@@ -47,7 +47,12 @@ export const parseBody = (contentType: string, data: string | undefined): unknow
 // Lets the page load like a normal visit, then, once armed, lets nothing through that could
 // reach a server with side effects: every non-static request is recorded and aborted (or
 // answered with a stub). Fail closed: anything not explicitly allowed is blocked.
-export const sandbox = async (page: Page, allow: string[], stub: 'abort' | 'ok') => {
+export const sandbox = async (
+  page: Page,
+  allow: string[],
+  ignore: string[],
+  stub: 'abort' | 'ok',
+) => {
   let armed = false;
   let captured: Captured[] = [];
   await page.setBypassServiceWorker(true);
@@ -75,7 +80,7 @@ export const sandbox = async (page: Page, allow: string[], stub: 'abort' | 'ok')
       !navigation &&
       !target.search &&
       (target.origin === new URL(page.url()).origin || request.frame() !== page.mainFrame());
-    if (!own)
+    if (!own && !matchesAny(ignore, url))
       captured.push({
         method,
         url,

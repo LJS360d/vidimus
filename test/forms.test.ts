@@ -64,6 +64,7 @@ describe('forms cases', () => {
     assert.equal(formLine(html, 1), undefined);
     assert.equal(slugOf('/blog/post-1/'), 'blog_post-1');
     assert.equal(slugOf('/'), 'index');
+    assert.notEqual(slugOf('/a/b/'), slugOf('/a_b/'));
     const form = { id: '', name: '', ordinal: 0, index: 2 } as FormInfo;
     assert.equal(formId(form, '/contact/', html), 'contact_form_L4');
     assert.equal(formId({ ...form, ordinal: null }, '/contact/', html), 'contact_form_3');
@@ -399,6 +400,106 @@ document.querySelector('[name=name]').addEventListener('input', (e) => {
     assert.equal(outcome('age=max+1 "100"'), 'blocked:native');
   });
 
+  it('counts only requests sent after submit', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="search" action="/api/search" method="post">
+  <input type="hidden" name="csrf_token" value="t">
+  <label>Email <input type="email" name="email" required autocomplete="email"></label>
+  <button>Go</button>
+</form>
+<script>
+document.querySelector('[name=email]').addEventListener('input', (e) => {
+  fetch('/api/suggest', { method: 'POST', body: e.target.value });
+});
+</script>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.deepEqual(
+      messages.filter((m) => m.startsWith('search:')),
+      [],
+      messages.join('\n'),
+    );
+    const search = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/search.json'), 'utf8'));
+    const outcome = (label: string) =>
+      search.cases.find((c: { label: string }) => c.label === label)?.outcome;
+    assert.equal(outcome('baseline'), 'navigated');
+    assert.equal(outcome('email=empty'), 'blocked:native');
+  });
+
+  it('reloads the form after a blocked case', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="leak" action="/api/leak" method="post">
+  <input type="hidden" name="csrf_token" value="t">
+  <label>Email <input type="email" name="email" required autocomplete="email"></label>
+  <label>Note <input name="note" autocomplete="off"></label>
+  <button>Go</button>
+</form>
+<script>
+window.invalids = 0;
+document.addEventListener('invalid', () => { window.invalids++; }, true);
+document.querySelector('form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  fetch('/api/leak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ invalids: window.invalids }) });
+});
+</script>`),
+    });
+    await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const leak = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/leak.json'), 'utf8'));
+    const counts = new Set<unknown>();
+    let blocked = false;
+    let after = 0;
+    for (const c of leak.cases) {
+      if (blocked && c.outcome !== 'blocked:native') {
+        after++;
+        for (const r of c.requests)
+          counts.add((r.body as { invalids?: number } | undefined)?.invalids);
+      }
+      if (c.outcome === 'blocked:native') blocked = true;
+    }
+    assert.ok(after > 0);
+    assert.deepEqual([...counts], [0]);
+  });
+
+  it('flags a fetch POST without a CSRF token', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="api">
+  <label>Email <input type="email" name="email" required autocomplete="email"></label>
+  <button>Go</button>
+</form>
+<script>
+document.getElementById('api').addEventListener('submit', (e) => {
+  e.preventDefault();
+  fetch('/api/save', { method: 'POST', body: new FormData(e.target) });
+});
+</script>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.ok(messages.includes('api: POST form without a CSRF token'), messages.join('\n'));
+  });
+
   it('infers rules the markup does not declare by probing the page', {
     skip: noBrowser,
   }, async () => {
@@ -615,6 +716,7 @@ document.getElementById('work').addEventListener('submit', (e) => {
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   fetch('${api}/allowed', { method: 'POST', body: 'x' });
+  fetch('${api}/beacon', { method: 'POST', body: 'x' });
   const res = await fetch('${api}/blocked', { method: 'POST', body: 'x' });
   document.title = 'stub ' + res.status;
 });
@@ -627,7 +729,13 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         reporters: [],
         overrides: {
           port: await freePort(),
-          forms: { settle: 50, maxCases: 1, stub: 'ok', allowRequests: ['/allowed$'] },
+          forms: {
+            settle: 50,
+            maxCases: 1,
+            stub: 'ok',
+            allowRequests: ['/allowed$'],
+            ignoreRequests: ['/beacon$'],
+          },
         },
       });
       assert.ok(hits.length > 0);

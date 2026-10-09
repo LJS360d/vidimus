@@ -19,7 +19,8 @@ export const slugOf = (path: string) =>
     .replace(/^\/+|\/+$/g, '')
     .replace(/(^|\/)index\.html$/, '')
     .replace(/\.html$/, '')
-    .replace(/[^\w-]+/g, '_') || 'index';
+    .replace(/[^\w/-]|_/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    .replaceAll('/', '_') || 'index';
 
 // Line of the n-th <form> tag in served HTML, skipping comments, scripts and templates.
 export const formLine = (html: string, ordinal: number) => {

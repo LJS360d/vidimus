@@ -239,9 +239,7 @@ const findingsFor = (form: Exercised, origin: string): Finding[] => {
       details: [requestLine(plain, origin)],
       fix: 'Send form data to an https:// URL.',
     });
-  const post = baseline?.requests.find(
-    (r) => r.navigation && r.method === 'POST' && r.url.startsWith(origin),
-  );
+  const post = baseline?.requests.find((r) => r.method === 'POST' && r.url.startsWith(origin));
   if (post && !form.form.hidden.some((name) => CSRF.test(name)))
     add('POST form without a CSRF token', {
       severity: 'warn',
@@ -350,7 +348,7 @@ export const forms: Audit = {
     const open = async (url: string) => {
       const context = await (browser as Browser).createBrowserContext();
       const page = await context.newPage();
-      const net = await sandbox(page, options.allowRequests, options.stub);
+      const net = await sandbox(page, options.allowRequests, options.ignoreRequests, options.stub);
       await page.evaluateOnNewDocument(probe, options.skip);
       const load = async () => {
         net.arm(false);
@@ -477,16 +475,14 @@ export const forms: Audit = {
           const generated = casesFor(fields, options.values, known);
           const cases = generated.cases.slice(0, options.maxCases);
           const results: CaseResult[] = [];
-          let dirty = true;
           for (const c of cases) {
             const { values, ...rest } = c;
             const base = { ...rest, ...(c.field && { value: values[c.field] }) };
             try {
-              const reload = dirty;
               const ran = await span(
                 'forms.case',
                 async () => {
-                  if (reload) await span('forms.reload', () => (session as Session).load());
+                  await span('forms.reload', () => (session as Session).load());
                   return runCase(
                     page,
                     net,
@@ -504,7 +500,6 @@ export const forms: Audit = {
               const { snap, ...last } = ran;
               if (snap && verdictOf(last) === 'fail') last.before = dataUri(snap);
               results.push(last);
-              dirty = last.outcome !== 'blocked:native' && last.outcome !== 'not-submitted';
             } catch (error) {
               results.push({
                 ...base,
@@ -514,7 +509,6 @@ export const forms: Audit = {
                 events: { errors: [], sockets: [], opened: [], workers: [], canary: false },
                 error: (error as Error).message.split('\n')[0],
               });
-              dirty = true;
             }
           }
           exercised.push({
@@ -636,6 +630,7 @@ const runCase = async (
 
   let outcome: Outcome = 'not-submitted';
   let events = await page.evaluate(() => window.__vidimus.drain());
+  const early = net.take();
   if (
     submittable &&
     (await page.evaluate((i, n) => window.__vidimus.submit(i, n), index, c.times ?? 1))
@@ -657,18 +652,21 @@ const runCase = async (
     }
     events = mergeEvents(events, after);
     const requests = net.take();
-    outcome = requests.some((r) => r.navigation)
-      ? 'navigated'
-      : requests.length
-        ? 'sent'
-        : nativeBlock
-          ? 'blocked:native'
+    outcome = nativeBlock
+      ? 'blocked:native'
+      : requests.some((r) => r.navigation)
+        ? 'navigated'
+        : requests.length
+          ? 'sent'
           : after.submits.some((s) => s.prevented)
             ? 'blocked:script'
             : 'none';
     return { ...result(rest, values, outcome, requests, states, invalid, events), snap };
   }
-  return { ...result(rest, values, outcome, net.take(), states, invalid, events), snap };
+  return {
+    ...result(rest, values, outcome, [...early, ...net.take()], states, invalid, events),
+    snap,
+  };
 };
 
 const TEXTUAL = new Set(['text', 'name']);

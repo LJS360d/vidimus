@@ -87,7 +87,7 @@ For every case the report records each field's state in three layers: the **brow
 
 Every page loads in a fresh browser context (no cookies, not logged in), with service workers bypassed. While the page loads it behaves like a normal visit: documents, static files and data `GET` requests go through. Once the audit starts filling the form, only `GET` requests for static files (scripts, styles, images, fonts, media) go through. Everything else is recorded and stopped: `fetch` and XHR (`GET` included, since a `GET` can unsubscribe someone), beacons, `EventSource`, and native form submissions, which get an empty `204` so the page stays put. `WebSocket` is replaced with a stub that never connects, `window.open` does nothing, and `target="_blank"` forms submit in place, so no request escapes through a new window. A `GET` with no query string, to the site itself or from inside an embed (map tiles, a lazily loaded model), is stopped too but not recorded: it carries no field value, so it is the page reading its own data, not the form sending.
 
-`forms.allowRequests` lets named URLs through (a "username taken?" check against a test API). `forms.stub: 'ok'` answers stopped `fetch`/XHR requests with `200 {}`, so pages that wait for a success response can show their next step.
+`forms.allowRequests` lets named URLs through (a "username taken?" check against a test API). `forms.ignoreRequests` stops matching URLs but leaves them out of the record, so analytics beacons fired after submit do not count as the form sending. `forms.stub: 'ok'` answers stopped `fetch`/XHR requests with `200 {}`, so pages that wait for a success response can show their next step.
 
 Requests sent from inside web workers are outside the sandbox; pages that start workers get a finding.
 
@@ -105,7 +105,7 @@ Requests sent from inside web workers are outside the sandbox; pages that start 
 | `<field> accepts javascript: URLs` | warn |
 | `empty form was sent` (no field is required) | warn |
 | `double click on submit sent 2 requests` | warn |
-| `POST form without a CSRF token` (native same-origin POST, no hidden token field) | warn |
+| `POST form without a CSRF token` (same-origin POST, native or sent by fetch/XHR, no hidden token field) | warn |
 | `valid input sent nothing`: the form never sent even its accepted values, so the "sent" checks prove nothing for it | warn |
 | `<field> looks like a password but is type="text"` | warn |
 | `personal-data field(s) without autocomplete` (WCAG 1.3.5) | warn |
@@ -158,6 +158,7 @@ An Angular reactive form with `Validators.required`, `Validators.email`, `Valida
 | `forms.maxCases` | `200` | cases per form |
 | `forms.values` | `{}` | regex on a field's name, id or label → a value it accepts |
 | `forms.allowRequests` | `[]` | URL patterns the sandbox lets through |
+| `forms.ignoreRequests` | `[]` | URL patterns stopped but not recorded |
 | `forms.stub` | `'abort'` | `'ok'` answers stopped `fetch`/XHR requests with `200 {}` |
 | `forms.allowRemote` | `false` | allow auditing a non-local `--origin` |
 | `forms.outDir` | `'forms'` | report directory inside `outDir` |

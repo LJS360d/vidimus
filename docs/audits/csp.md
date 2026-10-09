@@ -26,19 +26,21 @@ It is part of the default set.
 
 For every HTML file in the build that is not excluded:
 
-1. It looks for a `<meta http-equiv="content-security-policy" content="…">` tag. Pages without one are skipped. The tag must have `http-equiv` before `content`, both quoted. Only the first such tag on a page is read.
-2. It collects every `sha256-…` source in that policy. Other hash algorithms and nonces are not read.
-3. For every inline `<script>` and `<style>` element it computes the sha256 of the element's content, exactly as the browser does (whitespace included), and reports each block whose hash is not in the policy.
+1. It looks for a `<meta http-equiv="content-security-policy" content="…">` tag. Pages without one are skipped. Attribute order and quoting do not matter, and the tag may span several lines. Only the first such tag on a page is read.
+2. For each block it picks the effective directive, `script-src` or `style-src`, falling back to `default-src`. Blocks are skipped when no directive restricts them, or when the directive allows `'unsafe-inline'` and lists no hashes or nonces.
+3. For every other inline `<script>` and `<style>` element it computes the sha256, sha384 and sha512 of the element's content, exactly as the browser does (whitespace included), and reports each block whose hash is not listed in the effective directive.
 
 Blocks that are not checked:
 
 - `<script src="…">`: external scripts are covered by source lists, not hashes.
 - empty or whitespace-only blocks.
-- JSON data blocks, `type="application/json"` and `type="application/ld+json"`, which browsers do not execute.
+- script elements whose `type` is not JavaScript, such as `application/json`, `application/ld+json` and `text/x-template`, which browsers do not execute.
 
-Everything else is checked, including `type="module"` and import maps. The audit does not check which directive a hash is in: a hash anywhere in the policy counts. It does not look at `style="…"` attributes, event handler attributes or CSP response headers; the [`security`](./security) audit covers headers.
+Everything else is checked, including `type="module"` and import maps. Nonces are not matched against markup. The audit does not look at CSP response headers; the [`security`](./security) audit covers headers.
 
-An `<iframe srcdoc>` document inherits the policy of the page that embeds it, so the inline blocks in its markup are checked against the same hashes: `inline <style> in <iframe srcdoc> has no CSP hash …`.
+Attributes are checked too, against the effective directive (`style-src-attr` then `style-src` for `style="…"`; `script-src-attr` then `script-src` for `on*="…"` handlers; `script-src-elem` then `script-src` for `javascript:` hrefs; each falling back to `default-src`). They are blocked unless the directive allows `'unsafe-inline'` with no hashes or nonces, or lists `'unsafe-hashes'` with the attribute's hash: `inline style= attribute blocked by CSP`.
+
+An `<iframe srcdoc>` document inherits the policy of the page that embeds it, so the inline blocks in its markup are checked against the same policy: `inline <style> in <iframe srcdoc> has no CSP hash …`.
 
 ### Iframes
 

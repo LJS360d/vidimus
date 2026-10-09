@@ -140,6 +140,8 @@ export interface VidimusConfig {
     maxCases: number;
     values: Record<string, string>;
     allowRequests: Pattern[];
+    /** URL patterns whose requests are still stopped but left out of the recorded requests, so analytics beacons do not count as the form sending. */
+    ignoreRequests: Pattern[];
     stub: 'abort' | 'ok';
     allowRemote: boolean;
     outDir: string;
@@ -186,6 +188,12 @@ export interface VidimusConfig {
     timeout: number;
     checkExternal: boolean;
     retry: boolean;
+    /** Verify that `#fragment` links match an id on the target page. */
+    checkFragments: boolean;
+    /** Also check URLs referenced from CSS (`url(...)`). */
+    checkCss: boolean;
+    /** Report links that redirect, as warnings. */
+    warnRedirects: boolean;
     notFound: {
       selector: string;
       text: Pattern;

@@ -76,6 +76,13 @@ describe('CSP frame sources', () => {
     assert.equal(allowed('frame-src codepen.io/embed/', 'https://codepen.io/pen/abc'), false);
     assert.equal(allowed('frame-src codepen.io/a', 'https://codepen.io/a'), true);
   });
+
+  it('keeps path case and lets the first duplicate directive win', () => {
+    assert.equal(allowed('frame-src codepen.io/Embed/', 'https://codepen.io/embed/abc'), false);
+    assert.equal(allowed('frame-src codepen.io/Embed/', 'https://codepen.io/Embed/abc'), true);
+    assert.equal(allowed('frame-src Codepen.IO/Embed/', 'https://codepen.io/Embed/abc'), true);
+    assert.equal(allowed("frame-src 'none'; frame-src *", 'https://any.test/'), false);
+  });
 });
 
 describe('embeds in dist audits', () => {

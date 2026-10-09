@@ -1,7 +1,7 @@
 import { globSync, readFileSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { Pattern } from '../config/types.ts';
-import { matchesAny, stripBase } from './util.ts';
+import { matchesAny, stripBase, underBase } from './util.ts';
 
 export interface Tag {
   name: string;
@@ -258,8 +258,9 @@ export const localFile = (dist: string, pathname: string) => {
   }
   if (decoded.includes('\0')) return null;
   const base = join(dist, decoded);
-  if (base !== dist && !base.startsWith(dist + sep)) return null;
-  return [base, join(base, 'index.html'), `${base}.html`].find(isFile) ?? null;
+  const root = base === dist;
+  if (!root && !base.startsWith(dist + sep)) return null;
+  return [base, join(base, 'index.html'), ...(root ? [] : [`${base}.html`])].find(isFile) ?? null;
 };
 
 export const originOf = (url: string) => {
@@ -287,6 +288,6 @@ export const resolveHref = (href: string, pagePath: string, siteUrl = '') => {
     href: trimmed,
     internal,
     absolute: /^[a-z][a-z\d+.-]*:|^\/\//i.test(trimmed),
-    path: internal ? stripBase(url.pathname, siteUrl) : null,
+    path: internal && underBase(url.pathname, siteUrl) ? stripBase(url.pathname, siteUrl) : null,
   };
 };

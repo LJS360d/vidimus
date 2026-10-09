@@ -122,7 +122,10 @@ The other header checks:
   `<meta http-equiv="content-security-policy">`, falling back to `default-src`. `'unsafe-eval'`
   is a warning. `'unsafe-inline'` is a warning unless the same list has a nonce or a
   `sha256-`/`sha384-`/`sha512-` hash, in which case browsers ignore it. The [csp](./csp) audit
-  checks that those hashes match your inline scripts.
+  checks that those hashes match your inline scripts. The same option warns when `script-src`
+  (or `default-src`) allows `*`, `https:` or `data:`, when a CSP that governs scripts has no
+  `object-src` (and no `default-src`) or no `base-uri`, and when a `<meta>` CSP sets
+  `frame-ancestors`, `report-uri` or `sandbox`, which browsers ignore there.
 - **Mixed content** (`security.mixedContent`): any `http://` URL in `<script src>`,
   `<img src|srcset>`, `<source src|srcset>`, `<iframe src>`, `<video src|poster>`,
   `<audio src>`, `<object data>`, `<embed src>`, `<form action>`, and `<link href>` with `rel`

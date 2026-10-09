@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { localFile } from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -115,5 +117,16 @@ describe('html audit', () => {
     for (const { fix } of result.findings) assert.ok(fix?.trim());
     const dup = result.findings.find(({ message }) => message.startsWith('no-dup-id:'));
     assert.match(dup?.fix ?? '', /unique id.*html\.rules\["no-dup-id"\] to "off"/);
+  });
+
+  it('does not resolve the dist root to a sibling html file', () => {
+    const root = fixture({
+      'dist/about.html': page('<p>about</p>'),
+      'dist.html': page('<p>outside</p>'),
+    });
+    const dist = join(root, 'dist');
+    assert.equal(localFile(dist, ''), null);
+    assert.equal(localFile(dist, '/.'), null);
+    assert.equal(localFile(dist, '/'), null);
   });
 });
