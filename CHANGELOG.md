@@ -1,5 +1,13 @@
 # vidimus
 
+## 0.14.0
+
+### Minor Changes
+
+- 7ce3aea: `browser.state`: seed `localStorage`, `sessionStorage`, cookies and a raw `script` into every page a browser audit opens, before the page's own scripts run. Dismiss consent banners, sign in or set feature flags for `a11y`, `r12s`, `shots`, `privacy`, `forms`, rendering and plugins.
+- cbece6b: forms: write `forms/index.html`, one static report for every exercised form with a screenshot of the form, its fields and rules, findings, and each case with a pass/fail/info verdict. Failing cases include a screenshot of the form before submit, and requests show only fields that differ from the baseline.
+- 35b4039: Add `reports` config: `json` / `junit` always written to `<outDir>/report.json` / `report.xml` alongside the terminal output.
+
 ## 0.13.1
 
 ### Patch Changes
