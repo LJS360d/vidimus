@@ -211,6 +211,8 @@ describe('github reporter', () => {
   });
 });
 
+const COLOR = new RegExp(`${String.fromCharCode(27)}\\[[\\d;]*m`, 'g');
+
 const sink = (isTTY = false) => {
   const chunks: string[] = [];
   const stream = Object.assign(new PassThrough(), {
@@ -218,7 +220,7 @@ const sink = (isTTY = false) => {
     columns: 80,
   }) as unknown as NodeJS.WriteStream;
   stream.write = ((chunk: string) => chunks.push(String(chunk)) > 0) as NodeJS.WriteStream['write'];
-  return { stream, text: () => chunks.join('') };
+  return { stream, text: () => chunks.join('').replace(COLOR, '') };
 };
 
 describe('pretty reporter', () => {

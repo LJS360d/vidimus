@@ -65,7 +65,7 @@ const matchesSource = (source: string, url: URL, self: URL) => {
   return true;
 };
 
-export const FETCH_CHAINS: Record<string, string[]> = {
+const FETCH_CHAINS: Record<string, string[]> = {
   frame: ['frame-src', 'child-src', 'default-src'],
   connect: ['connect-src', 'default-src'],
   img: ['img-src', 'default-src'],

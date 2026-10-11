@@ -67,7 +67,9 @@ fetch("/local.json");
 new WebSocket("wss://live.example.com/socket");
 const API = "https://cms.example.com";
 const NS = "http://www.w3.org/2000/svg";`,
-      'dist/chunk.js': 'navigator.sendBeacon(`https://beacon.example.net/${id}`);',
+      'dist/chunk.js': ['navigator.sendBeacon(`https://beacon.example.net/', '$', '{id}`);'].join(
+        '',
+      ),
     });
     assert.deepEqual(
       messages(result).sort(),
