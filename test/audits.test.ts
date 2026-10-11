@@ -71,7 +71,7 @@ describe('csp audit', () => {
   });
 
   it('checks uppercase tags and data-src, and ignores commented-out blocks', async () => {
-    const policy = `script-src '${hash(allowed)}'`;
+    const policy = `script-src 'self' '${hash(allowed)}'`;
     const cwd = fixture({
       'dist/index.html': `<meta http-equiv="content-security-policy" content="${policy}">
 <!-- <script>commented()</script> -->

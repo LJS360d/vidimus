@@ -57,7 +57,7 @@ vidimus: 4/5 passed — failed: seo
 ```
 
 `○` marks an audit that was skipped because there was nothing to check: `i18n` until it is
-configured, `csp` when no page declares a meta CSP. `!` marks an audit that errored, such as a
+configured, `csp` when no page has a CSP. `!` marks an audit that errored, such as a
 missing peer.
 
 ## Choosing audits

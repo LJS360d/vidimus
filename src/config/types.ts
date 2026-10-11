@@ -128,6 +128,8 @@ export interface VidimusConfig {
   csp: {
     exclude: Pattern[];
     sandbox: boolean;
+    requests: boolean;
+    ignore: Pattern[];
   };
   r12s: {
     viewports: number[];

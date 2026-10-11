@@ -1,27 +1,22 @@
 import { createHash } from 'node:crypto';
-import { frameAllowed, headerPolicies, metaPolicies, parsePolicy } from '../core/csp.ts';
-import { resolveHref, stripComments, tags } from '../core/html.ts';
+import {
+  frameAllowed,
+  headerPolicies,
+  metaPolicies,
+  parsePolicy,
+  requestAllowed,
+} from '../core/csp.ts';
+import { resolveHref, tags } from '../core/html.ts';
+import { createRequestScanner, inlineBlocks } from '../core/requests.ts';
 import type { Audit, Finding } from '../core/types.ts';
-import { basePathOf, regex } from '../core/util.ts';
+import { basePathOf, displayPath, matchesAny, regex } from '../core/util.ts';
 
-const INLINE = /<(script|style)\b(?![^>]*\ssrc\s*=)([^>]*)>([\s\S]*?)<\/\1\s*>/dgi;
-const SCRIPT_TYPE = /\btype\s*=\s*["']?([^"'\s>]*)/i;
-const EXECUTABLE =
-  /^(|module|importmap|speculationrules|(text|application)\/(x-)?(java|ecma|j)script(1\.\d)?)$/i;
 const HASH_SOURCE = /^'(sha(?:256|384|512))-([A-Za-z0-9+/=_-]+)'$/i;
 const SELF = 'http://vidimus.invalid';
+const NAMESPACES =
+  /^https?:\/\/(?:www\.w3\.org|schema\.org|json-schema\.org|purl\.org|ogp\.me)(?:[/?#]|$)/i;
 
 const sha256 = (body: string) => `sha256-${createHash('sha256').update(body).digest('base64')}`;
-
-const inlineBlocks = (html: string) =>
-  [...stripComments(html).matchAll(INLINE)].flatMap((match) => {
-    const [start, end] = match.indices?.[3] ?? [0, 0];
-    const kind = (match[1] ?? '').toLowerCase();
-    const body = html.slice(start, end);
-    const type = SCRIPT_TYPE.exec(match[2] ?? '')?.[1] ?? '';
-    const skip = !body.trim() || (kind === 'script' && !EXECUTABLE.test(type));
-    return skip ? [] : [{ kind, body }];
-  });
 
 const hashOf = (algorithm: string, body: string) =>
   createHash(algorithm).update(body).digest('base64');
@@ -47,14 +42,45 @@ export const csp: Audit = {
   description:
     'inline <script> and <style> are hashed in the meta CSP, and iframes are allowed and sandboxed',
   requires: 'dist',
-  async run({ config, renderedPages }) {
+  async run({ config, dist, root, renderedPages }) {
     const findings: Finding[] = [];
-    const frames = new Map<string, Finding & { where: string[] }>();
-    const reportFrame = (key: string, path: string, finding: Finding) => {
-      const entry = frames.get(key) ?? { ...finding, where: [] };
-      if (!entry.where.includes(path)) entry.where.push(path);
-      frames.set(key, entry);
+    const grouped = () => {
+      const entries = new Map<string, Finding & { where: string[] }>();
+      const report = (key: string, path: string, finding: Finding) => {
+        const entry = entries.get(key) ?? { ...finding, where: [] };
+        if (!entry.where.includes(path)) entry.where.push(path);
+        entries.set(key, entry);
+      };
+      return { entries, report };
     };
+    const { entries: frames, report: reportFrame } = grouped();
+    const { entries: reachable, report: reportRequest } = grouped();
+    const scan = createRequestScanner(dist, config.siteUrl);
+    const siteHost = (() => {
+      try {
+        return new URL(config.siteUrl);
+      } catch {
+        return new URL(SELF);
+      }
+    })();
+    const toUrl = (ref: string, from: string) => {
+      try {
+        const url = new URL(
+          ref.startsWith('//') ? `${siteHost.protocol}${ref}` : ref,
+          new URL(from, siteHost),
+        );
+        if (!/^(?:https?|wss?):$/.test(url.protocol)) return null;
+        if (url.host !== siteHost.host) return { url, internal: false };
+        const socket = url.protocol.startsWith('ws');
+        return {
+          url: new URL(`${url.pathname}${url.search}`, socket ? 'ws://vidimus.invalid' : SELF),
+          internal: true,
+        };
+      } catch {
+        return null;
+      }
+    };
+    let probed = 0;
     let checked = 0;
     let pages = 0;
     let embeds = 0;
@@ -133,6 +159,36 @@ export const csp: Audit = {
         ),
       ].map(parsePolicy);
 
+      if (config.csp.requests && policies.length) {
+        for (const request of scan(html, path)) {
+          const target = toUrl(request.ref, request.from);
+          if (!target) continue;
+          if (!target.internal && NAMESPACES.test(target.url.href)) continue;
+          if (!target.internal && matchesAny(config.csp.ignore, target.url.href)) continue;
+          probed += 1;
+          for (const policy of policies) {
+            const { directive, allowed } = requestAllowed(
+              policy,
+              request.kind,
+              target.url,
+              new URL(SELF),
+            );
+            if (allowed) continue;
+            const shown = target.internal ? target.url.pathname : target.url.origin;
+            reportRequest(`${directive} ${request.certain} ${shown}`, path, {
+              message: request.certain
+                ? `${request.via} to ${shown} is blocked by ${directive}`
+                : `${shown} appears in the code and would be blocked by ${directive}`,
+              details: [`${request.ref.slice(0, 80)} in ${displayPath(root, request.source)}`],
+              severity: request.certain ? undefined : 'warn',
+              file,
+              fix: `Add ${target.internal ? "'self'" : target.url.origin} to ${directive} in the CSP, or remove the request.`,
+            });
+            break;
+          }
+        }
+      }
+
       for (const { attrs } of iframes) {
         const target = attrs.src ? resolveHref(attrs.src, path, config.siteUrl) : null;
         if (!target || !/^https?:$/.test(target.url.protocol)) continue;
@@ -162,12 +218,12 @@ export const csp: Audit = {
     }
 
     findings.push(
-      ...[...frames.values()].map(({ file, ...finding }) =>
+      ...[...frames.values(), ...reachable.values()].map(({ file, ...finding }) =>
         finding.where.length > 1 || !file ? finding : { ...finding, file },
       ),
     );
-    if (pages === 0 && embeds === 0)
-      return { status: 'skipped', summary: 'no page declares a meta CSP or embeds an iframe' };
+    if (pages === 0 && embeds === 0 && probed === 0)
+      return { status: 'skipped', summary: 'no page has a CSP or embeds an iframe' };
     const blocked = findings.filter(({ message }) => message.startsWith('inline')).length;
     return {
       summary: [
@@ -175,7 +231,9 @@ export const csp: Audit = {
           ? `${blocked} of ${checked} inline block(s) would be blocked`
           : `${checked} inline blocks across ${pages} pages, all hashed`,
         `${embeds} third-party iframe(s)`,
+        ...(probed ? [`${probed} request target(s) checked`] : []),
         ...(frames.size ? [`${frames.size} iframe problem(s)`] : []),
+        ...(reachable.size ? [`${reachable.size} blocked request target(s)`] : []),
       ].join(', '),
       findings,
     };

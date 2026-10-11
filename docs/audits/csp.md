@@ -1,6 +1,6 @@
 ---
 title: csp
-description: The csp audit checks that every inline script and style in the build is allowed by a sha256 hash in the page's meta CSP.
+description: The csp audit checks that inline code is hashed in the page's CSP and that every request the site's HTML, CSS and JavaScript can make is allowed by it.
 ---
 
 # csp: inline code against the meta CSP
@@ -36,7 +36,7 @@ Blocks that are not checked:
 - empty or whitespace-only blocks.
 - script elements whose `type` is not JavaScript, such as `application/json`, `application/ld+json` and `text/x-template`, which browsers do not execute.
 
-Everything else is checked, including `type="module"` and import maps. Nonces are not matched against markup. The audit does not look at CSP response headers; the [`security`](./security) audit covers headers.
+Everything else is checked, including `type="module"` and import maps. Nonces are not matched against markup. Inline code is checked against the meta CSP only; the [`security`](./security) audit covers headers.
 
 Attributes are checked too, against the effective directive (`style-src-attr` then `style-src` for `style="…"`; `script-src-attr` then `script-src` for `on*="…"` handlers; `script-src-elem` then `script-src` for `javascript:` hrefs; each falling back to `default-src`). They are blocked unless the directive allows `'unsafe-inline'` with no hashes or nonces, or lists `'unsafe-hashes'` with the attribute's hash: `inline style= attribute blocked by CSP`.
 
@@ -51,7 +51,22 @@ For every `<iframe src>` over `http(s)`, on every page:
 
 `frame-ancestors`, which decides who may embed your site, cannot be set in a meta CSP; the [`security`](./security) audit checks it in headers.
 
-If no page in the build declares a meta CSP or embeds a third-party iframe, the audit is skipped.
+### Requests the code can make
+
+A policy can block a request that has not happened yet: a `fetch()` behind a button, a translations API loaded on language change, a font imported by a stylesheet. Checking only requests seen in a browser run misses them, so the audit reads the code instead. For every page with a policy (meta CSP or `server.headers` rules), it scans:
+
+- the page's HTML: `<img>`, `<source>`, `<video>`/`<audio>`/`<track>`, `<object>`, `<embed>`, `<script src>`, `<link>` (stylesheets, icons, manifest, preloads), `<form action>` and `style=""` attributes;
+- inline and external JavaScript, following the `<script src>` files and the chunks they import (`import "./chunk.js"`, `import("…")`, `new Worker(…)`) inside the build;
+- inline and external CSS, following `@import`: `url()` and `@font-face`.
+
+Each target is checked against the directive in effect for its kind (`connect-src` for `fetch`, XHR, `WebSocket`, `EventSource` and `sendBeacon`; `img-src`, `font-src`, `media-src`, `worker-src`, `form-action`, …, each falling back as browsers do):
+
+- **A literal in a request call** such as `fetch("https://api.example.com/x")` or `new WebSocket("wss://…")` that the policy blocks is a failing finding, `fetch() to https://api.example.com is blocked by connect-src`.
+- **A URL that only appears in the code**, like `const API = "https://api.example.com"`, is a warning, `https://api.example.com appears in the code and would be blocked by connect-src`. It is reported because the code can use it; the directive is guessed from the file extension, else `connect-src`.
+
+The scan is static. URLs built at run time (`fetch(base + path)`, with `base` not a literal URL anywhere) cannot be found, and a policy using `'strict-dynamic'` is not checked for scripts. XML namespaces such as `http://www.w3.org/2000/svg` are ignored; add other URLs to `csp.ignore`.
+
+If no page in the build has a CSP or embeds a third-party iframe, the audit is skipped.
 
 ## Example output
 
@@ -80,7 +95,7 @@ The detail line is the first 80 characters of the trimmed block, always followed
 When no page has a meta CSP:
 
 ```
-○ csp: no page declares a meta CSP or embeds an iframe (0.0s)
+○ csp: no page has a CSP or embeds an iframe (0.0s)
 ```
 
 ## Options
@@ -89,6 +104,8 @@ When no page has a meta CSP:
 | --- | --- | --- |
 | `csp.exclude` | `[]` | built file paths to skip, e.g. `^admin/` |
 | `csp.sandbox` | `true` | warn about third-party iframes without `sandbox` |
+| `csp.requests` | `true` | check the requests the HTML, CSS and JavaScript can make against the CSP |
+| `csp.ignore` | `[]` | full URLs (regular expressions) the request check skips, e.g. `^https://docs\\.example\\.com/` |
 
 Unlike the other audits' `exclude`, `csp.exclude` matches file paths in the build (`admin/index.html`), the same as the top-level `exclude`, not URL paths.
 

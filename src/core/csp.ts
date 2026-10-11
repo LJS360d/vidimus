@@ -37,7 +37,11 @@ const schemeMatches = (scheme: string, protocol: string) =>
 
 // CSP source expression matching (CSP Level 3, "Does url match expression in origin").
 const matchesSource = (source: string, url: URL, self: URL) => {
-  if (source === "'self'") return url.origin === self.origin;
+  if (source === "'self'")
+    return (
+      url.origin === self.origin ||
+      (url.host === self.host && url.protocol === (self.protocol === 'http:' ? 'ws:' : 'wss:'))
+    );
   if (source === '*') return NETWORK_SCHEMES.includes(url.protocol);
   if (/^[a-z][a-z\d+.-]*:$/.test(source)) return schemeMatches(source, url.protocol);
   if (source.startsWith("'")) return false;
@@ -61,12 +65,29 @@ const matchesSource = (source: string, url: URL, self: URL) => {
   return true;
 };
 
-const FRAME_DIRECTIVES = ['frame-src', 'child-src', 'default-src'];
+export const FETCH_CHAINS: Record<string, string[]> = {
+  frame: ['frame-src', 'child-src', 'default-src'],
+  connect: ['connect-src', 'default-src'],
+  img: ['img-src', 'default-src'],
+  font: ['font-src', 'default-src'],
+  media: ['media-src', 'default-src'],
+  manifest: ['manifest-src', 'default-src'],
+  object: ['object-src', 'default-src'],
+  style: ['style-src-elem', 'style-src', 'default-src'],
+  script: ['script-src-elem', 'script-src', 'default-src'],
+  worker: ['worker-src', 'child-src', 'script-src', 'default-src'],
+  form: ['form-action'],
+};
 
-// The frame directive in effect and whether it allows url; no directive allows everything.
-export const frameAllowed = (policy: Policy, url: URL, self: URL) => {
-  const directive = FRAME_DIRECTIVES.find((name) => policy.has(name));
+// The directive in effect for a kind of request and whether it allows url; no directive allows everything.
+export const requestAllowed = (policy: Policy, kind: string, url: URL, self: URL) => {
+  const directive = (FETCH_CHAINS[kind] ?? []).find((name) => policy.has(name));
   if (!directive) return { directive: '', allowed: true };
   const sources = policy.get(directive) ?? [];
+  if (kind === 'script' && sources.some((source) => source.toLowerCase() === "'strict-dynamic'"))
+    return { directive, allowed: true };
   return { directive, allowed: sources.some((source) => matchesSource(source, url, self)) };
 };
+
+export const frameAllowed = (policy: Policy, url: URL, self: URL) =>
+  requestAllowed(policy, 'frame', url, self);

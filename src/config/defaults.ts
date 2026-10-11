@@ -62,6 +62,8 @@ export const defaults = (cwd: string): VidimusConfig => ({
   csp: {
     exclude: [],
     sandbox: true,
+    requests: true,
+    ignore: [],
   },
   r12s: {
     viewports: [320, 375, 768],
