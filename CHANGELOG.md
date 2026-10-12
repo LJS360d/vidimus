@@ -1,5 +1,11 @@
 # vidimus
 
+## 0.18.1
+
+### Patch Changes
+
+- 5b02ced: The security audit reads headers from a page whatever its HTTP status, so dedicated 404 pages (`/404.html`, `/not-found`, ...) no longer count as a failed fetch.
+
 ## 0.18.0
 
 ### Minor Changes
