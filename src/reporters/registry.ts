@@ -6,34 +6,23 @@ import { html } from './html.ts';
 import { junit } from './junit.ts';
 import { pretty } from './pretty.ts';
 import { sarif } from './sarif.ts';
-import type { Reporter } from './types.ts';
+import type { Reporter, ReporterOptions } from './types.ts';
 
 export const REPORTERS = ['pretty', 'json', 'github', 'junit', 'sarif', 'html'];
 
 export interface ReporterEnv {
   cwd: string;
   env: NodeJS.ProcessEnv;
-  /** `json`, `junit`, `sarif` or `html`: also written to `<outDir>/report.json` / `report.xml` / `report.sarif` / `report.html`, whatever `specs` is. */
-  reports?: string[];
-  outDir?: string;
 }
 
-const REPORT_FILES = new Map([
-  ['json', 'report.json'],
-  ['junit', 'report.xml'],
-  ['sarif', 'report.sarif'],
-  ['html', 'report.html'],
-]);
+const FORMATS = ['json', 'junit', 'sarif', 'html'];
 
-const reportSpecs = (reports: string[], outDir: string) =>
-  reports.map((name) => {
-    const file = REPORT_FILES.get(name);
-    if (!file)
-      throw new UsageError(
-        `unknown report "${name}". Known: ${[...REPORT_FILES.keys()].join(', ')}`,
-      );
-    return `${name}:${resolve(outDir, file)}`;
-  });
+interface BuiltinSpec {
+  kind: 'builtin';
+  name: string;
+  target: string | undefined;
+  verbose: boolean;
+}
 
 const writer = (target: string | undefined, cwd: string) => (content: string) => {
   if (!target) {
@@ -45,44 +34,38 @@ const writer = (target: string | undefined, cwd: string) => (content: string) =>
   writeFileSync(file, content);
 };
 
-interface BuiltinSpec {
-  kind: 'builtin';
-  name: string;
-  target: string | undefined;
-}
-
-const parse = (spec: string): BuiltinSpec => {
+/** The command-line form: `name` or `name:file`. Everything else is an object. */
+const parse = (spec: string | ReporterOptions): BuiltinSpec => {
+  if (typeof spec !== 'string')
+    return { kind: 'builtin', name: spec.type, target: spec.file, verbose: spec.verbose ?? true };
   const separator = spec.indexOf(':');
-  return separator === -1
-    ? { kind: 'builtin', name: spec, target: undefined }
-    : {
-        kind: 'builtin',
-        name: spec.slice(0, separator),
-        target: spec.slice(separator + 1) || undefined,
-      };
+  return {
+    kind: 'builtin',
+    name: separator === -1 ? spec : spec.slice(0, separator),
+    target: (separator === -1 ? '' : spec.slice(separator + 1)) || undefined,
+    verbose: true,
+  };
 };
 
 const isBuiltin = (spec: BuiltinSpec | Reporter): spec is BuiltinSpec =>
   (spec as BuiltinSpec).kind === 'builtin';
 
-const withGithub = (specs: (string | Reporter)[], env: NodeJS.ProcessEnv) => {
+const isOptions = (spec: string | ReporterOptions | Reporter): spec is string | ReporterOptions =>
+  typeof spec === 'string' || 'type' in spec;
+
+const withGithub = (specs: (string | ReporterOptions | Reporter)[], env: NodeJS.ProcessEnv) => {
   const list = specs.length ? specs : ['pretty'];
-  const named = list.some(
-    (spec) => (typeof spec === 'string' ? parse(spec).name : spec.name) === 'github',
-  );
+  const named = list.some((spec) => (isOptions(spec) ? parse(spec).name : spec.name) === 'github');
   return env.GITHUB_ACTIONS === 'true' && !named ? [...list, 'github'] : list;
 };
 
 export const createReporters = (
-  specs: (string | Reporter)[],
-  { cwd, env, reports = [], outDir = cwd }: ReporterEnv,
+  specs: (string | ReporterOptions | Reporter)[],
+  { cwd, env }: ReporterEnv,
 ): Reporter[] => {
-  const parsed = [...withGithub(specs, env), ...reportSpecs(reports, outDir)].map((spec) =>
-    typeof spec === 'string' ? parse(spec) : spec,
-  );
+  const parsed = withGithub(specs, env).map((spec) => (isOptions(spec) ? parse(spec) : spec));
   const onStdout = parsed.filter(
-    (spec) =>
-      isBuiltin(spec) && ['json', 'junit', 'sarif', 'html'].includes(spec.name) && !spec.target,
+    (spec) => isBuiltin(spec) && FORMATS.includes(spec.name) && !spec.target,
   );
   if (onStdout.length > 1) {
     throw new UsageError(
@@ -93,7 +76,7 @@ export const createReporters = (
 
   return parsed.map((spec) => {
     if (!isBuiltin(spec)) return spec;
-    const { name, target } = spec;
+    const { name, target, verbose } = spec;
     switch (name) {
       case 'pretty':
         return pretty(stdoutTaken || target === 'stderr' ? process.stderr : process.stdout);
@@ -102,14 +85,18 @@ export const createReporters = (
       case 'json':
         return {
           name,
-          onEnd: (report) => writer(target, cwd)(`${JSON.stringify(report, null, 2)}\n`),
+          onEnd: (report) =>
+            writer(
+              target,
+              cwd,
+            )(`${JSON.stringify(verbose ? report : { ...report, detail: undefined }, null, 2)}\n`),
         };
       case 'junit':
-        return junit(writer(target, cwd));
+        return junit(writer(target, cwd), verbose);
       case 'sarif':
-        return sarif(writer(target, cwd));
+        return sarif(writer(target, cwd), verbose);
       case 'html':
-        return html(writer(target, cwd));
+        return html(writer(target, cwd), verbose);
       default:
         throw new UsageError(`unknown reporter "${name}". Known: ${REPORTERS.join(', ')}`);
     }

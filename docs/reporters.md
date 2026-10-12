@@ -33,7 +33,7 @@ An unknown name is an error: `unknown reporter "xml". Known: pretty, json, githu
 
 ## Targets
 
-A reporter is `name` or `name:file`. The file path is relative to the working directory, its
+A reporter is `name`, `name:file` or [an object](#object-form). The file path is relative to the working directory, its
 directories are created, and an existing file is overwritten.
 
 | Reporter | Writes to | `:file` |
@@ -55,26 +55,44 @@ npx vidimus -r pretty -r json > report.json
 The `github` reporter moves to stderr in the same case, where the Actions runner still reads
 its annotations, so `-r json > report.json` stays valid JSON on Actions too.
 
-## Reports in `outDir`
+## Object form
 
-`reports` in the config keeps file reports on every run, whatever the reporters are. Each
-name is written into `outDir` (`.vidimus` by default), next to the terminal output:
+The same reporter as an object, for options the short form has no room for:
 
 ```ts
 export default defineConfig({
-  reports: ['json', 'junit'], // .vidimus/report.json and .vidimus/report.xml
+  reporters: [
+    'pretty',
+    { type: 'junit', file: 'reports/junit.xml' },
+    { type: 'json', file: 'reports/run.json', verbose: false },
+  ],
 });
 ```
 
-| Name | File |
-| --- | --- |
-| `json` | `<outDir>/report.json` |
-| `junit` | `<outDir>/report.xml` |
-| `sarif` | `<outDir>/report.sarif` |
-| `html` | `<outDir>/report.html` |
+| Option | Default | |
+| --- | --- | --- |
+| `type` | required | `pretty`, `github`, `json`, `junit`, `sarif` or `html` |
+| `file` | stdout | where `json`, `junit`, `sarif` and `html` write, relative to the working directory |
+| `verbose` | `true` | see [Verbose](#verbose) |
 
-`-r` does not replace `reports`, and `pretty` stays the default reporter. Any other name is an
-error: `unknown report "pretty". Known: json, junit, sarif, html`.
+Objects can be mixed with names and [custom reporters](#custom-reporters). On the command line
+only `-r name[:file]` exists, and `-r` replaces the config's list.
+
+## Verbose
+
+`json`, `junit`, `sarif` and `html` write everything the run knows, not only the audits and their
+findings: per audit its log and the findings that ignore rules or the baseline hid, and for the
+run its versions, audits, served directory, notes, every page seen and the resolved config.
+Set `verbose: false` in the object form for just the audits and findings.
+
+| Format | What verbose adds |
+| --- | --- |
+| `json` | a `detail` object |
+| `html` | a Run section, and collapsible logs and hidden findings |
+| `junit` | a `<system-out>` per audit |
+| `sarif` | `invocations`, per-rule `properties`, hidden findings with `suppressions` |
+
+`pretty` and `github` ignore `verbose`.
 
 ## `pretty`
 
@@ -219,7 +237,7 @@ or warned, with `<skipped>`, `<error>` or `<failure>` otherwise.
 
 ## Custom reporters
 
-`reporters` in the config also accepts objects, next to names:
+`reporters` in the config also accepts reporter objects, next to names and `{ type }` options:
 
 ```ts
 import { defineConfig, type Reporter } from 'vidimus';

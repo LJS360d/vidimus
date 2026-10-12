@@ -21,13 +21,41 @@ const finding = ({ message, details = [], where = [], fix, severity }: Finding) 
   return `<details><summary><span class="badge ${level}">${level}</span> ${esc(message)}</summary>${lines.join('')}</details>`;
 };
 
-const section = (audit: AuditResult) =>
-  `<section><h2>${esc(audit.name)} <span class="badge ${esc(audit.status)}">${esc(audit.status)}</span></h2><p>${esc(audit.summary)}</p>${audit.findings.map(finding).join('')}</section>`;
+const pre = (title: string, lines: string[]) =>
+  lines.length
+    ? `<details><summary>${esc(title)} (${lines.length})</summary><pre>${esc(lines.join('\n'))}</pre></details>`
+    : '';
+
+const section = (audit: AuditResult, extra = '') =>
+  `<section><h2>${esc(audit.name)} <span class="badge ${esc(audit.status)}">${esc(audit.status)}</span></h2><p>${esc(audit.summary)}</p>${audit.findings.map(finding).join('')}${extra}</section>`;
 
 const row = (audit: AuditResult) =>
   `<tr><td>${esc(audit.name)}</td><td><span class="badge ${esc(audit.status)}">${esc(audit.status)}</span></td><td>${esc(audit.summary)}</td><td>${audit.durationMs} ms</td></tr>`;
 
-export const toHtml = (report: RunReport) => {
+// Verbose only: log and suppressed findings per audit, then the run itself.
+const more = (audit: AuditResult, report: RunReport) => {
+  const hidden = report.detail?.suppressed[audit.name] ?? [];
+  return [
+    pre('log', audit.log),
+    hidden.length
+      ? `<details><summary>suppressed (${hidden.length})</summary>${hidden.map(finding).join('')}</details>`
+      : '',
+  ].join('');
+};
+
+const runSection = ({ detail }: RunReport) => {
+  if (!detail) return '';
+  const rows = [
+    ['vidimus', detail.vidimus],
+    ['node', `${detail.node} on ${detail.platform}`],
+    ['audits', detail.audits.join(', ')],
+    ['serving', detail.serving ?? 'none'],
+    ...detail.notes.map((note) => ['note', note]),
+  ];
+  return `<section><h2>Run</h2><table>${rows.map(([key, value]) => `<tr><th>${esc(key ?? '')}</th><td>${esc(value ?? '')}</td></tr>`).join('')}</table>${pre('pages', detail.pages)}${pre('config', JSON.stringify(detail.config, null, 2).split('\n'))}</section>`;
+};
+
+export const toHtml = (report: RunReport, verbose = false) => {
   const ordered = [...report.results].sort(
     (a, b) => Number(BAD.has(b.status)) - Number(BAD.has(a.status)),
   );
@@ -44,7 +72,7 @@ export const toHtml = (report: RunReport) => {
 :root{--bg:#fff;--fg:#1a1a1a;--line:#d0d7de;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700}
 @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--line:#30363d;--ok:#3fb950;--bad:#f85149;--warn:#d29922}}
 body{background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:60rem;padding:1rem}
-table{border-collapse:collapse;width:100%}
+pre{overflow:auto}table{border-collapse:collapse;width:100%}
 td,th{border-bottom:1px solid var(--line);padding:.25rem .5rem;text-align:left}
 details,section{border:1px solid var(--line);border-radius:.25rem;margin:.5rem 0;padding:.25rem .75rem}
 .badge{border:1px solid currentColor;border-radius:1rem;font-size:.75rem;padding:0 .5rem}
@@ -55,13 +83,13 @@ details,section{border:1px solid var(--line);border-radius:.25rem;margin:.5rem 0
 <h1>vidimus ${date}</h1>
 <p>${esc(report.origin)}: ${ok} ok, ${failed} failed (${report.durationMs} ms)</p>
 <table><thead><tr><th>Audit</th><th>Status</th><th>Summary</th><th>Duration</th></tr></thead><tbody>${ordered.map(row).join('')}</tbody></table>
-${ordered.map(section).join('\n')}
+${ordered.map((audit) => section(audit, verbose ? more(audit, report) : '')).join('\n')}${verbose ? runSection(report) : ''}
 </body>
 </html>
 `;
 };
 
-export const html = (write: (content: string) => void): Reporter => ({
+export const html = (write: (content: string) => void, verbose = false): Reporter => ({
   name: 'html',
-  onEnd: (report) => write(toHtml(report)),
+  onEnd: (report) => write(toHtml(report, verbose)),
 });

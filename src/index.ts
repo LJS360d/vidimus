@@ -67,8 +67,14 @@ export type {
   Finding,
   PageQuery,
   PageSource,
+  RunDetail,
   RunReport,
   Severity,
 } from './core/types.ts';
 export { createReporters, REPORTERS } from './reporters/registry.ts';
-export type { Progress, Reporter, RunInfo } from './reporters/types.ts';
+export type {
+  Progress,
+  Reporter,
+  ReporterOptions,
+  RunInfo,
+} from './reporters/types.ts';

@@ -48,7 +48,7 @@ const summaryCase = ({ name, status, summary }: AuditResult) => {
 
 type Counts = Record<'tests' | 'failures' | 'errors' | 'skipped', number>;
 
-const suite = (result: AuditResult) => {
+const suite = (result: AuditResult, suppressed: Finding[] | undefined) => {
   const cases = result.findings.length
     ? result.findings.map((finding) => findingCase(result.name, finding))
     : [summaryCase(result)];
@@ -61,13 +61,22 @@ const suite = (result: AuditResult) => {
     skipped: result.status === 'skipped' ? 1 : 0,
   };
   const xml = `  <testsuite ${attrs({ name: result.name, ...counts, time: seconds(result.durationMs) })}>
-${cases.join('\n')}
+${cases.join('\n')}${suiteOutput(result, suppressed)}
   </testsuite>`;
   return { xml, counts };
 };
 
-export const toJUnit = (report: RunReport) => {
-  const suites = report.results.map(suite);
+// Verbose only: the audit's log and what ignore rules or the baseline hid.
+const suiteOutput = (result: AuditResult, suppressed: Finding[] | undefined) => {
+  if (!suppressed) return '';
+  const lines = [...result.log, ...suppressed.map((finding) => `suppressed: ${finding.message}`)];
+  return lines.length ? `\n    <system-out>${escapeXml(lines.join('\n'))}</system-out>` : '';
+};
+
+export const toJUnit = (report: RunReport, verbose = false) => {
+  const suites = report.results.map((result) =>
+    suite(result, verbose ? (report.detail?.suppressed[result.name] ?? []) : undefined),
+  );
   const totals: Counts = { tests: 0, failures: 0, errors: 0, skipped: 0 };
   for (const { counts } of suites) {
     for (const key of Object.keys(totals) as (keyof Counts)[]) totals[key] += counts[key];
@@ -79,7 +88,7 @@ ${suites.map(({ xml }) => xml).join('\n')}
 `;
 };
 
-export const junit = (write: (content: string) => void): Reporter => ({
+export const junit = (write: (content: string) => void, verbose = false): Reporter => ({
   name: 'junit',
-  onEnd: (report) => write(toJUnit(report)),
+  onEnd: (report) => write(toJUnit(report, verbose)),
 });

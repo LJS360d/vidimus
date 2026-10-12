@@ -71,6 +71,23 @@ export interface AuditResult {
   durationMs: number;
 }
 
+/** Everything a run knows beyond the audit results; written by reporters in verbose mode only. */
+export interface RunDetail {
+  vidimus: string;
+  node: string;
+  platform: string;
+  audits: string[];
+  /** What the built-in server serves, `undefined` when none runs. */
+  serving: string | undefined;
+  notes: string[];
+  /** Every page URL path the audits could see. */
+  pages: string[];
+  /** The resolved config, without plugins and reporters. */
+  config: unknown;
+  /** Findings hidden by ignore rules or the baseline, per audit. */
+  suppressed: Record<string, Finding[]>;
+}
+
 export interface RunReport {
   ok: boolean;
   origin: string;
@@ -79,4 +96,5 @@ export interface RunReport {
   results: AuditResult[];
   timedOut?: boolean;
   profile?: ProfileSummary;
+  detail?: RunDetail;
 }

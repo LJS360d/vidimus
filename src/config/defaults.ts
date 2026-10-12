@@ -42,7 +42,6 @@ export const defaults = (cwd: string): VidimusConfig => ({
   },
   plugins: [],
   reporters: [],
-  reports: [],
   browser: {
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
     executablePath: '',

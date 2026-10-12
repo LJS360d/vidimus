@@ -190,7 +190,7 @@ withConfigOptions(
     ...config,
     plugins: config.plugins.map(({ name }) => name),
     reporters: config.reporters.map((reporter) =>
-      typeof reporter === 'string' ? reporter : reporter.name,
+      typeof reporter === 'string' || 'type' in reporter ? reporter : reporter.name,
     ),
   };
   console.log(JSON.stringify(printable, null, 2));

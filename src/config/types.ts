@@ -1,5 +1,5 @@
 import type { Audit } from '../core/types.ts';
-import type { Reporter } from '../reporters/types.ts';
+import type { Reporter, ReporterOptions } from '../reporters/types.ts';
 
 export type Pattern = string;
 
@@ -106,9 +106,7 @@ export interface VidimusConfig {
     matchWhere: boolean;
   };
   plugins: Audit[];
-  reporters: (string | Reporter)[];
-  /** Reports always written to `outDir` next to the reporters: `json`, `junit`, `sarif`, `html`. */
-  reports: string[];
+  reporters: (string | ReporterOptions | Reporter)[];
   browser: {
     args: string[];
     executablePath: string;

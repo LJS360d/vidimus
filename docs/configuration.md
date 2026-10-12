@@ -149,8 +149,7 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `baseline.file` / `baseline.update` | `vidimus.baseline.json` / `false` | the findings baseline; `''` turns it off |
 | `baseline.matchWhere` | `false` | also match accepted findings by page list (`where`) |
 | `plugins` | `[]` | custom audits, see [Custom audits and API](./plugins) |
-| `reporters` | `[]` | reporter names, `name:file` or objects, see [Reporters](./reporters) |
-| `reports` | `[]` | `json`, `junit`, `sarif` and/or `html`, always written to `<outDir>/report.json` / `report.xml` / `report.sarif` / `report.html` on top of `reporters`, see [Reporters](./reporters#reports-in-outdir) |
+| `reporters` | `[]` | reporter names, `name:file`, `{ type, file, verbose }` or reporter objects, see [Reporters](./reporters) |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `browser.state` | `{}` | `localStorage`, `sessionStorage`, `cookies` and a `script` seeded into every page a browser audit opens, see [below](#browser-state) |

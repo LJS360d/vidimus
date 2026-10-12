@@ -406,36 +406,61 @@ describe('createReporters', () => {
     assert.match(readFileSync(join(cwd, 'reports/r.xml'), 'utf8'), /<testsuites/);
   });
 
-  it('writes the html report to outDir', async () => {
+  it('writes html and sarif files from object entries', async () => {
     const cwd = fixture({});
-    const outDir = join(cwd, '.vidimus');
-    const reporters = createReporters([], { cwd, env: {}, reports: ['html'], outDir });
-    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
-    assert.match(readFileSync(join(outDir, 'report.html'), 'utf8'), /<!doctype html>/);
+    const reporters = createReporters(
+      [
+        { type: 'html', file: 'out/r.html' },
+        { type: 'sarif', file: 'out/r.sarif' },
+      ],
+      { cwd, env: {} },
+    );
+    for (const reporter of reporters) await reporter.onEnd?.(report);
+    assert.match(readFileSync(join(cwd, 'out/r.html'), 'utf8'), /<!doctype html>/);
+    assert.match(readFileSync(join(cwd, 'out/r.sarif'), 'utf8'), /"version": "2.1.0"/);
+  });
+});
+
+describe('verbose reports', () => {
+  const detailed: RunReport = {
+    ...report,
+    results: report.results.map((result) => ({ ...result, log: [`${result.name} log line`] })),
+    detail: {
+      vidimus: '0.0.0',
+      node: 'v0',
+      platform: 'linux',
+      audits: ['csp'],
+      serving: undefined,
+      notes: [],
+      pages: ['/en/'],
+      config: { port: 1 },
+      suppressed: { links: [{ message: 'hidden finding' }] },
+    },
+  };
+
+  it('adds log, suppressed findings and run detail only when verbose', () => {
+    for (const render of [toHtml, toJUnit, toSarif]) {
+      assert.doesNotMatch(JSON.stringify(render(detailed)), /hidden finding|csp log line/);
+      assert.match(JSON.stringify(render(detailed, true)), /hidden finding/);
+    }
+    assert.match(toHtml(detailed, true), /csp log line/);
+    assert.match(toHtml(detailed, true), /\/en\//);
   });
 
-  it('writes the sarif report to outDir', async () => {
-    const cwd = fixture({});
-    const outDir = join(cwd, '.vidimus');
-    const reporters = createReporters([], { cwd, env: {}, reports: ['sarif'], outDir });
-    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
-    assert.match(readFileSync(join(outDir, 'report.sarif'), 'utf8'), /"version": "2.1.0"/);
-  });
-
-  it('adds reports in outDir next to the default pretty reporter', async () => {
-    const cwd = fixture({});
-    const outDir = join(cwd, '.vidimus');
-    const reporters = createReporters([], { cwd, env: {}, reports: ['json', 'junit'], outDir });
-    assert.deepEqual(
-      reporters.map(({ name }) => name),
-      ['pretty', 'json', 'junit'],
+  it('is verbose unless an object says verbose: false', () => {
+    const dir = fixture({});
+    const reporters = createReporters(
+      [
+        'json:a.json',
+        { type: 'json', file: 'b.json', verbose: false },
+        { type: 'junit', file: 'c.xml' },
+      ],
+      { cwd: dir, env: {} },
     );
-    for (const reporter of reporters.slice(1)) await reporter.onEnd?.(report);
-    assert.equal(JSON.parse(readFileSync(join(outDir, 'report.json'), 'utf8')).ok, false);
-    assert.match(readFileSync(join(outDir, 'report.xml'), 'utf8'), /<testsuites/);
-    assert.throws(
-      () => createReporters([], { cwd, env: {}, reports: ['pretty'], outDir }),
-      /unknown report "pretty"/,
-    );
+    for (const reporter of reporters) reporter.onEnd?.(detailed);
+    const read = (file: string) => readFileSync(join(dir, file), 'utf8');
+    assert.match(read('a.json'), /"detail"/);
+    assert.doesNotMatch(read('b.json'), /"detail"/);
+    assert.match(read('c.xml'), /hidden finding/);
   });
 });

@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { builtinAudits } from '../audits/registry.ts';
 import { type LoadConfigOptions, loadConfig } from '../config/load.ts';
 import type { VidimusConfig } from '../config/types.ts';
 import { createReporters } from '../reporters/registry.ts';
-import type { Progress, Reporter } from '../reporters/types.ts';
+import type { Progress, Reporter, RunInfo } from '../reporters/types.ts';
 import { serveCommand } from './command-server.ts';
 import { MissingPeerError, UsageError } from './errors.ts';
 import {
@@ -82,6 +83,13 @@ const startServer = (config: VidimusConfig, dist: string, snapshot: Parameters<t
         log: resolve(config.root, config.outDir, 'server.log'),
       })
     : serve(dist, config.port, config.server, config.siteUrl, snapshot);
+
+const { version } = createRequire(import.meta.url)('../../package.json') as { version: string };
+
+const serializable = ({ plugins, reporters, ...config }: VidimusConfig): unknown =>
+  JSON.parse(
+    JSON.stringify(config, (_key, value) => (value instanceof RegExp ? String(value) : value)),
+  );
 
 const TIMED_OUT = Symbol('timed out');
 
@@ -216,6 +224,8 @@ const execute = async (
   };
 
   const finished = new Map<Audit, AuditResult>();
+  let info: RunInfo | undefined;
+  const suppressedFindings: Record<string, Finding[]> = {};
   let timedOut = false;
   const runOne = async (audit: Audit): Promise<AuditResult> => {
     if (timedOut) throw new Error('run timed out');
@@ -255,6 +265,9 @@ const execute = async (
           ? []
           : subtractBaseline(config.root, audit.name, kept, baseline, config.baseline.matchWhere);
         suppressed = raw.length - fresh.length;
+        const shown = new Set(fresh);
+        if (suppressed)
+          suppressedFindings[audit.name] = raw.filter((finding) => !shown.has(finding));
         settled = settle(outcome, fresh, {
           severity: config.severity[audit.name],
           strict: config.strict,
@@ -285,14 +298,13 @@ const execute = async (
 
   const work = async () => {
     const hint = needsServer ? clientRenderedHint(config, bundle) : undefined;
-    for (const reporter of reporters) {
-      await reporter.onStart?.({
-        audits: audits.map(({ name }) => name),
-        origin: needsServer ? origin : '',
-        serving: server && [config.distDir, command].filter(Boolean).join(' with '),
-        notes: hint ? [hint] : [],
-      });
-    }
+    info = {
+      audits: audits.map(({ name }) => name),
+      origin: needsServer ? origin : '',
+      serving: server && [config.distDir, command].filter(Boolean).join(' with '),
+      notes: hint ? [hint] : [],
+    };
+    for (const reporter of reporters) await reporter.onStart?.(info);
     if (needsServer) {
       const routes = await span('routes', () =>
         task('routes', () =>
@@ -340,6 +352,17 @@ const execute = async (
     results,
     ...(timedOut && { timedOut }),
     ...(profile && { profile }),
+    detail: {
+      vidimus: version,
+      node: process.version,
+      platform: process.platform,
+      audits: info?.audits ?? audits.map(({ name }) => name),
+      serving: info?.serving,
+      notes: info?.notes ?? [],
+      pages: needsServer ? pageUrls().map((url) => pathOf(url, origin)) : [],
+      config: serializable(config),
+      suppressed: suppressedFindings,
+    },
   };
   for (const reporter of reporters) await reporter.onEnd?.(report);
   return report;
@@ -363,8 +386,6 @@ export const run = async ({
       createReporters(config.reporters, {
         cwd: loadOptions.cwd ?? process.cwd(),
         env: loadOptions.env ?? process.env,
-        reports: config.reports,
-        outDir: resolve(config.root, config.outDir),
       }),
     { profile, serial },
   );

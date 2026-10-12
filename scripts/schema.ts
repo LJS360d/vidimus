@@ -36,7 +36,12 @@ const schema = {
   properties: {
     $schema: { type: 'string' },
     ...properties,
-    reporters: { type: 'array', items: { type: 'string' } },
+    reporters: {
+      type: 'array',
+      items: {
+        anyOf: [{ type: 'string' }, { $ref: '#/definitions/ReporterOptions' }],
+      },
+    },
   },
   additionalProperties: false,
   definitions: Object.fromEntries(
