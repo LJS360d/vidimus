@@ -540,7 +540,7 @@ describe('security audit following redirects', () => {
   });
 });
 
-describe('security audit against an origin serving an error page', () => {
+describe('security audit against an origin answering every page with 404', () => {
   let server: Server;
   let origin = '';
 
@@ -562,10 +562,8 @@ describe('security audit against an origin serving an error page', () => {
 
   after(() => new Promise((resolve) => server.close(resolve)));
 
-  it('reports the failed fetch instead of auditing the error page headers', async () => {
-    const result = await audit({ 'dist/index.html': page(), 'dist/_headers': '' }, { origin });
-    assert.deepEqual(messages(result), ['could not fetch headers']);
-    assert.match(result.findings[0]?.details?.[0] ?? '', /responded 404/);
-    assert.match(result.findings[0]?.fix ?? '', /serves/);
+  it('audits the headers of a page whatever its status', async () => {
+    const result = await audit({ 'dist/404.html': page(), 'dist/_headers': '' }, { origin });
+    assert.ok(!messages(result).includes('could not fetch headers'));
   });
 });

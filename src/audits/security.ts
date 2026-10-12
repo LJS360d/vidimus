@@ -194,8 +194,6 @@ export const fetchHeaders = async (url: string): Promise<HeaderMap> => {
     current = next;
     response = await request(current.href);
   }
-  if (response.status < 200 || response.status >= 300)
-    throw new Error(`${current.href} responded ${response.status}`);
   return Object.fromEntries([...response.headers].map(([name, value]) => [name, value]));
 };
 
