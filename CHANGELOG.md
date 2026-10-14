@@ -1,5 +1,57 @@
 # vidimus
 
+## 0.20.0
+
+### Minor Changes
+
+- d18e6a2: Fix `:name*` header patterns, duplicate header joins and silent host-file errors in `security`; share one memoized header resolution (`core/headers`) across audits; `csp` checks every meta CSP and CSPs delivered through header files; `site-files` reads redirects from host config files.
+- d18e6a2: `lighthouse` failures list audit values and ids with specific fixes; new `lighthouse.ignoreAudits`, `lighthouse.metrics` and `lighthouse.audits` assert per-metric and per-audit results.
+- d18e6a2: `core/csp` is now the single policy model: inline blocks follow the `script-src-elem`/`style-src-elem` chains, comma-joined policies split safely, and `<script nonce>` matches `'nonce-…'` sources with a warning for a nonce shared by every page. `security` handles `'strict-dynamic'`, `script-src-elem` and uppercase keywords, adds CSP evaluator warnings (`http:`, bypass and wildcard hosts, `'unsafe-hashes'`, unsafe style sources, `report-uri` without `report-to`, missing `form-action`), and a new `security.csp` option (default `'warn'`) reports pages with no CSP or none restricting scripts.
+- d18e6a2: Add an incremental per-page cache (`cache.enabled`, `cache.dir`, `--no-cache`), used first by the `html` audit.
+- d18e6a2: Parse cache is bounded by size instead of 32 pages, and `tags(html, name)` skips building the full tag list on a cache miss.
+- d18e6a2: core: audits that need no server start while routes are discovered, `lighthouse` only runs alone when `performance` is measured and can test pages in parallel with `lighthouse.concurrency`, `browser.maxPages` caps open pages across audits (default 4 x half the cores), timed-out audits are aborted through `context.signal` and listed as errored, and the CLI exits after a timed-out run
+- d18e6a2: Findings can carry a stable `rule` id; baseline fingerprints use it instead of the message when set, and `ignore` rules accept a `rule` pattern. Findings without a `rule` fingerprint as before.
+  
+  `ignore` rules accept a `reason` string. A run of every audit now reports ignore rules that matched nothing on stderr, and `--strict` fails on them.
+  
+  Baseline: `baseline.fuzzy` ignores digits when matching accepted findings, `baseline.failOnStale` fails on entries that no longer occur, and reports carry `staleBaseline` and `detail.stale`. With `fuzzy` on, fingerprints change for every baseline entry containing digits: re-run `--accept-findings` after enabling it. Without it, fingerprints are unchanged.
+  
+  Verbose reports redact `browser.state` values and `KEY=value` assignments in `server.command` in the embedded config.
+  
+  The run report gains `schemaVersion: 1` and `totals`, and `vidimus/report.schema.json` describes it.
+  
+  `sarif`: locations are relative to the working directory with `uriBaseId: '%SRCROOT%'`, findings without a file point at their first page's built HTML, and errored audits appear as `toolExecutionNotifications`. The report gains `distDir`. No finding messages changed, so baseline fingerprints are unchanged.
+- d18e6a2: shots: the gallery encodes names, byte-identical shots skip the browser diff, and each shot is diffed right after capture in the same tab. New `shots.maxDiffPixels`, `shots.css` and `shots.deviceScaleFactor`; size changes and the changed region are reported.
+
+### Patch Changes
+
+- d18e6a2: a11y: findings are merged in url order so details no longer depend on page completion order, and a page that fails to load reports `failed to audit /path` with the error in details (baseline fingerprints of load failures change)
+  
+  a11y: with `runner: 'axe'` the fix links the rule's help page (fix text of axe findings changes, so baseline fingerprints change)
+  
+  r12s: `target-size` and `font-size` findings are grouped by element selector instead of text snippet, with measurements and up to 5 samples in details (messages and fingerprints of these findings change)
+  
+  i18n: `.po` files parse `msgstr[n]` and `msgctxt`, and a blank default-locale msgstr falls back to the msgid so empty and untranslated entries are detected
+  
+  i18n: a missing or invalid translation file is a finding for that locale instead of erroring the whole audit
+- d18e6a2: budget: check every srcset and picture source against `budget.image`, key srcset-only dimension findings on their url, count one font file per `@font-face`, require exact files for assets, brotli at quality 5; assets: accept `apple-touch-icon-precomposed`.
+  
+  Srcset-only dimension findings are keyed by url and fonts are counted per face, so their messages change: regenerate existing baselines.
+- d18e6a2: config: validate value types and ranges, Lighthouse thresholds, and the forms.allowRequests, csp.ignore and forms.values patterns at load.
+- d18e6a2: forms: dialogs are accepted and reported, repeated timeouts stop a form, collected cases survive a failed reopen, the summary counts failures, unchanged pages skip the reload and `forms.screenshots` can turn off pre-submit screenshots
+- d18e6a2: Memoize local file resolution per run and reuse parsed anchors in the seo orphan pass.
+- d18e6a2: html: validates the shipped file by default (`html.source: 'rendered'` validates the browser DOM), skips the iframe scan on pages without `srcdoc` and no longer points `srcdoc` problems at a page line
+- d18e6a2: lighthouse: null scores log as `-`, runs stop after the first failure, partial runs and load failures are reported with tailored fixes, and stale reports are removed. Threshold findings now carry an `audit ids:` details line, so existing lighthouse baselines need regenerating (details are part of the baseline fingerprint).
+- d18e6a2: privacy: a failing reject click or storage read fails one page, not the audit. shots: a missing sharp skips motion GIFs with a warning and keeps the screenshots.
+- d18e6a2: Refactor the security, seo, csp, i18n, a11y, links, html and site-files audits onto shared finding-grouping and header-fetching helpers, and split the long security and seo audits into smaller modules. Behaviour is kept, with these exceptions: the i18n audit lists each locale's findings together (a locale's file error and its key problems are no longer separated from other locales'), CSP keyword checks (`'unsafe-inline'`, `'unsafe-eval'`, `'strict-dynamic'`, `'unsafe-hashes'`) match case-insensitively, and the order of sitemap and robots findings within one seo run can differ. Finding messages and details are unchanged, so baseline fingerprints stay valid.
+- d18e6a2: internal: forms, shots, lighthouse, privacy, budget and assets are split into smaller modules with shared finding grouping and per-run memoised file measurements. No message or details change, so baseline fingerprints are unchanged; the only wording change is the fix text of a failing `lighthouse.audits` assertion, which now points at the audit and its `'off'` switch instead of a category threshold
+- d18e6a2: Internal refactor of the core, config and reporters: `run.ts`, `headers.ts`, `load.ts`, `html.ts`, `profile.ts` and the SARIF reporter are split into smaller modules, duplicated helpers are shared, and code comments are removed. Behaviour changes: a browser tab that cannot be opened now fails the audit with that error instead of being swallowed, and the header parsers no longer share module state between host config files. `report.schema.json` is now checked against the report types by a test.
+- d18e6a2: seo: a Googlebot robots.txt group overrides *; X-Robots-Tag ignores other agents' scoped directives and honours none.
+- d18e6a2: `csp` groups identical inline script, style and attribute findings across pages with `where`, and `security` no longer reports a missing `strict-transport-security` on `http://` localhost origins and `server.command` runs.
+  
+  Grouped inline findings carry one message for all pages, so their baseline fingerprints change: regenerate existing baselines.
+- d18e6a2: Crawl dotted route links, exclude skipped links from the links count, and run not-found view checks concurrently.
+
 ## 0.19.0
 
 ### Minor Changes
