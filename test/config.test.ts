@@ -112,14 +112,14 @@ describe('loadConfig', () => {
     assert.equal(config.allLocales, true);
   });
 
-  it('parses JSON values in --set and allows new threshold keys', async () => {
+  it('parses JSON values in --set and accepts threshold values', async () => {
     const { config } = await loadConfig({
       cwd: fixture({}),
       env: {},
-      set: ['exclude=["^admin/"]', 'lighthouse.thresholds.pwa=0.8'],
+      set: ['exclude=["^admin/"]', 'lighthouse.thresholds.seo=0.8'],
     });
     assert.deepEqual(config.exclude, ['^admin/']);
-    assert.equal(config.lighthouse.thresholds.pwa, 0.8);
+    assert.equal(config.lighthouse.thresholds.seo, 0.8);
   });
 
   it('parses a JSON array for server.fallback, which also accepts a file name', async () => {
@@ -203,7 +203,7 @@ describe('loadConfig', () => {
       'vidimus.config.json': JSON.stringify({
         $schema: './node_modules/vidimus/schema.json',
         severity: { a11y: 'warn' },
-        lighthouse: { thresholds: { pwa: 0.5 } },
+        lighthouse: { thresholds: { seo: 0.5 } },
       }),
     });
     const { config } = await loadConfig({ cwd: open, env: {} });
@@ -284,5 +284,23 @@ describe('loadConfig', () => {
     const cwd = fixture({});
     await assert.rejects(loadConfig({ cwd, env: {}, set: ['nope=1'] }), UsageError);
     await assert.rejects(loadConfig({ cwd, env: {}, configFile: 'missing.json' }), UsageError);
+  });
+
+  it('rejects bad pattern lists, types and thresholds', async () => {
+    const cwd = await fixture({});
+    const bad = (set: string[]) =>
+      assert.rejects(loadConfig({ cwd, env: {}, configFile: false, set }), UsageError);
+    await bad(['forms.allowRequests=[']);
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, configFile: false, overrides: { csp: { ignore: ['('] } } }),
+      UsageError,
+    );
+    await assert.rejects(
+      loadConfig({ cwd, env: {}, configFile: false, overrides: { port: '4322' as never } }),
+      UsageError,
+    );
+    await bad(['render.concurrency=0']);
+    await bad(['lighthouse.thresholds.performance=90']);
+    await bad(['lighthouse.thresholds.accesibility=1']);
   });
 });

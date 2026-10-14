@@ -24,7 +24,7 @@ describe('csp audit', () => {
     assert.match(results[0]?.findings[0]?.message ?? '', /inline <style>/);
     assert.equal(
       results[0]?.findings[0]?.fix,
-      `Add '${hash('body{color:red}')}' to style-src in the meta CSP, or move the code to a file.`,
+      `Add '${hash('body{color:red}')}' to style-src in the CSP, or move the code to a file.`,
     );
   });
 

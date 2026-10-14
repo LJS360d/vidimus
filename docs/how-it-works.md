@@ -65,7 +65,7 @@ vidimus: no build output at /path/to/site/dist. Run the build first.
 Server audits need the build too, even with `--origin`: the list of pages to open comes from
 the HTML files in `distDir`, plus any [`routes`](#client-rendered-routes).
 
-Audits run concurrently. Audits marked `exclusive` (the built-in `lighthouse`) run afterwards,
+Audits run concurrently, and audits that need no server start while routes are discovered. Audits marked `exclusive` (the built-in `lighthouse`) run afterwards,
 one at a time, so their measurements are not disturbed by the others.
 
 ## Serving the build

@@ -69,6 +69,7 @@ export type {
   PageSource,
   RunDetail,
   RunReport,
+  RunTotals,
   Severity,
 } from './core/types.ts';
 export { createReporters, REPORTERS } from './reporters/registry.ts';

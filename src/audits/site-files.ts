@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SiteFileCheck } from '../config/types.ts';
+import { redirectMatches } from '../core/headers.ts';
 import {
   type BuiltPage,
   isFile,
@@ -26,8 +27,6 @@ interface Located {
   where: string[];
 }
 
-// Publisher-side ad tags only: advertiser pixels (conversion tracking, retargeting) on the same
-// networks load from other hosts and don't call for an ads.txt.
 const AD_HOSTS = [
   'pagead2.googlesyndication.com',
   'securepubads.g.doubleclick.net',
@@ -116,17 +115,8 @@ export const adsTxtRecords = (text: string) => {
   return { records, invalid };
 };
 
-const redirectsFrom = (dist: string) => {
-  const file = join(dist, '_redirects');
-  if (!existsSync(file)) return [];
-  return readFileSync(file, 'utf8')
-    .split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/)[0] ?? '')
-    .filter((from) => from && !from.startsWith('#'));
-};
-
 const served = (dist: string, redirects: string[], path: string) =>
-  !!localFile(dist, path) || redirects.some((from) => from.replace(/\/$/, '') === path);
+  !!localFile(dist, path) || redirectMatches(redirects, path);
 
 const firstFile = (dist: string, paths: string[]) =>
   paths.map((path) => join(dist, path)).find(isFile);
@@ -137,30 +127,28 @@ export const siteFileFindings = (
   siteUrl: string,
   options: SiteFileOptions,
   log: (line: string) => void,
+  redirects: string[] = [],
 ): Located[] => {
-  const pathsWhere = (test: (page: BuiltPage) => boolean) =>
-    pages.filter(test).map(({ path }) => path);
-  const adPages = options.adsTxt === 'off' ? [] : pathsWhere((page) => loadsAds(page.html));
-  const passwordPages =
-    options.changePassword === 'off' ? [] : pathsWhere((page) => hasPasswordField(page.html));
-  const iosPages =
-    options.appleAppSiteAssociation === 'off'
-      ? []
-      : pathsWhere(
-          (page) =>
-            !!meta(page.html, 'apple-itunes-app') ||
-            alternateSchemes(page.html).some((href) => href.startsWith('ios-app://')) ||
-            relatedPlatforms(page, dist, siteUrl).includes('itunes'),
-        );
-  const androidPages =
-    options.assetLinks === 'off'
-      ? []
-      : pathsWhere(
-          (page) =>
-            !!meta(page.html, 'google-play-app') ||
-            alternateSchemes(page.html).some((href) => href.startsWith('android-app://')) ||
-            relatedPlatforms(page, dist, siteUrl).includes('play'),
-        );
+  const pathsWhere = (mode: SiteFileCheck, test: (page: BuiltPage) => boolean) =>
+    mode === 'off' ? [] : pages.filter(test).map(({ path }) => path);
+  const platforms = new Map<BuiltPage, string[]>();
+  const platformsOf = (page: BuiltPage) => {
+    const known = platforms.get(page) ?? relatedPlatforms(page, dist, siteUrl);
+    platforms.set(page, known);
+    return known;
+  };
+  const promotesApp = (page: BuiltPage, metaName: string, scheme: string, platform: string) =>
+    !!meta(page.html, metaName) ||
+    alternateSchemes(page.html).some((href) => href.startsWith(scheme)) ||
+    platformsOf(page).includes(platform);
+  const adPages = pathsWhere(options.adsTxt, (page) => loadsAds(page.html));
+  const passwordPages = pathsWhere(options.changePassword, (page) => hasPasswordField(page.html));
+  const iosPages = pathsWhere(options.appleAppSiteAssociation, (page) =>
+    promotesApp(page, 'apple-itunes-app', 'ios-app://', 'itunes'),
+  );
+  const androidPages = pathsWhere(options.assetLinks, (page) =>
+    promotesApp(page, 'google-play-app', 'android-app://', 'play'),
+  );
 
   const wanted = (mode: SiteFileCheck, where: string[]) =>
     mode === 'on' || (mode === 'auto' && where.length > 0);
@@ -242,7 +230,7 @@ export const siteFileFindings = (
   if (options.adsTxt !== 'off' && isFile(join(dist, 'app-ads.txt')))
     checkAdsFile('app-ads.txt', [], new Map());
 
-  if (checks.password && !served(dist, redirectsFrom(dist), '/.well-known/change-password')) {
+  if (checks.password && !served(dist, redirects, '/.well-known/change-password')) {
     const target =
       pages.find((page) => hasNewPasswordField(page.html))?.path ?? '/account/password';
     add(

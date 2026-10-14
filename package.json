@@ -44,11 +44,13 @@
       "default": "./dist/index.js"
     },
     "./schema.json": "./schema.json",
+    "./report.schema.json": "./report.schema.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "schema.json"
+    "schema.json",
+    "report.schema.json"
   ],
   "scripts": {
     "build": "node scripts/build.ts",

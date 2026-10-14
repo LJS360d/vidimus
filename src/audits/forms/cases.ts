@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FieldInfo, FormInfo, Value } from './probe.ts';
 
-export type Expect = 'valid' | 'invalid' | 'unknown';
+type Expect = 'valid' | 'invalid' | 'unknown';
 
 export interface Case {
   label: string;
@@ -52,6 +52,8 @@ export const fingerprintOf = (form: FormInfo, origin: string) => {
 // ---- what a field is ----
 
 const TEXT = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'textarea']);
+export const TEXT_TYPES = new Set(['text', 'search', 'textarea', 'password']);
+export const LONG = 10_000;
 
 type Kind = 'email' | 'url' | 'tel' | 'postal' | 'password' | 'name' | 'text';
 
@@ -258,8 +260,6 @@ const baselineFor = (field: FieldInfo, configured: Record<string, string> = {}):
 
 // ---- cases: every boundary and violation the constraints imply, one field at a time ----
 
-const LONG = 10_000;
-
 const BAD: Partial<Record<Kind, string[]>> = {
   email: ['vidimus', 'vidimus@', '@example.com', 'vidimus@@example.com', 'vidi mus@example.com'],
   url: ['example', 'http://'],
@@ -309,6 +309,112 @@ export const alternatesFor = (field: FieldInfo): Value[] => {
   return ALTERNATES[kindOf(field)].map((value) => fit(value, field));
 };
 
+type Emit = (label: string, value: Value, expect: Expect, check: string) => void;
+
+const quoted = (value: string) =>
+  value.length > 24 ? `${value.slice(0, 12)}…(${value.length})` : JSON.stringify(value);
+
+const pickCases = (field: FieldInfo, base: Value | undefined, required: Expect, emit: Emit) => {
+  const options = field.options.filter((o) => !o.disabled && field.type !== 'checkbox');
+  for (const option of options.slice(0, 20)) {
+    if (option.value === base) continue;
+    const empty = option.value === '';
+    emit(
+      quoted(option.value),
+      option.value,
+      empty ? required : 'valid',
+      empty ? 'required' : 'option',
+    );
+  }
+  if (field.tag !== 'select' || field.multiple) emit('none', null, required, 'required');
+};
+
+const stepBy = (field: FieldInfo, value: string, by: number) =>
+  field.type === 'date' ? shiftDate(value, by) : String(Number(value) + by);
+
+const numericCases = (field: FieldInfo, required: Expect, emit: Emit) => {
+  emit('empty', '', required, 'required');
+  const unit =
+    field.type === 'number' && field.step && field.step !== 'any' ? Number(field.step) : 1;
+  if (field.min !== undefined) {
+    const below = stepBy(field, field.min, -unit);
+    if (below !== undefined) emit(`min-1 ${quoted(below)}`, below, 'invalid', 'min');
+  }
+  if (field.max !== undefined) {
+    const above = stepBy(field, field.max, unit);
+    if (above !== undefined) emit(`max+1 ${quoted(above)}`, above, 'invalid', 'max');
+  }
+  if (field.type === 'number' && unit !== 1) {
+    const off = String(Number(field.min ?? 0) + unit / 2);
+    emit(`off-step ${off}`, off, 'invalid', 'step');
+  }
+};
+
+const textCases = (field: FieldInfo, base: Value | undefined, required: Expect, emit: Emit) => {
+  const kind = kindOf(field);
+  const text = typeof base === 'string' ? base : '';
+  emit('empty', '', required, field.required ? 'required' : 'optional');
+  if (field.required) emit('spaces', '   ', 'invalid', 'whitespace');
+  if (field.minLength && field.minLength > 1) {
+    const short = text.padEnd(field.minLength, 'x').slice(0, field.minLength - 1);
+    emit(`minlength-1 (${short.length})`, short, 'invalid', 'minLength');
+  }
+  if (field.maxLength !== undefined) {
+    emit(
+      `maxlength (${field.maxLength})`,
+      text.padEnd(field.maxLength, 'x').slice(0, field.maxLength),
+      'valid',
+      'maxLength',
+    );
+  } else if (!field.pattern) {
+    emit(`long (${LONG})`, 'x'.repeat(LONG), 'unknown', 'length');
+  }
+  if (field.pattern) {
+    for (const bad of [`${text}!`, `!${text.slice(1)}`, text.slice(0, -1)])
+      if (bad && matches(field.pattern, bad) === false) {
+        emit(quoted(bad), bad, 'invalid', 'pattern');
+        break;
+      }
+  }
+  // A value the pattern rejects tests the pattern; one it accepts tests the type or meaning.
+  for (const bad of BAD[kind] ?? []) {
+    const check = field.pattern && matches(field.pattern, bad) === false ? 'pattern' : undefined;
+    emit(
+      quoted(bad),
+      bad,
+      'invalid',
+      check ?? (field.type === kind && kind !== 'tel' ? 'type' : 'semantic'),
+    );
+  }
+  if (kind === 'url') emit('"javascript:alert(1)"', 'javascript:alert(1)', 'unknown', 'unsafe-url');
+  if (kind === 'text' || kind === 'name') {
+    emit('unicode', 'Zoë 😀 עברית', 'unknown', 'unicode');
+    emit('canary', '<i data-vidimus-canary>x</i>', 'unknown', 'canary');
+  }
+};
+
+const fieldCases = (field: FieldInfo, base: Value | undefined, emit: Emit) => {
+  const required: Expect = field.required ? 'invalid' : 'valid';
+  if (field.type === 'checkbox' && !field.options.length)
+    emit('unchecked', false, required, field.required ? 'required' : 'optional');
+  else if (picks(field)) pickCases(field, base, required, emit);
+  else if (field.type === 'file') emit('none', null, required, 'required');
+  else if (field.type === 'range') return;
+  else if (field.type === 'number' || field.type === 'date') numericCases(field, required, emit);
+  else if (!TEXT.has(field.type)) emit('empty', '', required, 'required');
+  else textCases(field, base, required, emit);
+};
+
+const emptyValue = (field: FieldInfo, baseline: Record<string, Value>): Value => {
+  if (field.type === 'checkbox') return field.options.length ? null : false;
+  if (field.type === 'radio' || field.type === 'file' || (field.tag === 'select' && field.multiple))
+    return null;
+  // A select without an empty option cannot be emptied by a user.
+  if (field.tag === 'select')
+    return field.options.some((o) => o.value === '') ? '' : (baseline[field.key] ?? null);
+  return '';
+};
+
 export const casesFor = (
   fields: FieldInfo[],
   configured: Record<string, string> = {},
@@ -325,113 +431,14 @@ export const casesFor = (
   const cases: Case[] = [
     { label: 'baseline', field: null, values: baseline, expect: 'valid', check: 'baseline' },
   ];
-  const one = (field: FieldInfo, label: string, value: Value, expect: Expect, check: string) => {
-    const values = { ...baseline, [field.key]: value };
-    // Changing a field also changes what its confirmation must repeat.
-    for (const [copy, original] of confirms) if (original === field.key) values[copy] = value;
-    cases.push({ label: `${field.key}=${label}`, field: field.key, values, expect, check });
-  };
-  const show = (value: string) =>
-    value.length > 24 ? `${value.slice(0, 12)}…(${value.length})` : JSON.stringify(value);
-
   for (const field of usable) {
-    const base = baseline[field.key];
-    const required: Expect = field.required ? 'invalid' : 'valid';
-    const kind = kindOf(field);
-
-    if (field.type === 'checkbox' && !field.options.length) {
-      one(field, 'unchecked', false, required, field.required ? 'required' : 'optional');
-      continue;
-    }
-    if (picks(field)) {
-      for (const option of field.options
-        .filter((o) => !o.disabled && field.type !== 'checkbox')
-        .slice(0, 20)) {
-        if (option.value === base) continue;
-        const empty = option.value === '';
-        one(
-          field,
-          show(option.value),
-          option.value,
-          empty ? required : 'valid',
-          empty ? 'required' : 'option',
-        );
-      }
-      if (field.tag !== 'select' || field.multiple) one(field, 'none', null, required, 'required');
-      continue;
-    }
-    if (field.type === 'file') {
-      one(field, 'none', null, required, 'required');
-      continue;
-    }
-    if (['number', 'range', 'date'].includes(field.type)) {
-      if (field.type === 'range') continue;
-      one(field, 'empty', '', required, 'required');
-      const step = (value: string, by: number) =>
-        field.type === 'date' ? shiftDate(value, by) : String(Number(value) + by);
-      const unit =
-        field.type === 'number' && field.step && field.step !== 'any' ? Number(field.step) : 1;
-      if (field.min !== undefined) {
-        const below = step(field.min, -unit);
-        if (below !== undefined) one(field, `min-1 ${show(below)}`, below, 'invalid', 'min');
-      }
-      if (field.max !== undefined) {
-        const above = step(field.max, unit);
-        if (above !== undefined) one(field, `max+1 ${show(above)}`, above, 'invalid', 'max');
-      }
-      if (field.type === 'number' && unit !== 1) {
-        const off = String(Number(field.min ?? 0) + unit / 2);
-        one(field, `off-step ${off}`, off, 'invalid', 'step');
-      }
-      continue;
-    }
-    if (!TEXT.has(field.type)) {
-      one(field, 'empty', '', required, 'required');
-      continue;
-    }
-
-    const text = typeof base === 'string' ? base : '';
-    one(field, 'empty', '', required, field.required ? 'required' : 'optional');
-    if (field.required) one(field, 'spaces', '   ', 'invalid', 'whitespace');
-    if (field.minLength && field.minLength > 1) {
-      const short = text.padEnd(field.minLength, 'x').slice(0, field.minLength - 1);
-      one(field, `minlength-1 (${short.length})`, short, 'invalid', 'minLength');
-    }
-    if (field.maxLength !== undefined) {
-      one(
-        field,
-        `maxlength (${field.maxLength})`,
-        text.padEnd(field.maxLength, 'x').slice(0, field.maxLength),
-        'valid',
-        'maxLength',
-      );
-    } else if (!field.pattern) {
-      one(field, `long (${LONG})`, 'x'.repeat(LONG), 'unknown', 'length');
-    }
-    if (field.pattern) {
-      for (const bad of [`${text}!`, `!${text.slice(1)}`, text.slice(0, -1)])
-        if (bad && matches(field.pattern, bad) === false) {
-          one(field, show(bad), bad, 'invalid', 'pattern');
-          break;
-        }
-    }
-    // A value the pattern rejects tests the pattern; one it accepts tests the type or meaning.
-    for (const bad of BAD[kind] ?? []) {
-      const check = field.pattern && matches(field.pattern, bad) === false ? 'pattern' : undefined;
-      one(
-        field,
-        show(bad),
-        bad,
-        'invalid',
-        check ?? (field.type === kind && kind !== 'tel' ? 'type' : 'semantic'),
-      );
-    }
-    if (kind === 'url')
-      one(field, '"javascript:alert(1)"', 'javascript:alert(1)', 'unknown', 'unsafe-url');
-    if (kind === 'text' || kind === 'name') {
-      one(field, 'unicode', 'Zoë 😀 עברית', 'unknown', 'unicode');
-      one(field, 'canary', '<i data-vidimus-canary>x</i>', 'unknown', 'canary');
-    }
+    const emit: Emit = (label, value, expect, check) => {
+      const values = { ...baseline, [field.key]: value };
+      // Changing a field also changes what its confirmation must repeat.
+      for (const [copy, original] of confirms) if (original === field.key) values[copy] = value;
+      cases.push({ label: `${field.key}=${label}`, field: field.key, values, expect, check });
+    };
+    fieldCases(field, baseline[field.key], emit);
   }
   for (const [copy, original] of confirms) {
     const value = baseline[original];
@@ -443,20 +450,10 @@ export const casesFor = (
       check: 'equals',
     });
   }
-
-  const emptyOf = (f: FieldInfo): Value => {
-    if (f.type === 'checkbox') return f.options.length ? null : false;
-    if (f.type === 'radio' || f.type === 'file' || (f.tag === 'select' && f.multiple)) return null;
-    // A select without an empty option cannot be emptied by a user.
-    if (f.tag === 'select')
-      return f.options.some((o) => o.value === '') ? '' : (baseline[f.key] ?? null);
-    return '';
-  };
-  const empty = Object.fromEntries(usable.map((f) => [f.key, emptyOf(f)]));
   cases.push({
     label: 'all empty',
     field: null,
-    values: empty,
+    values: Object.fromEntries(usable.map((f) => [f.key, emptyValue(f, baseline)])),
     expect: usable.some((f) => f.required) ? 'invalid' : 'unknown',
     check: 'empty-form',
   });

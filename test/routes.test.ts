@@ -245,3 +245,15 @@ setTimeout(() => {
     );
   });
 });
+
+describe('isPagePath', () => {
+  it('keeps dotted route segments and drops assets', async () => {
+    const { isPagePath } = await import('../src/core/routes.ts');
+    assert.equal(isPagePath('/docs/v1.2'), true);
+    assert.equal(isPagePath('/blog/node.js'), false);
+    assert.equal(isPagePath('/files/report.docx'), false);
+    assert.equal(isPagePath('/files/data.CSV'), false);
+    assert.equal(isPagePath('/files/site.tar'), false);
+    assert.equal(isPagePath('/feed.xml'), false);
+  });
+});

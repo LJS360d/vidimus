@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { gallery } from '../src/audits/shots/gallery.ts';
+import { tryWriteGif } from '../src/audits/shots/motion.ts';
 import type { UserConfig } from '../src/config/types.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
@@ -330,5 +332,54 @@ describe('shots on dynamic content', { skip: noBrowser }, () => {
       result.log.some((line) => /no WebGL context for canvas#gl/.test(line)),
       result.log.join('\n'),
     );
+  });
+});
+
+describe('tryWriteGif', () => {
+  it('returns the peer error instead of throwing', async () => {
+    const message = await tryWriteGif(
+      () => Promise.reject(new Error('sharp is not installed')),
+      [],
+      'x.gif',
+    );
+    assert.equal(message, 'sharp is not installed');
+  });
+});
+
+describe('gallery', () => {
+  it('encodes names in image sources and escapes them in text', () => {
+    const html = gallery([{ name: 'a%5Fb#x&y@1280x800', percent: '1.00' }], 'baseline');
+    assert.ok(html.includes('src="current/a%255Fb%23x%26y%401280x800.png"'));
+    assert.ok(html.includes('<h2>a%5Fb#x&amp;y@1280x800'));
+  });
+});
+
+describe('shots size and pixel limits', { skip: noBrowser }, () => {
+  it('fails on a size change and reports the changed region', async () => {
+    const html = (height: number) => page.replace('hi', `<div style="height:${height}px"></div>`);
+    const shots = async (cwd: string, shotsConfig: UserConfig['shots'] = {}) => {
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['shots'],
+        reporters: [],
+        overrides: {
+          port: await freePort(),
+          shots: { viewports: [1024], motion: false, ...shotsConfig },
+        },
+      });
+      return results[0];
+    };
+    const before = fixture({ 'dist/index.html': html(400) });
+    await shots(before, { updateBaseline: true });
+    const after = fixture({ 'dist/index.html': html(900) });
+    const result = await shots(after, {
+      maxDiffPixels: 10,
+      baselineDir: join(before, '.vidimus', 'shots', 'baseline'),
+    });
+    assert.equal(result?.status, 'failed', JSON.stringify(result));
+    const details = result?.findings[0]?.details?.join('\n') ?? '';
+    assert.match(details, /size changed 1024x\d+ -> 1024x\d+/);
+    assert.match(details, /changed region x=\d+\.\.\d+, y=\d+\.\.\d+/);
   });
 });

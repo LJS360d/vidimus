@@ -107,6 +107,29 @@ describe('r12s audit', () => {
     );
   });
 
+  it('groups small text by element and keeps measurements in details', {
+    skip: noBrowser,
+  }, async () => {
+    const small = (n: number) => `<small class="cap" style="font-size:8px">caption ${n}</small>`;
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        `<p>${[1, 2, 3].map(small).join(' ')}</p>`,
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    const fonts = results[0]?.findings.filter(({ message }) => message.startsWith('font-size'));
+    assert.equal(fonts?.length, 1);
+    assert.equal(fonts?.[0]?.details?.[0], 'small.cap');
+    assert.equal(fonts?.[0]?.details?.length, 4);
+  });
+
   it('skips font-size:0 layouts whose first child is whitespace text', {
     skip: noBrowser,
   }, async () => {

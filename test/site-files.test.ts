@@ -194,4 +194,20 @@ describe('site files detected from the pages', () => {
       /assets\.adsTxt/,
     );
   });
+
+  it('reads change-password redirects from host config files and wildcards', async () => {
+    const login = page('<input type="password">');
+    const vercel = await audit({
+      'dist/index.html': login,
+      'vercel.json': JSON.stringify({
+        redirects: [{ source: '/.well-known/change-password', destination: '/a' }],
+      }),
+    });
+    assert.deepEqual(vercel.messages, []);
+    const toml = await audit({
+      'dist/index.html': login,
+      'netlify.toml': '[[redirects]]\n  from = "/.well-known/*"\n  to = "/a"\n',
+    });
+    assert.deepEqual(toml.messages, []);
+  });
 });

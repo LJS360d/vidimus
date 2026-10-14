@@ -1,5 +1,6 @@
 import type { Audit, Finding } from '../core/types.ts';
 import { inParallel, navigate, onePagePerTemplate, pathOf } from '../core/util.ts';
+import { groupFindings } from './util.ts';
 
 interface Pa11yIssue {
   code: string;
@@ -7,6 +8,7 @@ interface Pa11yIssue {
   selector: string;
   type?: string;
   context: string | null;
+  runnerExtras?: { helpUrl?: string; help?: string };
 }
 
 const TECHNIQUE_DIRS: [RegExp, string][] = [
@@ -28,8 +30,13 @@ export const techniqueUrl = (code: string) => {
   return undefined;
 };
 
-export const issueFix = (code: string) => {
-  const url = techniqueUrl(code);
+const AXE_RULE = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
+
+export const issueFix = (code: string, helpUrl?: string) => {
+  const url =
+    helpUrl ??
+    techniqueUrl(code) ??
+    (AXE_RULE.test(code) ? `https://dequeuniversity.com/rules/axe/4.10/${code}` : undefined);
   return `${url ? `Apply ${url} to the element listed` : 'Fix the element listed'}, or add the code to a11y.ignore if it is a false positive.`;
 };
 
@@ -57,8 +64,9 @@ export const a11y: Audit = {
     const { default: pa11y } = await importPeer<{ default: Pa11y }>('pa11y');
     const urls = onePagePerTemplate(pageUrls({ exclude }), sample, origin);
     const browser = await launchBrowser();
-    const byIssue = new Map<string, Finding & { where: string[] }>();
-    const failedToLoad: string[] = [];
+    const byIssue = groupFindings();
+    const results: { url: string; issues: Pa11yIssue[] }[] = [];
+    const failures: { path: string; error: string }[] = [];
 
     try {
       await inParallel(concurrency, urls, async (url) => {
@@ -76,20 +84,9 @@ export const a11y: Audit = {
             ignore,
             ignoreUrl: true,
           });
-          for (const issue of issues) {
-            const key = [issue.code, issue.selector].join(' | ');
-            const finding = byIssue.get(key) ?? {
-              message: issue.message,
-              details: [issue.selector, issue.code, ...(issue.context ? [issue.context] : [])],
-              where: [],
-              fix: issueFix(issue.code),
-              ...(issue.type === 'warning' && { severity: 'warn' as const }),
-            };
-            finding.where.push(pathOf(url, origin));
-            byIssue.set(key, finding);
-          }
+          results.push({ url, issues });
         } catch (error) {
-          failedToLoad.push(`${pathOf(url, origin)}: ${(error as Error).message}`);
+          failures.push({ path: pathOf(url, origin), error: (error as Error).message });
         } finally {
           await page.close().catch(() => {});
         }
@@ -98,17 +95,36 @@ export const a11y: Audit = {
       await browser.close();
     }
 
+    results.sort((x, y) => x.url.localeCompare(y.url));
+    for (const { url, issues } of results) {
+      for (const issue of issues) {
+        byIssue.add(
+          {
+            message: issue.message,
+            details: [issue.selector, issue.code, ...(issue.context ? [issue.context] : [])],
+            fix: issueFix(issue.code, issue.runnerExtras?.helpUrl),
+            ...(issue.type === 'warning' && { severity: 'warn' as const }),
+          },
+          pathOf(url, origin),
+          { key: `${issue.code} | ${issue.selector}` },
+        );
+      }
+    }
+    failures.sort((x, y) => x.path.localeCompare(y.path));
+
     const findings: Finding[] = [
       ...byIssue.values(),
-      ...failedToLoad.map((message) => ({
-        message: `failed to audit ${message}`,
+      ...failures.map(({ path, error }) => ({
+        message: `failed to audit ${path}`,
+        details: [error],
+        where: [path],
         fix: loadFailureFix(timeout),
       })),
     ];
     log(`${urls.length} pages against ${standard}`);
     return {
       summary: findings.length
-        ? `${byIssue.size} distinct issue(s), ${failedToLoad.length} page(s) failed to load`
+        ? `${byIssue.size()} distinct issue(s), ${failures.length} page(s) failed to load`
         : `${urls.length} pages, no ${standard} violations`,
       findings,
     };

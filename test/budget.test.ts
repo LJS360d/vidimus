@@ -413,3 +413,46 @@ describe('budget request counts', { skip: !browser }, () => {
     assert.equal(messages?.[1], '2 third-party requests > 1 budget');
   });
 });
+
+describe('budget image candidates and fonts', () => {
+  it('checks picture sources against budget.image', async () => {
+    const result = await audit(
+      {
+        'dist/index.html':
+          '<picture><source srcset="/b.avif"><img src="/a.png" width="1" height="1"></picture>',
+      },
+      { image: 1000 },
+      { 'dist/a.png': pngBuffer(1, 1), 'dist/b.avif': Buffer.alloc(5000) },
+    );
+    assert.ok(result.findings?.some((f) => f.message.includes('/b.avif')));
+  });
+
+  it('keys srcset-only images on their url and counts one font per face', async () => {
+    const result = await audit(
+      {
+        'dist/index.html':
+          '<link rel="stylesheet" href="/s.css"><img srcset="/x.png 1x"><img srcset="/y.png 1x">',
+        'dist/s.css': '@font-face{src:url(/a.woff2) format("woff2"),url(/a.woff) format("woff")}',
+      },
+      { page: 10_000, dimensions: true },
+      { 'dist/a.woff2': Buffer.alloc(6000), 'dist/a.woff': Buffer.alloc(6000) },
+    );
+    const messages = (result.findings ?? []).map((f) => f.message);
+    assert.ok(messages.some((m) => m.includes('/x.png')));
+    assert.ok(messages.some((m) => m.includes('/y.png')));
+    assert.ok(!messages.some((m) => m.startsWith('page')));
+  });
+});
+
+describe('budget exact asset files', () => {
+  it('does not measure html fallbacks as images', async () => {
+    const result = await audit(
+      {
+        'dist/index.html': '<img src="/img" width="1" height="1">',
+        'dist/img/index.html': noise(5000),
+      },
+      { image: 1000 },
+    );
+    assert.deepEqual(result.findings, []);
+  });
+});

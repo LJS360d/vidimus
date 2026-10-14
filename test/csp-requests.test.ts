@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parsePolicy, requestAllowed } from '../src/core/csp.ts';
+import { headerPolicies, parsePolicy, requestAllowed } from '../src/core/csp.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -130,6 +130,87 @@ const NS = "http://www.w3.org/2000/svg";`,
     });
     assert.equal(ignored.findings.length, 0);
     const off = await audit(files, { server: { headers }, csp: { requests: false } });
-    assert.equal(off.status, 'skipped');
+    assert.equal(off.status, 'passed');
+  });
+});
+
+describe('csp audit: several policies', () => {
+  const blocked = async (head: string) => {
+    const result = await audit({
+      'dist/index.html': `<!doctype html>${head}<script>run()</script>`,
+    });
+    return result.findings.filter(({ message }) => message.startsWith('inline <script>')).length;
+  };
+
+  it('checks every meta tag and splits a comma list', async () => {
+    const meta = (content: string) =>
+      `<meta http-equiv="content-security-policy" content="${content}">`;
+    assert.equal(await blocked(meta('default-src *') + meta("script-src 'none'")), 1);
+    assert.equal(await blocked(meta("default-src *, script-src 'none'")), 1);
+  });
+
+  it('checks inline code against a CSP from _headers', async () => {
+    const result = await audit({
+      'dist/index.html': '<!doctype html><script>run()</script>',
+      'dist/_headers': "/*\n  Content-Security-Policy: script-src 'self'",
+    });
+    assert.equal(
+      result.findings.filter(({ message }) => message.startsWith('inline <script>')).length,
+      1,
+    );
+  });
+});
+
+describe('policy parsing', () => {
+  it('splits comma-joined policies and models base-uri', () => {
+    assert.deepEqual(
+      headerPolicies({
+        'content-security-policy': "img-src /a,b; script-src 'self', base-uri 'none'",
+      }),
+      ["img-src /a,b; script-src 'self'", "base-uri 'none'"],
+    );
+    const self = new URL('http://vidimus.invalid');
+    assert.equal(
+      requestAllowed(parsePolicy("base-uri 'self'"), 'base', new URL('https://x.example/'), self)
+        .allowed,
+      false,
+    );
+  });
+
+  it('applies script-src-elem to inline blocks', async () => {
+    const result = await audit({
+      'dist/index.html': page(
+        "script-src 'self' 'unsafe-inline'; script-src-elem 'self' 'sha256-x'",
+        '<script>a()</script>',
+      ),
+    });
+    assert.equal(result.findings?.length, 1);
+  });
+});
+
+describe('nonces', () => {
+  it('accepts matching nonces and warns on a nonce shared by every page', async () => {
+    const block = '<script nonce="abc">a()</script>';
+    const result = await audit({
+      'dist/index.html': page("script-src 'nonce-abc'", block),
+      'dist/b/index.html': page("script-src 'nonce-abc'", block),
+    });
+    assert.deepEqual(
+      result.findings?.map(({ message }) => message),
+      ["nonce 'abc' is the same on every page"],
+    );
+  });
+});
+
+describe('csp inline grouping', () => {
+  it('groups the same inline block across pages', async () => {
+    const body = '<script>var a=1</script>';
+    const result = await audit({
+      'dist/a/index.html': page("script-src 'self'", body),
+      'dist/b/index.html': page("script-src 'self'", body),
+    });
+    const inline = result.findings.filter(({ message }) => message.startsWith('inline'));
+    assert.equal(inline.length, 1);
+    assert.deepEqual(inline[0]?.where?.sort(), ['/a/', '/b/']);
   });
 });

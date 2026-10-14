@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { a11y } from '../src/audits/a11y.ts';
+import { a11y, issueFix } from '../src/audits/a11y.ts';
 import { defaults } from '../src/config/defaults.ts';
 import { fixture } from './helpers.ts';
 
@@ -98,5 +98,49 @@ describe('a11y audit', () => {
       log: () => {},
     } as never);
     assert.deepEqual(order, ['goto', 'wait #app', 'pa11y']);
+  });
+
+  it('orders findings by url and keeps load errors out of the message', async () => {
+    const urls = ['http://localhost:1/b', 'http://localhost:1/a', 'http://localhost:1/c'];
+    const run = (delays: number[]) =>
+      a11y.run({
+        config: defaults(fixture({})),
+        origin: 'http://localhost:1',
+        pageUrls: () => urls,
+        importPeer: async (name: string) =>
+          name === 'pa11y'
+            ? {
+                default: async (url: string) => {
+                  await new Promise((r) => setTimeout(r, delays[urls.indexOf(url)]));
+                  if (url.endsWith('/c')) throw new Error(`timed out ${delays[2]}ms`);
+                  return {
+                    issues: [
+                      { code: 'x', message: 'm', selector: 'a', context: `<a href="${url}">` },
+                    ],
+                  };
+                },
+              }
+            : {},
+        launchBrowser: async () => ({
+          newPage: async () => ({ goto: async () => {}, close: async () => {} }),
+          close: async () => {},
+        }),
+        log: () => {},
+      } as never);
+    const first = await run([1, 20, 5]);
+    const second = await run([20, 1, 5]);
+    assert.deepEqual(first.findings, second.findings);
+    assert.deepEqual(first.findings?.[0]?.where, ['/a', '/b']);
+    assert.equal(first.findings?.[1]?.message, 'failed to audit /c');
+    assert.deepEqual(first.findings?.[1]?.where, ['/c']);
+  });
+
+  it('links axe rules to their help page', () => {
+    assert.match(issueFix('x', 'https://h/x'), /Apply https:\/\/h\/x /);
+    assert.match(
+      issueFix('color-contrast'),
+      /dequeuniversity\.com\/rules\/axe\/4\.10\/color-contrast /,
+    );
+    assert.match(issueFix('WCAG2AA.Principle1.Guideline1_1.1_1_1.H37'), /Techniques\/html\/H37/);
   });
 });

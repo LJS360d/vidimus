@@ -1,4 +1,6 @@
 import type { Pattern, VidimusConfig } from '../config/types.ts';
+import type { AcceptedFinding } from './findings.ts';
+import type { HeaderMap, HeaderSource } from './headers.ts';
 import type { BuiltPage } from './html.ts';
 import type { Browser, LaunchOptions } from './peer-types.ts';
 import type { ProfileSummary } from './profile.ts';
@@ -10,6 +12,7 @@ export type Severity = 'error' | 'warn';
 
 export interface Finding {
   message: string;
+  rule?: string;
   where?: string[];
   details?: string[];
   file?: string;
@@ -44,9 +47,13 @@ export interface AuditContext {
   builtPages: (exclude?: Pattern[]) => BuiltPage[];
   renderedPages: (exclude?: Pattern[]) => Promise<PageSource[]>;
   renderPage?: (url: string) => Promise<RenderedPage>;
+  headersFor: (path: string) => Promise<HeaderMap | undefined>;
+  headerSource: Pick<HeaderSource, 'sources' | 'notes'>;
   log: (line?: string) => void;
   /** Times fn as a named span in `--profile` runs; just calls fn otherwise. */
   span: <T>(name: string, fn: () => Promise<T>, attrs?: Record<string, unknown>) => Promise<T>;
+  /** Aborted when the audit times out; long loops should stop once it is. */
+  signal: AbortSignal;
   importPeer: <T>(name: string) => Promise<T>;
   launchBrowser: (options?: LaunchOptions) => Promise<Browser>;
 }
@@ -55,7 +62,7 @@ export interface Audit {
   name: string;
   description: string;
   requires?: AuditRequirement;
-  exclusive?: boolean;
+  exclusive?: boolean | ((config: VidimusConfig) => boolean);
   run: (context: AuditContext) => Promise<AuditOutcome>;
 }
 
@@ -86,14 +93,28 @@ export interface RunDetail {
   config: unknown;
   /** Findings hidden by ignore rules or the baseline, per audit. */
   suppressed: Record<string, Finding[]>;
+  /** Baseline entries that no longer occur. */
+  stale: AcceptedFinding[];
+}
+
+export interface RunTotals {
+  errors: number;
+  warnings: number;
+  suppressed: number;
+  audits: Record<'passed' | 'warned' | 'failed' | 'errored' | 'skipped', number>;
 }
 
 export interface RunReport {
+  schemaVersion: 1;
   ok: boolean;
   origin: string;
+  /** Absolute path of the served build output, `''` when no selected audit needed it. */
+  distDir: string;
   startedAt: string;
   durationMs: number;
   results: AuditResult[];
+  totals: RunTotals;
+  staleBaseline: number;
   timedOut?: boolean;
   profile?: ProfileSummary;
   detail?: RunDetail;

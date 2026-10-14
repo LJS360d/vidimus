@@ -28,7 +28,6 @@ export const pretty = (
   env: NodeJS.ProcessEnv = process.env,
 ): Reporter => {
   const paint = (format: Format, text: string) => styleText(format, text, { stream });
-  // A terminal gets one line redrawn in place; a log gets a line every 30s.
   const live = stream.isTTY && !env.CI;
   let running: Progress[] = [];
   let started = Date.now();

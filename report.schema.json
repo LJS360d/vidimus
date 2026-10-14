@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "vidimus run report",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "ok",
+    "origin",
+    "startedAt",
+    "durationMs",
+    "results",
+    "totals",
+    "staleBaseline"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "ok": { "type": "boolean" },
+    "origin": { "type": "string" },
+    "distDir": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "durationMs": { "type": "number" },
+    "timedOut": { "type": "boolean" },
+    "staleBaseline": { "type": "integer" },
+    "totals": {
+      "type": "object",
+      "required": ["errors", "warnings", "suppressed", "audits"],
+      "properties": {
+        "errors": { "type": "integer" },
+        "warnings": { "type": "integer" },
+        "suppressed": { "type": "integer" },
+        "audits": {
+          "type": "object",
+          "required": ["passed", "warned", "failed", "errored", "skipped"],
+          "properties": {
+            "passed": { "type": "integer" },
+            "warned": { "type": "integer" },
+            "failed": { "type": "integer" },
+            "errored": { "type": "integer" },
+            "skipped": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "summary", "findings", "suppressed", "log", "durationMs"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["passed", "warned", "failed", "skipped", "errored"] },
+          "summary": { "type": "string" },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["message"],
+              "properties": {
+                "message": { "type": "string" },
+                "rule": { "type": "string" },
+                "where": { "type": "array", "items": { "type": "string" } },
+                "details": { "type": "array", "items": { "type": "string" } },
+                "file": { "type": "string" },
+                "line": { "type": "integer" },
+                "severity": { "enum": ["error", "warn"] },
+                "fix": { "type": "string" }
+              }
+            }
+          },
+          "suppressed": { "type": "integer" },
+          "log": { "type": "array", "items": { "type": "string" } },
+          "durationMs": { "type": "number" }
+        }
+      }
+    },
+    "profile": { "type": "object" },
+    "detail": { "type": "object" }
+  }
+}

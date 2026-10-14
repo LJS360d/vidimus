@@ -1,7 +1,7 @@
 import type { Finding } from '../../core/types.ts';
-import type { CaseResult, Exercised } from './index.ts';
 import type { FieldInfo, FieldState } from './probe.ts';
 import type { Captured } from './sandbox.ts';
+import { type CaseResult, type Exercised, isSent } from './types.ts';
 
 export type Verdict = 'pass' | 'fail' | 'info';
 
@@ -11,15 +11,13 @@ const esc = (text: unknown) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
 
-const sent = (c: CaseResult) => c.outcome === 'sent' || c.outcome === 'navigated';
-
 // Did the form do what the case expected: stop an invalid value, send a valid one.
 export const verdictOf = (c: CaseResult): Verdict => {
   if (c.outcome === 'error' || c.outcome === 'timeout' || c.events.canary) return 'fail';
   if (c.check === 'double-submit') return c.requests.length > 1 ? 'fail' : 'pass';
   if (c.outcome === 'not-submitted' || c.expect === 'unknown') return 'info';
-  if (c.expect === 'invalid') return sent(c) ? 'fail' : 'pass';
-  return sent(c) ? 'pass' : 'fail';
+  if (c.expect === 'invalid') return isSent(c) ? 'fail' : 'pass';
+  return isSent(c) ? 'pass' : 'fail';
 };
 
 const value = (v: unknown) => {

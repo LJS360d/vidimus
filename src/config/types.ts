@@ -22,8 +22,10 @@ export type AuditSeverity = 'error' | 'warn' | 'off';
 
 export interface IgnoreRule {
   audit?: string;
+  rule?: Pattern;
   message?: Pattern;
   where?: Pattern;
+  reason?: string;
 }
 
 export interface Range {
@@ -104,12 +106,18 @@ export interface VidimusConfig {
     update: boolean;
     /** Also match accepted findings by their page list (`where`), so the same finding on other pages is new. */
     matchWhere: boolean;
+    /** Treat numbers in messages and details as equal, so a measured value that drifts does not make an accepted finding new. */
+    fuzzy: boolean;
+    /** Fail the run when baseline entries no longer occur. */
+    failOnStale: boolean;
   };
   plugins: Audit[];
   reporters: (string | ReporterOptions | Reporter)[];
   browser: {
     args: string[];
     executablePath: string;
+    /** Pages open at once across all audits sharing the browser; further `newPage` calls wait. */
+    maxPages: number;
     state: BrowserState;
   };
   server: {
@@ -144,6 +152,8 @@ export interface VidimusConfig {
     /** Longest a single probe case (fill, submit, wait for the outcome) may run, in ms, before it is abandoned and reported as a finding. `0` means no limit. */
     caseTimeout: number;
     settle: number;
+    /** Keep a screenshot of the form before each submit for failing cases. Turn off to run faster. */
+    screenshots: boolean;
     exclude: Pattern[];
     sample: Pattern[];
     skip: string[];
@@ -185,10 +195,22 @@ export interface VidimusConfig {
     concurrency: number;
     tolerance: number;
     maxDiff: number;
+    /** Most changed pixels allowed before a screenshot fails, next to `maxDiff`; `0` turns the limit off. A ratio hides a small change on a very tall page. */
+    maxDiffPixels: number;
+    /** CSS injected into every page before the screenshot, for example to hide a caret, a scrollbar or a sticky header. */
+    css: string;
+    /** Device pixel ratio of the screenshots. */
+    deviceScaleFactor: number;
     /** Ignore anti-aliased pixels: a changed pixel on a soft edge, such as a glyph or a diagonal line, that a neighbouring pixel explains does not count. Off by default, so every pixel above `tolerance` counts. */
     antialiasing: boolean;
     /** Own `tolerance` or `maxDiff` for some screenshots: a rule applies when its `match` pattern matches the page path and its `viewport` equals the screenshot width, either may be left out. The first matching rule wins; other screenshots use the global values. */
-    overrides: { match?: Pattern; viewport?: number; tolerance?: number; maxDiff?: number }[];
+    overrides: {
+      match?: Pattern;
+      viewport?: number;
+      tolerance?: number;
+      maxDiff?: number;
+      maxDiffPixels?: number;
+    }[];
     settleTimeout: number;
     protocolTimeout: number;
     updateBaseline: boolean;
@@ -198,13 +220,25 @@ export interface VidimusConfig {
     preset: 'mobile' | 'desktop';
     /** Runs per page; each category score is the median of them. */
     runs: number;
+    /** Pages tested at once; `0` is 1 when `performance` is measured and 3 otherwise. */
+    concurrency: number;
     outDir: string;
     exclude: Pattern[];
     sample: Pattern[];
     all: boolean;
     urls: string[];
     thresholds: Record<string, number>;
-    overrides: { match: Pattern; thresholds: Record<string, number> }[];
+    /** Maximum `numericValue` per Lighthouse audit id, such as `'largest-contentful-paint': 2500`. */
+    metrics: Record<string, number>;
+    /** `error` fails a page whose audit does not pass; `off` ignores the audit in details and category scores. */
+    audits: Record<string, 'off' | 'error'>;
+    /** Audit ids left out of failure details and category scores. */
+    ignoreAudits: string[];
+    overrides: {
+      match: Pattern;
+      thresholds?: Record<string, number>;
+      metrics?: Record<string, number>;
+    }[];
   };
   links: {
     skip: Pattern[];
@@ -238,6 +272,7 @@ export interface VidimusConfig {
     file: string;
     exclude: Pattern[];
     require: Record<string, Pattern | false>;
+    csp: 'warn' | 'error' | false;
     clickjacking: boolean;
     unsafeInline: boolean;
     mixedContent: boolean;
@@ -256,8 +291,15 @@ export interface VidimusConfig {
     concurrency: number;
     timeout: number;
   };
+  /** Per-page audit results reused across runs while the page, audit config and vidimus version are unchanged. */
+  cache: {
+    enabled: boolean;
+    dir: string;
+  };
   html: {
     exclude: Pattern[];
+    /** Markup to validate: `dist` is the shipped files, `rendered` the DOM a browser builds (needs `render.mode`; line numbers then refer to the serialised DOM). */
+    source: 'dist' | 'rendered';
     extends: string[];
     rules: Record<string, unknown>;
   };

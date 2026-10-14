@@ -14,9 +14,12 @@ import {
   matches,
   slugOf,
 } from '../src/audits/forms/cases.ts';
-import { type Exercised, findingsFor, forms, shotOf } from '../src/audits/forms/index.ts';
+import { findingsFor } from '../src/audits/forms/findings.ts';
+import { forms } from '../src/audits/forms/index.ts';
+import { shotOf } from '../src/audits/forms/page.ts';
 import type { FieldInfo, FormInfo } from '../src/audits/forms/probe.ts';
 import { parseBody } from '../src/audits/forms/sandbox.ts';
+import type { Exercised } from '../src/audits/forms/types.ts';
 import { defaults } from '../src/config/defaults.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
@@ -411,7 +414,7 @@ document.getElementById('scripted').addEventListener('submit', (event) => {
   }, async () => {
     const cwd = fixture({
       'dist/index.html':
-        page(`<form id="stuck" onsubmit="alert('wait'); return false"><input name="q"><button>Go</button></form>
+        page(`<form id="stuck" onsubmit="while(true){}"><input name="q"><button>Go</button></form>
 <form id="fine"><input name="p"><button>Go</button></form>`),
     });
     const { results } = await run({
@@ -430,11 +433,88 @@ document.getElementById('scripted').addEventListener('submit', (event) => {
     const fine = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/fine.json'), 'utf8'));
     assert.ok(fine.cases.length > 0);
     const stuck = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/stuck.json'), 'utf8'));
+    assert.ok(stuck.abortedCases > 0);
     assert.ok(
       stuck.cases.every(
         (c: { outcome: string }) => c.outcome === 'timeout' || c.outcome === 'not-submitted',
       ),
     );
+  });
+
+  it('keeps collected cases and names failed pages when reopening fails', {
+    skip: noBrowser,
+  }, async () => {
+    let started = 0;
+    const target = createServer((req, res) => {
+      started ||= Date.now();
+      if (Date.now() - started > 1000) return req.socket.destroy();
+      res.setHeader('content-type', 'text/html');
+      res.end(
+        page(
+          '<form id="stuck" onsubmit="while(true){}"><input name="q"><button>Go</button></form>',
+        ),
+      );
+    }).listen(0, '127.0.0.1');
+    await new Promise((r) => target.once('listening', r));
+    try {
+      const cwd = fixture({ 'dist/index.html': page('<p>x</p>') });
+      const { results } = await run({
+        cwd,
+        env: {},
+        audits: ['forms'],
+        reporters: [],
+        overrides: {
+          origin: `http://127.0.0.1:${(target.address() as AddressInfo).port}`,
+          forms: { caseTimeout: 1500, timeout: 3000 },
+        },
+      });
+      const messages = (results[0]?.findings ?? []).map((f) => f.message);
+      assert.ok(
+        messages.some((m) => /^stuck: page could not be reopened after a timeout/.test(m)),
+        messages.join('\n'),
+      );
+      assert.match(results[0]?.summary ?? '', /\d+ page\(s\)\/form\(s\) failed/);
+      const stuck = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/stuck.json'), 'utf8'));
+      assert.ok(stuck.cases.length > 0);
+    } finally {
+      target.close();
+    }
+  });
+
+  it('dismisses alert dialogs and reports them', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        `<form id="thanks" onsubmit="alert('Thanks'); return false"><input name="q"><button>Go</button></form>`,
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { caseTimeout: 5000 } },
+    });
+    const messages = (results[0]?.findings ?? []).map((f) => f.message);
+    assert.ok(
+      messages.some((m) => /blocking dialog/.test(m)),
+      messages.join('\n'),
+    );
+    assert.ok(!messages.some((m) => /timed out/.test(m)));
+  });
+
+  it('runs without screenshots when forms.screenshots is off', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page('<form id="f"><input name="q" required><button>Go</button></form>'),
+    });
+    await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { screenshots: false } },
+    });
+    const f = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/f.json'), 'utf8'));
+    assert.ok(f.cases.length > 0);
   });
 
   it('reports missing validation and unsafe output', { skip: noBrowser }, async () => {

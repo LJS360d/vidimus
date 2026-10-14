@@ -44,7 +44,7 @@ the pages.
   (`meta description outside 50-160 characters`, warning).
 - **noindex**: a `<meta name="robots">` or `<meta name="googlebot">` whose content contains
   `noindex` fails with `noindex in the production build`, unless the page path matches
-  `seo.allowNoindex`. An `X-Robots-Tag: noindex` header counts too, read from the `_headers` file
+  `seo.allowNoindex`. An `X-Robots-Tag: noindex` or `none` header counts too (agent-scoped values other than Googlebot are ignored), read from the `_headers` file
   (`security.file`) or, with `--origin`, from the live response; such a page is treated as noindex by
   the canonical, hreflang and sitemap checks. A noindex page still gets the language, title and description checks,
   but none of the checks below, and it is not counted as indexable.
@@ -87,7 +87,7 @@ the pages.
 - **robots.txt** (`seo.robots`): no `robots.txt` in the build root is a warning. A
   `Disallow: /` in a group that applies to `User-agent: *` is an error
   (`robots.txt disallows everything for User-agent: *`). No `Sitemap:` line is a warning. An indexable page that the `User-agent: *` group
-  (or the `Googlebot` group when there is no `*` group) disallows is a warning
+  disallows, unless a `Googlebot` group exists, which then takes precedence is a warning
   (`indexable page disallowed by robots.txt`); the longest matching rule wins, `Allow`
   wins a tie, and `*` and `$` wildcards are supported.
 - **Sitemap** (`seo.sitemap`): vidimus reads `/sitemap.xml`, `/sitemap-index.xml`,

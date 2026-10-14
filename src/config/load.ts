@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { builtinAudits } from '../audits/registry.ts';
 import { UsageError } from '../core/errors.ts';
-import { isPlainObject } from '../core/util.ts';
+import { messageOf } from '../core/util.ts';
 import { defaults } from './defaults.ts';
 import { checkKeys, merge, setPath } from './merge.ts';
 import type { ConfigInput, UserConfig, VidimusConfig } from './types.ts';
+import { validateConfig } from './validate.ts';
 
 export const CONFIG_FILES = [
   'vidimus.config.ts',
@@ -37,13 +37,15 @@ export interface LoadedConfig {
 
 export const defineConfig = <T extends ConfigInput>(config: T): T => config;
 
-const readPackageField = (file: string): UserConfig | undefined => {
+const readJson = (file: string): Record<string, unknown> => {
   try {
-    return JSON.parse(readFileSync(file, 'utf8')).vidimus;
+    return JSON.parse(readFileSync(file, 'utf8'));
   } catch (error) {
-    throw new UsageError(`${file}: ${(error as Error).message}`);
+    throw new UsageError(`${file}: ${messageOf(error)}`);
   }
 };
+
+const readPackageField = (file: string) => readJson(file).vidimus as UserConfig | undefined;
 
 const findConfigIn = (dir: string) => {
   const file = CONFIG_FILES.map((name) => resolve(dir, name)).find((path) => existsSync(path));
@@ -64,11 +66,7 @@ const readConfigFile = async (file: string, env: NodeJS.ProcessEnv, cwd: string)
   const name = basename(file);
   if (name === 'package.json') return readPackageField(file) ?? {};
   if (name.endsWith('.json') || name === '.vidimusrc') {
-    try {
-      return JSON.parse(readFileSync(file, 'utf8')) as UserConfig;
-    } catch (error) {
-      throw new UsageError(`${file}: ${(error as Error).message}`);
-    }
+    return readJson(file) as UserConfig;
   }
   const module = await import(pathToFileURL(file).href);
   const input: ConfigInput = module.default ?? module;
@@ -106,156 +104,6 @@ const fromSet = (config: VidimusConfig, assignments: string[]) =>
     );
   }, config);
 
-const IGNORE_KEYS = ['audit', 'message', 'where'];
-
-const checkIgnoreRules = (rules: unknown) => {
-  if (!Array.isArray(rules)) throw new UsageError('ignore: must be a list of rules');
-  rules.forEach((rule, index) => {
-    const at = `ignore[${index}]`;
-    if (!isPlainObject(rule)) throw new UsageError(`${at}: must be an object`);
-    const keys = Object.keys(rule);
-    const unknown = keys.find((key) => !IGNORE_KEYS.includes(key));
-    if (unknown)
-      throw new UsageError(`${at}: unknown key "${unknown}". Known: ${IGNORE_KEYS.join(', ')}`);
-    if (!keys.length)
-      throw new UsageError(
-        `${at}: an empty rule would drop every finding; set audit, message or where`,
-      );
-    for (const key of keys) {
-      const pattern = rule[key];
-      if (typeof pattern !== 'string') throw new UsageError(`${at}.${key}: must be a string`);
-      try {
-        new RegExp(pattern);
-      } catch (error) {
-        throw new UsageError(`${at}.${key}: ${(error as Error).message}`);
-      }
-    }
-  });
-};
-
-const PATTERN_LISTS = [
-  'exclude',
-  'include',
-  'sample',
-  'allow',
-  'ignoreRequests',
-  'allowNoindex',
-  'skip',
-];
-
-const checkPattern = (at: string, pattern: unknown) => {
-  if (typeof pattern !== 'string') throw new UsageError(`${at}: must be a string`);
-  try {
-    new RegExp(pattern);
-  } catch (error) {
-    throw new UsageError(`${at}: ${(error as Error).message}`);
-  }
-};
-
-const checkPatterns = (config: VidimusConfig) => {
-  const lists = (tree: Record<string, unknown>, path: string[]) => {
-    for (const [key, value] of Object.entries(tree)) {
-      const at = [...path, key].join('.');
-      if (PATTERN_LISTS.includes(key) && Array.isArray(value) && at !== 'forms.skip') {
-        for (const [index, pattern] of value.entries()) checkPattern(`${at}[${index}]`, pattern);
-      } else if (isPlainObject(value) && path.length === 0) {
-        lists(value, [key]);
-      }
-    }
-  };
-  lists(config as unknown as Record<string, unknown>, []);
-  for (const [index, { match }] of config.server.headers.entries()) {
-    checkPattern(`server.headers[${index}].match`, match);
-  }
-  for (const [index, { match }] of config.shots.overrides.entries()) {
-    if (match !== undefined) checkPattern(`shots.overrides[${index}].match`, match);
-  }
-  for (const [index, { match }] of config.lighthouse.overrides.entries()) {
-    checkPattern(`lighthouse.overrides[${index}].match`, match);
-  }
-  if (Array.isArray(config.server.fallback)) {
-    for (const [index, { match }] of config.server.fallback.entries()) {
-      checkPattern(`server.fallback[${index}].match`, match);
-    }
-  }
-  for (const pattern of Object.keys(config.budget.routes)) {
-    checkPattern(`budget.routes.${pattern}`, pattern);
-  }
-  for (const [name, pattern] of Object.entries(config.security.require)) {
-    if (pattern !== false) checkPattern(`security.require.${name}`, pattern);
-  }
-};
-
-const checkOneOf = (at: string, value: string, allowed: string[]) => {
-  if (!allowed.includes(value))
-    throw new UsageError(`${at}: "${value}" is not one of ${allowed.join(', ')}`);
-};
-
-const checkAssets = ({ assets }: VidimusConfig) => {
-  for (const key of ['adsTxt', 'changePassword', 'appleAppSiteAssociation', 'assetLinks'] as const)
-    checkOneOf(`assets.${key}`, assets[key], ['off', 'auto', 'on']);
-};
-
-const checkSeverity = ({ severity, plugins }: VidimusConfig) => {
-  const known = [...builtinAudits, ...plugins].map((audit) => audit.name);
-  for (const [name, value] of Object.entries(severity)) {
-    if (!known.includes(name)) {
-      throw new UsageError(`severity.${name}: unknown audit. Known: ${known.join(', ')}`);
-    }
-    checkOneOf(`severity.${name}`, value, ['error', 'warn', 'off']);
-  }
-};
-
-const checkRoutes = ({
-  privacy,
-  routes,
-  render,
-  links,
-  server,
-  a11y,
-  forms,
-  budget,
-  lighthouse,
-  shots,
-}: VidimusConfig) => {
-  if (typeof privacy.rejectSelector !== 'string')
-    throw new UsageError('privacy.rejectSelector: must be a string');
-  checkOneOf('routes.discover', routes.discover, ['off', 'sitemap', 'crawl']);
-  checkOneOf('render.mode', render.mode, ['off', 'auto', 'on']);
-  checkOneOf('server.fallbackStatus', String(server.fallbackStatus), ['200', '404']);
-  checkOneOf('a11y.standard', a11y.standard, ['WCAG2A', 'WCAG2AA', 'WCAG2AAA']);
-  checkOneOf('a11y.runner', a11y.runner, ['htmlcs', 'axe']);
-  checkOneOf('forms.stub', forms.stub, ['abort', 'ok']);
-  checkOneOf('budget.compression', budget.compression, ['gzip', 'brotli', 'none']);
-  for (const [index, scheme] of shots.colorSchemes.entries())
-    checkOneOf(`shots.colorSchemes[${index}]`, String(scheme), ['light', 'dark']);
-  checkOneOf('lighthouse.preset', lighthouse.preset, ['mobile', 'desktop']);
-  if (!Number.isInteger(lighthouse.runs) || lighthouse.runs < 1)
-    throw new UsageError('lighthouse.runs: must be an integer of at least 1');
-  if (links.notFound.text) checkPattern('links.notFound.text', links.notFound.text);
-  for (const [index, path] of routes.paths.entries()) {
-    if (typeof path !== 'string' || !path.startsWith('/'))
-      throw new UsageError(`routes.paths[${index}]: must be a path starting with /`);
-  }
-};
-
-const checkTimeouts = (config: VidimusConfig) => {
-  for (const key of ['timeout', 'auditTimeout'] as const) {
-    const value = config[key];
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
-      throw new UsageError(`${key}: must be a number of milliseconds, 0 for no limit`);
-  }
-};
-
-const checkCaseTimeout = ({ forms }: VidimusConfig) => {
-  if (
-    typeof forms.caseTimeout !== 'number' ||
-    !Number.isFinite(forms.caseTimeout) ||
-    forms.caseTimeout < 0
-  )
-    throw new UsageError('forms.caseTimeout: must be a number of milliseconds, 0 for no limit');
-};
-
 const resolveRoot = (root: string | undefined, base: string) =>
   root === undefined ? undefined : isAbsolute(root) ? root : resolve(base, root);
 
@@ -292,13 +140,7 @@ export const loadConfig = async ({
   config = fromSet(config, set);
   config = merge(config, { ...overrides, root: resolveRoot(overrides.root, cwd) });
   config = { ...config, root: resolveRoot(config.root, cwd) ?? cwd };
-  checkIgnoreRules(config.ignore);
-  checkPatterns(config);
-  checkRoutes(config);
-  checkAssets(config);
-  checkSeverity(config);
-  checkTimeouts(config);
-  checkCaseTimeout(config);
+  validateConfig(base, config);
 
   return { config, source };
 };

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { headersFor, parseHeadersFile, securityTxtFields } from '../src/audits/security.ts';
+import { securityTxtFields } from '../src/audits/security.ts';
+import { createHeaderSource, headersFor, parseHeadersFile } from '../src/core/headers.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -31,7 +32,13 @@ const audit = async (files: Record<string, string | undefined>, overrides = {}) 
       ),
     ),
   );
-  const { results } = await run({ cwd, env: {}, audits: ['security'], reporters: [], overrides });
+  const { results } = await run({
+    cwd,
+    env: {},
+    audits: ['security'],
+    reporters: [],
+    overrides: { security: { csp: false }, ...overrides },
+  });
   const result = results[0];
   assert.ok(result);
   return result;
@@ -194,7 +201,9 @@ describe('security audit', () => {
       'dist/_headers': GOOD_HEADERS,
     });
     assert.equal(result.status, 'warned');
-    const inline = result.findings.find(({ message }) => message.includes('unsafe-inline'));
+    const inline = result.findings.find(
+      ({ message }) => message === "CSP allows 'unsafe-inline' scripts",
+    );
     const evals = result.findings.find(({ message }) => message.includes('unsafe-eval'));
     assert.deepEqual(inline?.where, ['/fallback/', '/']);
     assert.deepEqual(evals?.where, ['/hashed/']);
@@ -565,5 +574,111 @@ describe('security audit against an origin answering every page with 404', () =>
   it('audits the headers of a page whatever its status', async () => {
     const result = await audit({ 'dist/404.html': page(), 'dist/_headers': '' }, { origin });
     assert.ok(!messages(result).includes('could not fetch headers'));
+  });
+
+  it('matches :name modifiers and dedupes joined headers', () => {
+    const star = parseHeadersFile('/:path*\n  A: 1');
+    assert.deepEqual(headersFor(star, '/'), { a: '1' });
+    assert.deepEqual(headersFor(star, '/x/y'), { a: '1' });
+    assert.deepEqual(headersFor(parseHeadersFile('/:p+\n  A: 1'), '/'), {});
+    const twice = parseHeadersFile(
+      '/*\n  X-Frame-Options: DENY\n  Vary: a\n/b/*\n  X-Frame-Options: DENY\n  Vary: a\n  Vary: b',
+    );
+    assert.deepEqual(headersFor(twice, '/b/c'), { 'x-frame-options': 'DENY', vary: 'a, b' });
+    const override = parseHeadersFile('/*\n  Referrer-Policy: a\n/b\n  Referrer-Policy: b');
+    assert.deepEqual(headersFor(override, '/b'), { 'referrer-policy': 'b' });
+  });
+
+  it('memoizes header resolution per path', async () => {
+    const cwd = fixture({ 'dist/_headers': '/*\n  A: 1' });
+    const source = createHeaderSource(cwd, `${cwd}/dist`, '_headers', '');
+    assert.equal(source.for('/'), source.for('/'));
+    assert.deepEqual(await source.for('/'), { a: '1' });
+  });
+});
+
+describe('unsafe CSP with strict-dynamic', () => {
+  it('ignores unsafe-inline and https: behind strict-dynamic, reads script-src-elem and uppercase keywords', async () => {
+    const meta = (csp: string) =>
+      page(`<meta http-equiv="content-security-policy" content="${csp}">`);
+    const result = await audit({
+      'dist/index.html': meta(
+        "script-src 'nonce-x' 'strict-dynamic' 'unsafe-inline' https:; object-src 'none'; base-uri 'self'",
+      ),
+      'dist/a/index.html': meta(
+        "script-src 'self'; script-src-elem 'UNSAFE-INLINE'; object-src 'none'; base-uri 'self'",
+      ),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    const found = result.findings.map(({ message }) => message);
+    assert.ok(found.includes("CSP allows 'unsafe-inline' scripts"));
+    assert.equal(found.filter((m) => m.startsWith('CSP')).length, 1);
+    assert.deepEqual(result.findings.find(({ message }) => message.includes('unsafe'))?.where, [
+      '/a/',
+    ]);
+  });
+});
+
+describe('CSP evaluator checks', () => {
+  it('warns on bypass hosts, http:, unsafe style and missing form-action', async () => {
+    const result = await audit({
+      'dist/index.html': page(
+        `<meta http-equiv="content-security-policy" content="script-src https://ajax.googleapis.com http: 'unsafe-hashes'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'; report-uri /r"><form></form>`,
+      ),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.deepEqual(messages(result), [
+      'CSP lacks form-action',
+      'CSP script-src allows http:',
+      'CSP script-src allows ajax.googleapis.com, which hosts script gadgets that bypass the policy',
+      "CSP script-src uses 'unsafe-hashes'",
+      "CSP style-src allows 'unsafe-inline'",
+      'CSP uses report-uri without report-to',
+      '<meta> CSP ignores report-uri',
+    ]);
+  });
+});
+
+describe('missing CSP', () => {
+  it('warns on pages without a CSP or script restriction and can be turned off', async () => {
+    const files = {
+      'dist/index.html': page(),
+      'dist/frames/index.html': page(
+        `<meta http-equiv="content-security-policy" content="img-src 'self'">`,
+      ),
+      'dist/_headers': '/*\n  X-Content-Type-Options: nosniff\n',
+    };
+    const found = messages(await audit(files, { security: { csp: 'warn' } }));
+    assert.ok(found.includes('no Content-Security-Policy (header or <meta>)'));
+    assert.ok(found.includes('CSP does not restrict scripts (no script-src or default-src)'));
+    const off = messages(await audit(files, { security: { csp: false } }));
+    assert.ok(!off.some((message) => message.includes('Content-Security-Policy')));
+  });
+});
+
+describe('security audit against a localhost http origin', () => {
+  let server: Server;
+  let origin = '';
+
+  before(async () => {
+    server = createServer((_req, res) => {
+      res
+        .writeHead(200, {
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+          'permissions-policy': 'camera=()',
+          'x-frame-options': 'DENY',
+        })
+        .end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => new Promise((resolve) => server.close(resolve)));
+
+  it('does not require strict-transport-security', async () => {
+    const result = await audit({ 'dist/index.html': page(), 'dist/_headers': '' }, { origin });
+    assert.ok(!messages(result).includes('missing strict-transport-security header'));
   });
 });

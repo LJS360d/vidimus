@@ -1,7 +1,11 @@
-import { closeSync, globSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+import { globSync, readFileSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { Pattern } from '../config/types.ts';
+import { decodeHtml, fileCharset } from './charset.ts';
+import { decodeEntities } from './entities.ts';
 import { matchesAny, stripBase, underBase } from './util.ts';
+
+export { decodeEntities, fileCharset };
 
 export interface Tag {
   name: string;
@@ -16,85 +20,6 @@ export interface BuiltPage {
   html: string;
 }
 
-// Latin-1 names, in code point order from U+00A0.
-const LATIN1 = [
-  'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg',
-  'macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14',
-  'frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave',
-  'Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde',
-  'Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute',
-  'acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute',
-  'icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave',
-  'uacute ucirc uuml yacute thorn yuml',
-]
-  .join(' ')
-  .split(' ');
-
-const ENTITIES: Record<string, string> = {
-  ...Object.fromEntries(LATIN1.map((name, i) => [name, String.fromCodePoint(0xa0 + i)])),
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  OElig: 'Œ',
-  oelig: 'œ',
-  Scaron: 'Š',
-  scaron: 'š',
-  Yuml: 'Ÿ',
-  fnof: 'ƒ',
-  circ: 'ˆ',
-  tilde: '˜',
-  ensp: '\u2002',
-  emsp: '\u2003',
-  thinsp: '\u2009',
-  zwnj: '\u200c',
-  zwj: '\u200d',
-  lrm: '\u200e',
-  rlm: '\u200f',
-  ndash: '–',
-  mdash: '—',
-  lsquo: '‘',
-  rsquo: '’',
-  sbquo: '‚',
-  ldquo: '“',
-  rdquo: '”',
-  bdquo: '„',
-  dagger: '†',
-  Dagger: '‡',
-  bull: '•',
-  hellip: '…',
-  permil: '‰',
-  prime: '′',
-  Prime: '″',
-  lsaquo: '‹',
-  rsaquo: '›',
-  euro: '€',
-  trade: '™',
-  larr: '←',
-  uarr: '↑',
-  rarr: '→',
-  darr: '↓',
-  harr: '↔',
-  minus: '−',
-  infin: '∞',
-  ne: '≠',
-  le: '≤',
-  ge: '≥',
-  hearts: '♥',
-};
-
-export const decodeEntities = (text: string) =>
-  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z\d]*);/gi, (entity, code: string) => {
-    if (code[0] !== '#') {
-      const name = Object.hasOwn(ENTITIES, code) ? code : code.toLowerCase();
-      return (Object.hasOwn(ENTITIES, name) && ENTITIES[name]) || entity;
-    }
-    const point =
-      code[1]?.toLowerCase() === 'x' ? Number.parseInt(code.slice(2), 16) : Number(code.slice(1));
-    return Number.isInteger(point) && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
-  });
-
 const blankOut = (match: string) => match.replace(/[^\n]/g, ' ');
 
 export const stripComments = (html: string) =>
@@ -108,7 +33,6 @@ export const stripNonMarkup = (html: string) =>
     (_, open: string, _name, body: string, close: string) => open + blankOut(body) + close,
   );
 
-// Attributes are separated by whitespace, or by nothing after a quoted value (minifiers emit a="x"b="y").
 const TAG =
   /<([a-zA-Z][\w:-]*)((?:(?:\s+|(?<=["']))[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
 const ATTR = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
@@ -127,31 +51,45 @@ interface Parsed {
   tags: Tag[];
 }
 
-const PARSE_CACHE_SIZE = 32;
+const PARSE_CACHE_BYTES = 128 * 1024 * 1024;
 const parseCache = new Map<string, Parsed>();
+let parseCacheBytes = 0;
+
+const scan = (stripped: string, wanted?: Set<string>) => {
+  const found: Tag[] = [];
+  for (const match of stripped.matchAll(TAG)) {
+    const name = (match[1] ?? '').toLowerCase();
+    if (wanted && !wanted.has(name)) continue;
+    found.push({ name, attrs: parseAttrs(match[2] ?? ''), index: match.index });
+  }
+  return found;
+};
 
 const parse = (html: string): Parsed => {
   const cached = parseCache.get(html);
-  if (cached) return cached;
+  if (cached) {
+    parseCache.delete(html);
+    parseCache.set(html, cached);
+    return cached;
+  }
   const stripped = stripNonMarkup(html);
-  const parsed = {
-    stripped,
-    tags: [...stripped.matchAll(TAG)].map((match) => ({
-      name: (match[1] ?? '').toLowerCase(),
-      attrs: parseAttrs(match[2] ?? ''),
-      index: match.index,
-    })),
-  };
-  if (parseCache.size >= PARSE_CACHE_SIZE) parseCache.delete(parseCache.keys().next().value ?? '');
+  const parsed = { stripped, tags: scan(stripped) };
+  parseCacheBytes += html.length * 2;
   parseCache.set(html, parsed);
+  for (const key of parseCache.keys()) {
+    if (parseCacheBytes <= PARSE_CACHE_BYTES || key === html) break;
+    parseCache.delete(key);
+    parseCacheBytes -= key.length * 2;
+  }
   return parsed;
 };
 
 export const tags = (html: string, ...names: string[]): Tag[] => {
-  const all = parse(html).tags;
-  if (!names.length) return [...all];
   const wanted = new Set(names.map((name) => name.toLowerCase()));
-  return all.filter(({ name }) => wanted.has(name));
+  if (!names.length) return [...parse(html).tags];
+  const cached = parseCache.get(html);
+  if (cached) return cached.tags.filter(({ name }) => wanted.has(name));
+  return scan(stripNonMarkup(html), wanted);
 };
 
 export const textOf = (html: string, name: string, within?: string) => {
@@ -189,51 +127,12 @@ export const linksWithRel = (html: string, rel: string) =>
 
 const pagePath = (rel: string) => `/${rel.replace(/(^|\/)index\.html$/, '$1')}`;
 
-const BOMS: [number[], string][] = [
-  [[0xef, 0xbb, 0xbf], 'utf-8'],
-  [[0xff, 0xfe], 'utf-16le'],
-  [[0xfe, 0xff], 'utf-16be'],
-];
-
-const detectCharset = (head: Buffer): string => {
-  const bom = BOMS.find(([bytes]) => bytes.every((byte, i) => head[i] === byte));
-  if (bom) return bom[1];
-  const text = head.subarray(0, 1024).toString('latin1');
-  const found =
-    /<meta\s[^>]*charset\s*=\s*["']?\s*([\w:.-]+)/i.exec(text) ??
-    /<meta\s[^>]*http-equiv\s*=\s*["']?content-type[^>]*charset\s*=\s*["']?\s*([\w:.-]+)/i.exec(
-      text,
-    );
-  return found?.[1]?.toLowerCase() ?? 'utf-8';
-};
-
-const decodeHtml = (buffer: Buffer): string => {
-  const label = detectCharset(buffer);
-  if (label === 'utf-8' || label === 'utf8') return buffer.toString('utf8');
-  try {
-    return new TextDecoder(label).decode(buffer);
-  } catch {
-    return buffer.toString('utf8');
-  }
-};
-
-export const fileCharset = (file: string): string => {
-  const head = Buffer.alloc(1024);
-  const fd = openSync(file, 'r');
-  try {
-    const label = detectCharset(head.subarray(0, readSync(fd, head, 0, 1024, 0)));
-    new TextDecoder(label);
-    return label;
-  } catch {
-    return 'utf-8';
-  } finally {
-    closeSync(fd);
-  }
-};
+const localFileMemo = new Map<string, string | null>();
 
 export type PageReader = (exclude?: Pattern[]) => BuiltPage[];
 
 export const createPageReader = (dist: string): PageReader => {
+  localFileMemo.clear();
   let rels: string[] | undefined;
   const contents = new Map<string, string>();
   const read = (file: string) => {
@@ -264,7 +163,6 @@ export const createPageReader = (dist: string): PageReader => {
   };
 };
 
-// A URL runs to the next whitespace, so commas inside it (/w_400,h_300/a.jpg) are kept.
 export const srcsetUrls = (srcset = '') => {
   const urls: string[] = [];
   let i = 0;
@@ -301,7 +199,16 @@ export const isNoindex = (html: string) =>
 export const isFile = (path: string) =>
   statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
 
-export const localFile = (dist: string, pathname: string) => {
+export const localFile = (dist: string, pathname: string, exact = false) => {
+  const key = `${dist}\0${pathname}\0${exact}`;
+  const hit = localFileMemo.get(key);
+  if (hit !== undefined) return hit;
+  const found = resolveLocalFile(dist, pathname, exact);
+  localFileMemo.set(key, found);
+  return found;
+};
+
+const resolveLocalFile = (dist: string, pathname: string, exact: boolean) => {
   let decoded: string;
   try {
     decoded = decodeURIComponent(pathname);
@@ -312,6 +219,7 @@ export const localFile = (dist: string, pathname: string) => {
   const base = join(dist, decoded);
   const root = base === dist;
   if (!root && !base.startsWith(dist + sep)) return null;
+  if (exact) return isFile(base) ? base : null;
   return [base, join(base, 'index.html'), ...(root ? [] : [`${base}.html`])].find(isFile) ?? null;
 };
 

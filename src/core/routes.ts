@@ -11,9 +11,77 @@ const SPA_BUNDLE_BYTES = 100_000;
 
 const HASH_ROUTE = /^#!?\//;
 
-const isPagePath = (path: string) => ['', '.html'].includes(extname(path));
+const ASSET_EXTENSIONS = new Set([
+  '.js',
+  '.mjs',
+  '.css',
+  '.map',
+  '.json',
+  '.xml',
+  '.txt',
+  '.pdf',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.avif',
+  '.svg',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.mp4',
+  '.webm',
+  '.mp3',
+  '.zip',
+  '.gz',
+  '.wasm',
+  '.rss',
+  '.atom',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.odt',
+  '.ods',
+  '.rtf',
+  '.csv',
+  '.tsv',
+  '.md',
+  '.yaml',
+  '.yml',
+  '.ics',
+  '.vcf',
+  '.epub',
+  '.apk',
+  '.exe',
+  '.dmg',
+  '.iso',
+  '.bin',
+  '.tar',
+  '.tgz',
+  '.bz2',
+  '.xz',
+  '.7z',
+  '.rar',
+  '.avi',
+  '.mov',
+  '.mkv',
+  '.ogg',
+  '.oga',
+  '.ogv',
+  '.wav',
+  '.flac',
+  '.m4a',
+  '.aac',
+]);
 
-// A same-origin link under the base path, as a path relative to that base.
+export const isPagePath = (path: string) => !ASSET_EXTENSIONS.has(extname(path).toLowerCase());
+
 const routeOf = (href: string, origin: string, hash: boolean) => {
   let url: URL;
   try {
@@ -39,7 +107,6 @@ const fromSitemap = (config: VidimusConfig, dist: string) => {
     .filter((path): path is string => path !== null);
 };
 
-// Breadth first, one level of routes rendered at a time.
 const crawl = async (
   renderer: Renderer,
   origin: string,
@@ -68,7 +135,6 @@ const crawl = async (
   return [...found];
 };
 
-// Routes with no file in dist; routes that resolve to a file are already built pages.
 export const resolveRoutes = async (
   config: VidimusConfig,
   dist: string,
@@ -98,7 +164,6 @@ export const resolveRoutes = async (
   return fileless;
 };
 
-// The size of the largest script when the build is one HTML page next to a big bundle.
 export const clientRenderedBundle = (config: VidimusConfig, dist: string, pages: PageReader) => {
   const html = pages(config.exclude).filter(({ rel }) => rel !== '404.html');
   if (html.length !== 1) return 0;

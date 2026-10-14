@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createPageCache } from '../core/cache.ts';
 import { UsageError } from '../core/errors.ts';
-import { tags } from '../core/html.ts';
+import { type BuiltPage, tags } from '../core/html.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { isPlainObject, matchesAny } from '../core/util.ts';
 
@@ -33,7 +34,7 @@ interface HtmlValidatePeer {
 
 interface Group {
   message: HtmlValidateMessage;
-  pages: { path: string; file: string }[];
+  pages: { path: string; file: string; line?: number }[];
   examples: string[];
 }
 
@@ -54,7 +55,9 @@ const baseConfig = async (root: string, extendsPresets: string[]): Promise<Confi
   try {
     if (name.endsWith('.json')) loaded = JSON.parse(readFileSync(file, 'utf8'));
     else {
-      const mod = (await import(pathToFileURL(file).href)) as { default?: unknown };
+      const mod = (await import(pathToFileURL(file).href)) as {
+        default?: unknown;
+      };
       loaded = mod.default ?? mod;
     }
   } catch (error) {
@@ -99,14 +102,27 @@ const fixFor = ({ ruleId, ruleUrl }: HtmlValidateMessage) => {
     : `Fix the markup as the message describes, or ${off}`;
 };
 
-const toFinding = ({ message, pages, examples }: Group): Finding => {
+const documentsOf = (page: BuiltPage) => [
+  { source: page.html, label: page.path },
+  ...(page.html.includes('srcdoc') ? tags(page.html, 'iframe') : []).flatMap(({ attrs }) =>
+    attrs.srcdoc ? [{ source: attrs.srcdoc, label: `${page.path} <iframe srcdoc>` }] : [],
+  ),
+];
+
+const toFinding = ({ message, pages, examples }: Group, rendered: boolean): Finding => {
   const where = [...new Set(pages.map(({ path }) => path))];
   return {
     message: `${message.ruleId}: ${message.message}`,
     where,
-    details: [...examples, ...(message.ruleUrl ? [message.ruleUrl] : [])],
+    details: [
+      ...(rendered ? ['validated the rendered DOM, locations refer to its serialisation'] : []),
+      ...examples,
+      ...(message.ruleUrl ? [message.ruleUrl] : []),
+    ],
     fix: fixFor(message),
-    ...(where.length === 1 && pages[0] ? { file: pages[0].file, line: message.line } : {}),
+    ...(where.length === 1 && pages[0]
+      ? { file: pages[0].file, ...(rendered || !pages[0].line ? {} : { line: pages[0].line }) }
+      : {}),
     ...(message.severity === 1 ? { severity: 'warn' as const } : {}),
   };
 };
@@ -115,41 +131,45 @@ export const html: Audit = {
   name: 'html',
   description: 'html-validate finds no HTML errors',
   requires: 'dist',
-  async run({ config, root, renderedPages, importPeer }) {
+  async run({ config, root, builtPages, renderedPages, importPeer }) {
     const { exclude, extends: extendsPresets, rules } = config.html;
-    const pages = (await renderedPages(config.exclude)).filter(
-      ({ path }) => !matchesAny(exclude, path),
-    );
+    const rendered = config.html.source === 'rendered';
+    const pages = (
+      rendered ? await renderedPages(config.exclude) : builtPages(config.exclude)
+    ).filter(({ path }) => !matchesAny(exclude, path));
     if (pages.length === 0) return { status: 'skipped', summary: 'no built HTML pages' };
 
     const { HtmlValidate, StaticConfigLoader } =
       await importPeer<HtmlValidatePeer>('html-validate');
-    const validator = new HtmlValidate(
-      new StaticConfigLoader(withRules(await baseConfig(root, extendsPresets), rules)),
-    );
+    const base = await baseConfig(root, extendsPresets);
+    const validator = new HtmlValidate(new StaticConfigLoader(withRules(base, rules)));
+    const cache = createPageCache(config, 'html', { base, rules, extendsPresets });
     const groups = new Map<string, Group>();
 
     for (const page of pages) {
-      // srcdoc markup is its own document, validated as the fragment it usually is.
-      const documents = [
-        { source: page.html, label: page.path },
-        ...tags(page.html, 'iframe').flatMap(({ attrs }) =>
-          attrs.srcdoc ? [{ source: attrs.srcdoc, label: `${page.path} <iframe srcdoc>` }] : [],
-        ),
-      ];
+      const documents = documentsOf(page);
       for (const { source, label } of documents) {
-        const report = await validator.validateString(source, page.file);
-        for (const message of report.results.flatMap(({ messages }) => messages)) {
+        let messages = cache.get<HtmlValidateMessage[]>(source);
+        if (!messages) {
+          const report = await validator.validateString(source, page.file);
+          messages = report.results.flatMap((result) => result.messages);
+          cache.set(source, messages);
+        }
+        for (const message of messages) {
           const key = `${message.ruleId}\n${message.message}`;
           const group = groups.get(key) ?? { message, pages: [], examples: [] };
-          group.pages.push({ path: page.path, file: page.file });
+          group.pages.push({
+            path: page.path,
+            file: page.file,
+            ...(label === page.path ? { line: message.line } : {}),
+          });
           if (group.examples.length < MAX_EXAMPLES) group.examples.push(location(label, message));
           groups.set(key, group);
         }
       }
     }
 
-    const findings = [...groups.values()].map(toFinding);
+    const findings = [...groups.values()].map((group) => toFinding(group, rendered));
     return {
       summary: findings.length
         ? `${pages.length} pages, ${findings.length} distinct problem(s)`

@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { type Audit, type Finding, type RunOptions, run } from '../src/index.ts';
+import {
+  type Audit,
+  type Finding,
+  loadConfig,
+  type RunOptions,
+  run,
+  runAudits,
+} from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
 const reporting = (findings: Finding[], name = 'probe'): Audit => ({
@@ -215,5 +222,84 @@ describe('baseline paths', () => {
     );
     const stored = JSON.parse(readFileSync(file, 'utf8')).findings[0].file;
     assert.equal(stored, '../elsewhere/a.html');
+  });
+});
+
+describe('finding rule', () => {
+  it('matches ignore.rule and keeps baseline entries when the message changes', async () => {
+    const ruled: Finding = { message: 'size 10 kB', rule: 'probe/size' };
+    const { results } = await probe([ruled, error], {
+      overrides: { ignore: [{ rule: '^probe/size$' }] },
+    });
+    assert.deepEqual(
+      results[0]?.findings.map(({ message }) => message),
+      ['broken'],
+    );
+    const cwd = fixture({});
+    await probe([ruled], { overrides: { baseline: { update: true } } }, cwd);
+    const next = await probe([{ ...ruled, message: 'size 11 kB' }], {}, cwd);
+    assert.equal(next.ok, true);
+  });
+});
+
+describe('unused ignore rules', () => {
+  it('reports dead rules on a full run and fails under strict', async () => {
+    const writes: string[] = [];
+    const original = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    const full = async (strict: boolean) => {
+      const { config } = await loadConfig({
+        cwd: fixture({}),
+        env: {},
+        overrides: { ignore: [{ message: '^orphan', reason: 'old' }], strict },
+      });
+      return runAudits(config, [reporting([])], [], { allAudits: true });
+    };
+    try {
+      assert.equal((await full(false)).ok, true);
+      assert.equal((await full(true)).ok, false);
+    } finally {
+      process.stderr.write = original;
+    }
+    assert.match(writes.join(''), /ignore\[0\] \(message=\^orphan\) matched nothing \(old\)/);
+  });
+});
+
+describe('stale baseline and fuzzy matching', () => {
+  const sized = (kb: number): Finding => ({ message: `html ${kb} kB gzipped > 100 kB budget` });
+
+  it('tolerates drifting numbers with baseline.fuzzy', async () => {
+    const cwd = fixture({});
+    await probe([sized(312)], { overrides: { baseline: { update: true } } }, cwd);
+    assert.equal((await probe([sized(313)], {}, cwd)).ok, false);
+    assert.equal(
+      (await probe([sized(313)], { overrides: { baseline: { fuzzy: true } } }, cwd)).ok,
+      true,
+    );
+  });
+
+  it('exposes stale entries and fails with baseline.failOnStale', async () => {
+    const cwd = fixture({});
+    await probe([error], { overrides: { baseline: { update: true } } }, cwd);
+    const stale = await probe([], { overrides: { baseline: { failOnStale: true } } }, cwd);
+    assert.equal(stale.staleBaseline, 1);
+    assert.equal(stale.ok, false);
+    assert.equal(stale.detail?.stale[0]?.message, 'broken');
+  });
+});
+
+describe('report totals', () => {
+  it('counts findings and audit statuses', async () => {
+    const report = await probe([error, warning]);
+    assert.equal(report.schemaVersion, 1);
+    assert.deepEqual(report.totals, {
+      errors: 1,
+      warnings: 1,
+      suppressed: 0,
+      audits: { passed: 0, warned: 0, failed: 1, errored: 0, skipped: 0 },
+    });
   });
 });

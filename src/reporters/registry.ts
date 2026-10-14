@@ -77,6 +77,7 @@ export const createReporters = (
   return parsed.map((spec) => {
     if (!isBuiltin(spec)) return spec;
     const { name, target, verbose } = spec;
+    const write = writer(target, cwd);
     switch (name) {
       case 'pretty':
         return pretty(stdoutTaken || target === 'stderr' ? process.stderr : process.stdout);
@@ -86,17 +87,16 @@ export const createReporters = (
         return {
           name,
           onEnd: (report) =>
-            writer(
-              target,
-              cwd,
-            )(`${JSON.stringify(verbose ? report : { ...report, detail: undefined }, null, 2)}\n`),
+            write(
+              `${JSON.stringify(verbose ? report : { ...report, detail: undefined }, null, 2)}\n`,
+            ),
         };
       case 'junit':
-        return junit(writer(target, cwd), verbose);
+        return junit(write, verbose);
       case 'sarif':
-        return sarif(writer(target, cwd), verbose);
+        return sarif(write, verbose, cwd);
       case 'html':
-        return html(writer(target, cwd), verbose);
+        return html(write, verbose);
       default:
         throw new UsageError(`unknown reporter "${name}". Known: ${REPORTERS.join(', ')}`);
     }

@@ -3,8 +3,10 @@ import { isPlainObject } from '../core/util.ts';
 
 type Tree = Record<string, unknown>;
 
-const OPEN_RECORDS = new Set([
+export const OPEN_RECORDS = new Set([
   'lighthouse.thresholds',
+  'lighthouse.metrics',
+  'lighthouse.audits',
   'forms.values',
   'severity',
   'security.require',

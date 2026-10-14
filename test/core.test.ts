@@ -145,6 +145,17 @@ describe('parallel helpers', () => {
     assert.ok(opened.every(({ closed }) => closed));
   });
 
+  it('fails when a tab cannot be opened', async () => {
+    const { browser } = fakeBrowser();
+    browser.newPage = async () => {
+      throw new Error('no tab');
+    };
+    await assert.rejects(
+      inParallelTabs(browser, 2, [1, 2], async () => {}),
+      /no tab/,
+    );
+  });
+
   it('opens no tabs for no items and at most one per item', async () => {
     const { browser, opened } = fakeBrowser();
     await inParallelTabs(browser, 8, [], async () => {});
@@ -170,6 +181,22 @@ describe('parallel helpers', () => {
     assert.equal(closes(), 1);
     await (await shared()).close();
     assert.equal(launches, 2);
+  });
+
+  it('caps open pages across users and frees a slot when a page closes', async () => {
+    const { browser } = fakeBrowser();
+    const shared = sharedBrowser(async () => browser, 1);
+    const [a, b] = await Promise.all([shared(), shared()]);
+    const first = await a.newPage();
+    let second = false;
+    const waiting = b.newPage().then(() => {
+      second = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(second, false);
+    await first.close();
+    await waiting;
+    assert.equal(second, true);
   });
 
   it('releases a user whose context failed, and force-closes a leaked browser', async () => {
@@ -300,6 +327,28 @@ describe('runAudits', () => {
     assert.match(seen[0] ?? '', /^http:\/\/127\.0\.0\.1:[1-9]\d*$/);
   });
 
+  it('starts audits that need no server before the remote ones', async () => {
+    const order: string[] = [];
+    const audit = (name: string, requires: 'server' | 'source'): Audit => ({
+      name,
+      description: name,
+      requires,
+      async run() {
+        order.push(name);
+        return { summary: name, findings: [] };
+      },
+    });
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    await run({
+      cwd,
+      env: {},
+      audits: ['remote', 'local'],
+      reporters: [],
+      overrides: { port: 0, plugins: [audit('remote', 'server'), audit('local', 'source')] },
+    });
+    assert.deepEqual(order, ['local', 'remote']);
+  });
+
   it('ignores a newly created output directory in git, and leaves an existing one alone', async () => {
     const cwd = fixture({ 'dist/index.html': 'home', 'kept/report.json': '{}' });
     const options = { cwd, env: {}, audits: ['probe'], reporters: [] };
@@ -392,9 +441,40 @@ describe('runAudits', () => {
     assert.equal(whole.timedOut, true);
     assert.equal(whole.ok, false);
     assert.deepEqual(
-      whole.results.map(({ name }) => name),
-      ['probe'],
+      whole.results.map(({ name, status }) => [name, status]),
+      [
+        ['probe', 'passed'],
+        ['hang', 'errored'],
+      ],
     );
+  });
+
+  it('aborts the signal of an audit that times out and stops its pool', async () => {
+    const cwd = fixture({ 'dist/index.html': 'home' });
+    let signal: AbortSignal | undefined;
+    let processed = 0;
+    const slow: Audit = {
+      ...probe('slow'),
+      run: async (context) => {
+        signal = context.signal;
+        await inParallel(1, [1, 2, 3, 4, 5], () =>
+          new Promise((resolve) => setTimeout(resolve, 40)).then(() => {
+            processed += 1;
+          }),
+        );
+        return { summary: 'done', findings: [] };
+      },
+    };
+    await run({
+      cwd,
+      env: {},
+      audits: ['slow'],
+      reporters: [],
+      overrides: { port: 0, plugins: [slow], auditTimeout: 60 },
+    });
+    assert.equal(signal?.aborted, true);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.ok(processed < 5);
   });
 
   it('runs every audit plus named ones for "all"', async () => {

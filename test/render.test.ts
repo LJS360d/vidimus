@@ -190,6 +190,32 @@ document.body.dataset.ready = '';
     assert.deepEqual(shell.findings, []);
   });
 
+  it('links lists not-found views in sorted order', async () => {
+    const links = ['/zeta', '/mid', '/alpha', '/beta']
+      .map((href) => `<a href="${href}">x</a>`)
+      .join('');
+    const cwd = fixture({
+      'dist/index.html': SHELL,
+      'dist/app.js': `const root = document.getElementById('root'); root.innerHTML = location.pathname === '/' ? '<h1>Home</h1>${links}' : '<h1 class="not-found">Not found</h1>'; root.dataset.ready = '';`,
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['links'],
+      reporters: [],
+      overrides: {
+        port: 0,
+        server: { fallback: 'index.html' },
+        render: { mode: 'on', waitFor: '#root[data-ready]' },
+        links: { notFound: { selector: '.not-found' }, retry: false, checkExternal: false },
+      },
+    });
+    assert.deepEqual(
+      results[0]?.findings.map(({ message }) => message),
+      ['/alpha', '/beta', '/mid', '/zeta'].map((path) => `not-found view ${path}`),
+    );
+  });
+
   it('links survives a rendered href the URL parser rejects', async () => {
     const cwd = fixture({
       'dist/index.html': SHELL,

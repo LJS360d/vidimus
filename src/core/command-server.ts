@@ -50,8 +50,6 @@ const signalGroup = (pid: number, signal: NodeJS.Signals | 0) => {
   }
 };
 
-// Kill the whole process tree: wrangler, firebase and friends start servers of their own, and
-// those can outlive the shell that started them, so the group is signalled even then.
 const killTree = (child: ChildProcess) => {
   if (!child.pid) return;
   if (process.platform !== 'win32') signalGroup(child.pid, 'SIGTERM');
@@ -105,7 +103,6 @@ export const serveCommand = async ({
     failure ??= new Error(`exited with ${signal ?? `code ${code}`}`);
   });
 
-  // Ctrl+C or a crash skips the caller's cleanup, and a detached group never sees the signal.
   const onExit = () => killTree(child);
   const onSignal = (signal: NodeJS.Signals) => {
     void close().finally(() => process.kill(process.pid, signal));

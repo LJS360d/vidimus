@@ -91,6 +91,15 @@ describe('assets audit', () => {
     ]);
   });
 
+  it('accepts apple-touch-icon-precomposed', async () => {
+    const icon =
+      '<link rel="icon" href="/icon.svg"><link rel="apple-touch-icon-precomposed" href="/touch.png">';
+    const result = await audit(
+      site({ 'dist/index.html': head({ icon }), 'dist/about/index.html': head({ icon }) }),
+    );
+    assert.deepEqual(result.messages, []);
+  });
+
   it('accepts /favicon.ico and reports broken icon hrefs grouped', async () => {
     const icon = '<link rel="shortcut icon" href="img/missing.png">';
     const cwd = site({

@@ -84,13 +84,14 @@ only `-r name[:file]` exists, and `-r` replaces the config's list.
 findings: per audit its log and the findings that ignore rules or the baseline hid, and for the
 run its versions, audits, served directory, notes, every page seen and the resolved config.
 Set `verbose: false` in the object form for just the audits and findings.
+The embedded config redacts secrets: `browser.state` cookie, `localStorage` and `sessionStorage` values and `script` become `<redacted>` (keys and cookie names stay), and `KEY=value` assignments in `server.command` become `KEY=<redacted>`.
 
 | Format | What verbose adds |
 | --- | --- |
 | `json` | a `detail` object |
 | `html` | a Run section, and collapsible logs and hidden findings |
 | `junit` | a `<system-out>` per audit |
-| `sarif` | `invocations`, per-rule `properties`, hidden findings with `suppressions` |
+| `sarif` | run timing in `invocations`, per-rule `properties`, hidden findings with `suppressions` |
 
 `pretty` and `github` ignore `verbose`.
 
@@ -150,6 +151,7 @@ The whole run report, written once at the end, pretty-printed:
 
 ```json
 {
+  "schemaVersion": 1,
   "ok": false,
   "origin": "http://127.0.0.1:4322",
   "startedAt": "2026-09-26T10:00:00.000Z",
@@ -176,9 +178,13 @@ The whole run report, written once at the end, pretty-printed:
 
 | Field | |
 | --- | --- |
+| `schemaVersion` | `1`; bumped when the shape changes incompatibly. The JSON Schema ships as `vidimus/report.schema.json` |
+| `totals` | `errors`, `warnings`, `suppressed` counts and `audits` with the number of `passed`, `warned`, `failed`, `errored` and `skipped` audits |
+| `staleBaseline` | baseline entries that no longer occur |
 | `ok` | `false` when any audit failed or errored; the exit code is `1` then |
 | `origin` | the audit origin, `''` when no selected audit needed a server |
 | `startedAt` | ISO 8601 timestamp |
+| `distDir` | absolute path of the served build output, `''` when no selected audit needed it |
 | `durationMs` | duration of the whole run |
 | `results[]` | one entry per audit, in selection order, `exclusive` audits last |
 | `profile` | with `--profile` only: the [profile summary](./profiling#in-the-json-report) |
@@ -281,3 +287,11 @@ Reporter objects can only be given in a config file or to [`run()`](./plugins#pr
 not on the command line, and `-r` replaces the config's list, objects included. An error thrown
 by a hook ends the run with exit code `2`. The exit code is decided by the audits, not by
 reporters.
+
+### SARIF locations
+
+`sarif` writes every location as a path relative to the working directory with `uriBaseId: '%SRCROOT%'`
+(declared in `originalUriBaseIds`), which is what GitHub code scanning expects. A finding without
+a `file` is placed on the built HTML file of its first page in `where` (`/blog/` becomes
+`dist/blog/index.html`), so every result has a location. Errored audits are listed as
+`toolExecutionNotifications` in `invocations`, also when not verbose.

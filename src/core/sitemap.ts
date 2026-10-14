@@ -26,7 +26,6 @@ interface Sitemap {
   bytes: number;
 }
 
-// Follows sitemap indexes to the child sitemaps that exist in the build.
 export const readSitemaps = (dist: string, siteUrl: string, extraPaths: string[] = []) => {
   const roots = [...SITEMAPS.map((name) => `/${name}`), ...extraPaths]
     .map((path) => localFile(dist, path))

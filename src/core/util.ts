@@ -1,8 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, relative, sep } from 'node:path';
 import type { NavigateOptions, Pattern, ViewportSize } from '../config/types.ts';
 import type { Browser, Page } from './peer-types.ts';
 import { span } from './profile.ts';
+
+export const messageOf = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 export const escapeRegExp = (text: string) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
 
@@ -21,7 +24,6 @@ export const stripBase = (pathname: string, siteUrl: string) => {
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
 };
 
-// The fallback file for a path relative to the base path, or '' when there is none.
 export const underBase = (pathname: string, siteUrl: string) => {
   const base = basePathOf(siteUrl);
   return !base || pathname === base || pathname.startsWith(`${base}/`);
@@ -67,9 +69,12 @@ export const viewport = (size: number | ViewportSize) => {
   return { width, height, isMobile: width < 768, hasTouch: width < 768 };
 };
 
+export const abortScope = new AsyncLocalStorage<AbortSignal>();
+
+const stopped = (failure: unknown) => failure || abortScope.getStore()?.aborted;
+
 export const progressScope = new AsyncLocalStorage<(done: number, total: number) => void>();
 
-// Counts finished items towards the progress of the audit it runs in.
 export const track = (total: number) => {
   const report = progressScope.getStore();
   let done = 0;
@@ -77,80 +82,34 @@ export const track = (total: number) => {
   return () => report?.(++done, total);
 };
 
-const settled = async (failure: () => { error: unknown } | undefined, jobs: Promise<void>[]) => {
-  await Promise.allSettled(jobs);
-  const failed = failure();
-  if (failed) throw failed.error;
-};
+interface PoolWorker<T> {
+  run: (item: T) => Promise<void>;
+  close?: () => Promise<void>;
+}
 
-export const inParallel = async <T>(
-  concurrency: number,
-  items: T[],
-  work: (item: T) => Promise<void>,
-) => {
+const runPool = async <T>(size: number, items: T[], open: () => Promise<PoolWorker<T>>) => {
   if (!items.length) return;
   const queue = items[Symbol.iterator]();
-  const workers = Math.min(Math.max(1, Math.floor(concurrency) || 1), items.length);
+  const workers = Math.min(Math.max(1, Math.floor(size) || 1), items.length);
   const tick = track(items.length);
   let failure: { error: unknown } | undefined;
   await span(
     'pool',
     async () => {
       const opened = performance.now();
-      await settled(
-        () => failure,
+      await Promise.allSettled(
         Array.from({ length: workers }, async () => {
-          for (const item of queue) {
-            if (failure) return;
-            try {
-              await span('task', () => work(item), taskAttrs(item, performance.now() - opened));
-            } catch (error) {
-              failure ??= { error };
-              throw error;
-            }
-            tick();
-          }
-        }),
-      );
-    },
-    { workers, items: items.length },
-  );
-};
-
-// What a pool item is called in a profile: a URL, or an object's id/url/path.
-const taskAttrs = (item: unknown, waitMs: number) => {
-  const named = item as { id?: unknown; url?: unknown; path?: unknown } | undefined;
-  const label =
-    typeof item === 'string' ? item : String(named?.id ?? named?.url ?? named?.path ?? '');
-  return { waitMs, ...(label && { item: label }), ...(/^https?:/.test(label) && { url: label }) };
-};
-
-export const inParallelTabs = async <T>(
-  browser: Browser,
-  tabs: number,
-  items: T[],
-  work: (page: Page, item: T) => Promise<void>,
-) => {
-  if (!items.length) return;
-  const queue = items[Symbol.iterator]();
-  const workers = Math.min(Math.max(1, Math.floor(tabs) || 1), items.length);
-  const tick = track(items.length);
-  let failure: { error: unknown } | undefined;
-  await span(
-    'pool',
-    async () => {
-      const opened = performance.now();
-      await settled(
-        () => failure,
-        Array.from({ length: workers }, async () => {
-          const page = await browser.newPage();
+          const worker = await open().catch((error: unknown) => {
+            failure ??= { error };
+            throw error;
+          });
           try {
             for (const item of queue) {
-              if (failure) return;
+              if (stopped(failure)) return;
               try {
                 await span(
                   'task',
-                  () => work(page, item),
+                  () => worker.run(item),
                   taskAttrs(item, performance.now() - opened),
                 );
               } catch (error) {
@@ -160,14 +119,39 @@ export const inParallelTabs = async <T>(
               tick();
             }
           } finally {
-            await page.close().catch(() => {});
+            await worker.close?.();
           }
         }),
       );
+      if (failure) throw failure.error;
     },
     { workers, items: items.length },
   );
 };
+
+export const inParallel = <T>(concurrency: number, items: T[], work: (item: T) => Promise<void>) =>
+  runPool(concurrency, items, async () => ({ run: work }));
+
+const taskAttrs = (item: unknown, waitMs: number) => {
+  const named = item as { id?: unknown; url?: unknown; path?: unknown } | undefined;
+  const label =
+    typeof item === 'string' ? item : String(named?.id ?? named?.url ?? named?.path ?? '');
+  return { waitMs, ...(label && { item: label }), ...(/^https?:/.test(label) && { url: label }) };
+};
+
+export const inParallelTabs = <T>(
+  browser: Browser,
+  tabs: number,
+  items: T[],
+  work: (page: Page, item: T) => Promise<void>,
+) =>
+  runPool(tabs, items, async () => {
+    const page = await browser.newPage();
+    return {
+      run: (item) => work(page, item),
+      close: () => page.close().catch(() => {}),
+    };
+  });
 
 export const onePagePerTemplate = (urls: string[], templatePatterns: Pattern[], root = '') => {
   const seen = new Set<Pattern>();
@@ -194,12 +178,14 @@ export const onePagePerDirectory = (urls: string[], root = '') => {
 export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+export const portablePath = (root: string, file: string) =>
+  (isAbsolute(file) ? relative(root, file) : file).split(sep).join('/').split('\\').join('/');
+
 export const displayPath = (root: string, path: string) => {
   const fromRoot = relative(root, path);
   return !fromRoot ? '.' : fromRoot.startsWith('..') || isAbsolute(fromRoot) ? path : fromRoot;
 };
 
-// waitFor is 'load', 'networkidle', a number of milliseconds after load, or a CSS selector.
 export const navigate = (page: Page, url: string, { waitFor, timeout }: NavigateOptions) =>
   span(
     'navigate',

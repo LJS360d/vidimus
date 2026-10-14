@@ -25,7 +25,9 @@ export const brokenLinkFix = (status: number | undefined, url = '') => {
   return 'Check the target is up, raise links.timeout or enable links.retry, or add a pattern to links.skip if it is flaky.';
 };
 
-// Internal links the fallback answers with 200, so only the browser can tell a missing route.
+const parentPath = (parent: string | undefined, origin: string) =>
+  parent ? pathOf(parent, origin) : '(root)';
+
 const routeLinks = (pages: RenderedPage[], origin: string, dist: string) => {
   const targets = new Map<string, { display: string; sources: Set<string> }>();
   const audited = new URL(origin).origin;
@@ -60,7 +62,6 @@ export const links: Audit = {
           (page) => page !== undefined,
         )
       : [];
-    // The built-in server hands linkinator the rendered DOM of these pages instead of the shell.
     const snapshots = rendered.length > 0 && !config.origin;
     if (renderPage && config.origin)
       log(
@@ -77,9 +78,9 @@ export const links: Audit = {
       redirected.set(url, targetUrl ?? '');
     });
     checker.on('link', (result: LinkResult) => {
-      scanned += 1;
+      if (result.state !== 'SKIPPED') scanned += 1;
       const set = parents.get(result.url) ?? new Set();
-      set.add(result.parent ? pathOf(result.parent, origin) : '(root)');
+      set.add(parentPath(result.parent, origin));
       parents.set(result.url, set);
       if (result.state === 'BROKEN') broken.push(result);
     });
@@ -111,7 +112,7 @@ export const links: Audit = {
     const byTarget = new Map<string, { status: number | undefined; sources: Set<string> }>();
     for (const result of broken) {
       const target = byTarget.get(result.url) ?? { status: result.status, sources: new Set() };
-      target.sources.add(result.parent ? pathOf(result.parent, origin) : '(root)');
+      target.sources.add(parentPath(result.parent, origin));
       byTarget.set(result.url, target);
     }
 
@@ -132,15 +133,19 @@ export const links: Audit = {
 
     const { selector, text } = config.links.notFound;
     if (renderPage && (selector || text)) {
-      for (const [url, { display, sources }] of routeLinks(rendered, origin, dist)) {
-        const target = await renderPage(url).catch(() => undefined);
-        if (!target?.notFound) continue;
-        findings.push({
+      const routes = [...routeLinks(rendered, origin, dist)];
+      const targets = await Promise.all(
+        routes.map(([url]) => renderPage(url).catch(() => undefined)),
+      );
+      const notFound = routes
+        .filter((_, index) => targets[index]?.notFound)
+        .map(([, { display, sources }]) => ({
           message: `not-found view ${display}`,
           where: [...sources],
           fix: 'Fix or remove the link on the pages listed, or add the route to the app router.',
-        });
-      }
+        }))
+        .sort((a, b) => a.message.localeCompare(b.message));
+      findings.push(...notFound);
     }
     return {
       summary:

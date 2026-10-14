@@ -58,8 +58,10 @@ Screenshots are named after the URL path and viewport: `index@375x667.png`, `blo
 
 Each current screenshot is compared with the file of the same name in the baseline directory, `.vidimus/shots/baseline/` unless `shots.baselineDir` is set. A pixel counts as changed when any colour channel or alpha differs by more than `shots.tolerance` (0 to 255). When the two images differ in size, the comparison covers the larger of both, so a page that grew taller counts the new area as changed.
 
-- No changed pixels: the screenshot is logged as `unchanged`.
+- No changed pixels: the screenshot is logged as `unchanged`. A screenshot byte-identical to its baseline is not compared in the browser, and each comparison starts as soon as its screenshot is taken.
 - Some changed pixels: a diff image is written to `.vidimus/shots/diff/`, with changed pixels in red over a faded grey copy of the current screenshot, and the page is added to the side-by-side gallery `.vidimus/shots/diff.html` (baseline, current, diff).
+- The screenshot changed size (`1280x3000 -> 1280x3400`): a failing finding of its own.
+- More than `shots.maxDiffPixels` pixels changed (off by default): a failing finding, for pages where a ratio hides a small change. Findings also name the region the changed pixels span.
 - More than `shots.maxDiff` of the pixels changed (default `0.002`, which is 0.2%): the screenshot is a failing finding.
 
 A page or viewport that is noisier than the rest can have its own `tolerance` and `maxDiff` in `shots.overrides`. A rule applies when its `match` pattern matches the page path and its `viewport` equals the screenshot width; either may be left out, and the first matching rule wins:
@@ -154,8 +156,11 @@ side-by-side gallery at .vidimus/shots/diff.html
 | `shots.allLocales` | `false` | also capture pages of translated locales |
 | `shots.tolerance` | `12` | per-channel colour difference (0 to 255) a pixel may have and still count as unchanged |
 | `shots.maxDiff` | `0.002` | share of changed pixels allowed before a screenshot fails |
+| `shots.maxDiffPixels` | `0` | number of changed pixels allowed before a screenshot fails, `0` for no limit |
+| `shots.css` | `''` | CSS injected before the screenshot, to hide a caret, scrollbar or sticky header; a strict `style-src` CSP can block it |
+| `shots.deviceScaleFactor` | `1` | device pixel ratio of the screenshots |
 | `shots.antialiasing` | `false` | ignore changed pixels that are anti-aliased edge pixels (soft glyph or line edges), so sub-pixel rendering differences do not count |
-| `shots.overrides` | `[]` | `{ match, viewport, tolerance, maxDiff }` rules: other limits for the screenshots whose page path and width match, first rule wins |
+| `shots.overrides` | `[]` | `{ match, viewport, tolerance, maxDiff, maxDiffPixels }` rules: other limits for the screenshots whose page path and width match, first rule wins |
 | `shots.freeze` | `true` | stop animation-frame loops, seed `Math.random`, still videos and endless CSS animations before the screenshot |
 | `shots.mask` | `[]` | CSS selectors painted flat black before the screenshot |
 | `shots.maskEmbeds` | `true` | also mask cross-origin iframes |

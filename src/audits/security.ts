@@ -1,595 +1,127 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import { headerPolicies, metaPolicies, type Policy, parsePolicy } from '../core/csp.ts';
-import type { BuiltPage, Tag } from '../core/html.ts';
-import { relTokens, resolveHref, srcsetUrls, tags } from '../core/html.ts';
-import type { Audit, Finding, Severity } from '../core/types.ts';
-import { basePathOf, escapeRegExp, inParallel, matchesAny } from '../core/util.ts';
+import type { VidimusConfig } from '../config/types.ts';
+import { effectiveSources, headerPolicies, metaPolicies, parsePolicy } from '../core/csp.ts';
+import type { HeaderMap } from '../core/headers.ts';
+import type { BuiltPage } from '../core/html.ts';
+import { tags } from '../core/html.ts';
+import type { Audit, Finding } from '../core/types.ts';
+import { basePathOf, matchesAny } from '../core/util.ts';
+import { type PagePolicy, STARTER_CSP, unsafeCspFindings } from './security-csp.ts';
+import {
+  clickjackingFindings,
+  leakFindings,
+  type RequiredContext,
+  requiredHeaderFindings,
+} from './security-headers.ts';
+import { mixedContentFindings, sriFindings } from './security-resources.ts';
+import { securityTxtFindings } from './security-txt.ts';
+import { fetchHeaders, groupFindings } from './util.ts';
 
-export interface HeaderRule {
-  pattern: string;
-  match: RegExp;
-  set: [string, string][];
-  detach: string[];
-}
+export { securityTxtFields } from './security-txt.ts';
 
-export type HeaderMap = Record<string, string>;
+type Options = VidimusConfig['security'];
 
-const patternRegExp = (pattern: string) => {
-  const source = pattern
-    .split(/(\*|:[A-Za-z_]\w*)/)
-    .map((part) =>
-      part === '*' ? '.*' : part.startsWith(':') && part.length > 1 ? '[^/]+' : escapeRegExp(part),
-    )
-    .join('');
-  return new RegExp(`^${source.replace(/\\\/$/, '')}\\/?$`);
-};
-
-const rulePath = (line: string) => {
-  const url = line.match(/^[a-z][a-z\d+.-]*:\/\/[^/]+(.*)$/i);
-  return url ? url[1] || '/' : line;
-};
-
-export const parseHeadersFile = (text: string): HeaderRule[] => {
-  const rules: HeaderRule[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    if (!/^\s/.test(raw)) {
-      const pattern = rulePath(line);
-      rules.push({ pattern, match: patternRegExp(pattern), set: [], detach: [] });
-      continue;
-    }
-    const rule = rules.at(-1);
-    if (!rule) continue;
-    if (line.startsWith('!')) {
-      rule.detach.push(line.slice(1).trim().toLowerCase());
-      continue;
-    }
-    const colon = line.indexOf(':');
-    if (colon <= 0) continue;
-    rule.set.push([line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()]);
+const isLoopbackHttp = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === 'http:' && /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(url.hostname)
+    );
+  } catch {
+    return false;
   }
-  return rules;
 };
 
-const hostPattern = (source: string) => {
-  const pattern = source.replace(/\/\(\.\*\)$/, '/*').replace(/\*\*/g, '*');
-  return /[(){}[\]?|]/.test(pattern) ? '' : pattern;
-};
-
-const hostRule = (source: unknown, pairs: [string, unknown][]): HeaderRule[] => {
-  const pattern = typeof source === 'string' ? hostPattern(source) : '';
-  const set = pairs.filter(
-    (pair): pair is [string, string] => !!pair[0] && typeof pair[1] === 'string',
-  );
-  return pattern && set.length
-    ? [
-        {
-          pattern,
-          match: patternRegExp(pattern),
-          set: set.map(([name, value]) => [name.toLowerCase(), value]),
-          detach: [],
-        },
-      ]
-    : [];
-};
-
-const obj = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-
-const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-
-const keyValues = (value: unknown): [string, unknown][] =>
-  list(value).map((item) => [String(obj(item).key ?? ''), obj(item).value]);
-
-const objectPairs = (value: unknown): [string, unknown][] => Object.entries(obj(value));
-
-const sourceRules = (value: unknown) =>
-  list(value).flatMap((item) => hostRule(obj(item).source, keyValues(obj(item).headers)));
-
-const parseVercel = (json: unknown) => sourceRules(obj(json).headers);
-
-const parseFirebase = (json: unknown) =>
-  [obj(json).hosting].flat().flatMap((hosting) => sourceRules(obj(hosting).headers));
-
-const parseStaticWebApp = (json: unknown) => [
-  ...hostRule('/*', objectPairs(obj(json).globalHeaders)),
-  ...list(obj(json).routes).flatMap((route) =>
-    hostRule(obj(route).route, objectPairs(obj(route).headers)),
-  ),
+const policiesOf = (page: BuiltPage, received?: HeaderMap): PagePolicy[] => [
+  ...(received ? headerPolicies(received) : []).map((text) => ({
+    policy: parsePolicy(text),
+    meta: false,
+  })),
+  ...metaPolicies(page.html).map((text) => ({ policy: parsePolicy(text), meta: true })),
 ];
 
-const parseNetlify = (text: string) => {
-  const rules: HeaderRule[] = [];
-  let source: string | undefined;
-  let pairs: [string, unknown][] = [];
-  let inValues = false;
-  const flush = () => {
-    if (source !== undefined) rules.push(...hostRule(source, pairs));
-    source = undefined;
-    pairs = [];
-  };
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    if (line.startsWith('[')) {
-      inValues = line === '[headers.values]';
-      if (line === '[[headers]]') {
-        flush();
-        source = '';
-      } else if (!inValues) flush();
-      continue;
-    }
-    const entry = line.match(/^("[^"]+"|[\w-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/);
-    if (!entry?.[1] || source === undefined) continue;
-    const value = entry[2] ?? entry[3] ?? '';
-    if (inValues) pairs.push([entry[1].replace(/^"|"$/g, ''), value]);
-    else if (entry[1] === 'for') source = value;
+const missingCspFindings = (policies: PagePolicy[], options: Options): Finding[] => {
+  const severity = options.csp === 'error' ? undefined : ('warn' as const);
+  const base = { ...(severity && { severity }), fix: STARTER_CSP };
+  if (!policies.length) {
+    return options.require['content-security-policy']
+      ? []
+      : [{ message: 'no Content-Security-Policy (header or <meta>)', ...base }];
   }
-  flush();
-  return rules;
+  return policies.some(({ policy }) => effectiveSources(policy, 'script'))
+    ? []
+    : [{ message: 'CSP does not restrict scripts (no script-src or default-src)', ...base }];
 };
-
-const hostFiles: [string, (text: string) => HeaderRule[]][] = [
-  ['vercel.json', (text) => parseVercel(JSON.parse(text))],
-  ['netlify.toml', parseNetlify],
-  ['firebase.json', (text) => parseFirebase(JSON.parse(text))],
-  ['staticwebapp.config.json', (text) => parseStaticWebApp(JSON.parse(text))],
-];
-
-export const loadHeaderRules = (root: string, dist: string, file: string) => {
-  const rules: HeaderRule[] = [];
-  const sources: string[] = [];
-  const sought: [string, (text: string) => HeaderRule[]][] = [
-    [join(dist, file), parseHeadersFile],
-    ...[root, dist].flatMap((dir) =>
-      hostFiles.map(([name, parse]): [string, (text: string) => HeaderRule[]] => [
-        join(dir, name),
-        parse,
-      ]),
-    ),
-  ];
-  for (const [path, parse] of sought) {
-    if (!existsSync(path)) continue;
-    try {
-      rules.push(...parse(readFileSync(path, 'utf8')));
-      sources.push(path === join(dist, file) ? file : basename(path));
-    } catch {}
-  }
-  return { rules, sources: [...new Set(sources)] };
-};
-
-export const headersFor = (rules: HeaderRule[], path: string): HeaderMap => {
-  const headers: HeaderMap = {};
-  for (const rule of rules) {
-    if (!rule.match.test(path)) continue;
-    for (const name of rule.detach) delete headers[name];
-    for (const [name, value] of rule.set) {
-      headers[name] = headers[name] ? `${headers[name]}, ${value}` : value;
-    }
-  }
-  return headers;
-};
-
-const FETCH_TIMEOUT = 20_000;
-const MAX_REDIRECTS = 5;
-
-const request = async (url: string) => {
-  const init = { redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT) } as const;
-  let response = await fetch(url, { ...init, method: 'HEAD' });
-  if (response.status === 405) response = await fetch(url, init);
-  await response.body?.cancel();
-  return response;
-};
-
-export const fetchHeaders = async (url: string): Promise<HeaderMap> => {
-  let current = new URL(url);
-  let response = await request(current.href);
-  for (let hops = 0; hops < MAX_REDIRECTS; hops += 1) {
-    const location = response.headers.get('location');
-    if (response.status < 300 || response.status >= 400 || !location) break;
-    const next = new URL(location, current);
-    if (next.origin !== current.origin) break;
-    current = next;
-    response = await request(current.href);
-  }
-  return Object.fromEntries([...response.headers].map(([name, value]) => [name, value]));
-};
-
-const unsafeSources = (policy: Policy) => {
-  const sources = policy.get('script-src') ?? policy.get('default-src') ?? [];
-  const guarded = sources.some((source) => /^'(nonce|sha(256|384|512))-/.test(source));
-  return [
-    ...(sources.includes("'unsafe-inline'") && !guarded ? ["'unsafe-inline'"] : []),
-    ...(sources.includes("'unsafe-eval'") ? ["'unsafe-eval'"] : []),
-  ];
-};
-
-const META_IGNORED = ['frame-ancestors', 'report-uri', 'sandbox'];
-const ANY_ANCESTOR = /^(\*|[a-z][a-z\d+.-]*:)$/;
-
-const weakCsp = (policy: Policy, meta: boolean): [string, string][] => {
-  const scripts = policy.get('script-src') ?? policy.get('default-src');
-  if (!scripts) return [];
-  const where = policy.has('script-src') ? 'script-src' : 'default-src';
-  const out: [string, string][] = [];
-  for (const source of ['*', 'https:', 'data:']) {
-    if (scripts.includes(source)) {
-      out.push([
-        `CSP ${where} allows ${source}`,
-        `Replace ${source} in ${where} with the exact origins, nonces or hashes your scripts need.`,
-      ]);
-    }
-  }
-  if (!policy.has('object-src') && !policy.has('default-src')) {
-    out.push(['CSP lacks object-src', "Add object-src 'none' to the CSP."]);
-  }
-  if (!policy.has('base-uri')) {
-    out.push(['CSP lacks base-uri', "Add base-uri 'self' (or 'none') to the CSP."]);
-  }
-  if (meta) {
-    for (const name of META_IGNORED.filter((directive) => policy.has(directive))) {
-      out.push([
-        `<meta> CSP ignores ${name}`,
-        `Move ${name} to a Content-Security-Policy header; browsers ignore it in <meta>.`,
-      ]);
-    }
-  }
-  return out;
-};
-
-const RESOURCES: Record<string, string[]> = {
-  script: ['src'],
-  img: ['src', 'srcset'],
-  source: ['src', 'srcset'],
-  iframe: ['src'],
-  video: ['src', 'poster'],
-  audio: ['src'],
-  object: ['data'],
-  embed: ['src'],
-  form: ['action'],
-  image: ['href', 'xlink:href'],
-};
-
-const LINK_RESOURCES = ['stylesheet', 'icon', 'preload', 'modulepreload', 'manifest'];
-
-const urlsIn = (tag: Tag, attr: string) => {
-  const value = tag.attrs[attr];
-  if (!value) return [];
-  return attr === 'srcset' || attr === 'imagesrcset' ? srcsetUrls(value) : [value.trim()];
-};
-
-const cssUrls = (css: string) => [
-  ...Array.from(css.matchAll(/url\(\s*(["']?)(.*?)\1\s*\)/gi), (m) => (m[2] ?? '').trim()),
-  ...Array.from(css.matchAll(/@import\s*(["'])(.*?)\1/gi), (m) => (m[2] ?? '').trim()),
-];
-
-const insecureResources = (html: string) => {
-  const found: string[] = [];
-  const css = [
-    ...Array.from(html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi), (m) => m[1] ?? ''),
-    ...tags(html).map((tag) => tag.attrs.style ?? ''),
-  ];
-  for (const url of css.flatMap(cssUrls)) if (/^http:\/\//i.test(url)) found.push(url);
-  for (const tag of tags(html, 'link', ...Object.keys(RESOURCES))) {
-    const attrs =
-      tag.name === 'link'
-        ? relTokens(tag).some((rel) => LINK_RESOURCES.includes(rel))
-          ? ['href', 'imagesrcset']
-          : []
-        : (RESOURCES[tag.name] ?? []);
-    for (const attr of attrs) {
-      for (const url of urlsIn(tag, attr)) if (/^http:\/\//i.test(url)) found.push(url);
-    }
-  }
-  return found;
-};
-
-const crossOriginResources = (page: BuiltPage, siteUrl: string) => {
-  const candidates = [
-    ...tags(page.html, 'script').map((tag) => ({ tag, href: tag.attrs.src })),
-    ...tags(page.html, 'link')
-      .filter((tag) => relTokens(tag).includes('stylesheet'))
-      .map((tag) => ({ tag, href: tag.attrs.href })),
-  ];
-  return candidates.flatMap(({ tag, href }) => {
-    if (!href) return [];
-    const target = resolveHref(href, page.path, siteUrl);
-    if (!target || target.internal || !target.absolute) return [];
-    if (!/^https?:$/.test(target.url.protocol)) return [];
-    return [
-      {
-        kind: tag.name,
-        url: target.href,
-        integrity: Boolean(tag.attrs.integrity),
-        crossorigin: tag.attrs.crossorigin !== undefined,
-      },
-    ];
-  });
-};
-
-const VERSION = /[A-Za-z][\w.-]*(?:\/\d+(?:\.\d+)*\b|\s\d+\.\d+)/;
-
-const RECOMMENDED: Record<string, string> = {
-  'strict-transport-security': 'Strict-Transport-Security: max-age=31536000; includeSubDomains',
-  'x-content-type-options': 'X-Content-Type-Options: nosniff',
-  'referrer-policy': 'Referrer-Policy: strict-origin-when-cross-origin',
-  'permissions-policy': 'Permissions-Policy: camera=(), microphone=(), geolocation=()',
-};
-
-const UNSAFE_FIXES: Record<string, string> = {
-  "'unsafe-inline'":
-    "Drop 'unsafe-inline' from script-src and allow inline scripts by 'sha256-…' hash or nonce, or move them to files.",
-  "'unsafe-eval'":
-    "Drop 'unsafe-eval' from script-src and replace the eval()/new Function() code or the library that needs it.",
-};
-
-const YEAR = 366 * 24 * 60 * 60 * 1000;
-
-const SECURITY_TXT_EXAMPLE =
-  'Contact: mailto:security@example.com and Expires: <a date less than a year away, e.g. 2027-01-01T00:00:00Z>';
-
-export const securityTxtFields = (text: string) => {
-  const fields = new Map<string, string[]>();
-  for (const raw of text.split(/\r?\n/)) {
-    if (raw.startsWith('-----BEGIN PGP SIGNATURE')) break;
-    const line = raw.trim();
-    const colon = line.indexOf(':');
-    if (!line || line.startsWith('#') || colon <= 0) continue;
-    const name = line.slice(0, colon).trim().toLowerCase();
-    fields.set(name, [...(fields.get(name) ?? []), line.slice(colon + 1).trim()]);
-  }
-  return fields;
-};
-
-const securityTxtFindings = (dist: string, now: number): Finding[] => {
-  const wellKnown = join(dist, '.well-known', 'security.txt');
-  const legacy = join(dist, 'security.txt');
-  const found = [wellKnown, legacy].find((file) => existsSync(file));
-  if (!found) {
-    return [
-      {
-        message: 'no /.well-known/security.txt',
-        severity: 'warn',
-        fix: `Add .well-known/security.txt to the folder copied to the build as is (usually public/) with ${SECURITY_TXT_EXAMPLE}, or set security.securityTxt to false.`,
-      },
-    ];
-  }
-  const findings: Finding[] = [];
-  const problem = (message: string, fix: string, severity?: Severity) =>
-    findings.push({ message, file: found, fix, ...(severity ? { severity } : {}) });
-  if (found === legacy) {
-    problem(
-      'security.txt is not under /.well-known/',
-      'Move security.txt to .well-known/security.txt; the root location is only a legacy fallback.',
-      'warn',
-    );
-  }
-  const fields = securityTxtFields(readFileSync(found, 'utf8'));
-  const contacts = fields.get('contact') ?? [];
-  if (!contacts.length) {
-    problem(
-      'security.txt has no Contact field',
-      'Add a line like "Contact: mailto:security@example.com" or "Contact: https://example.com/security".',
-    );
-  }
-  for (const contact of contacts) {
-    if (/^http:/i.test(contact) || !/^[a-z][a-z\d+.-]*:/i.test(contact)) {
-      problem(
-        `security.txt Contact "${contact}" is not a mailto:, tel: or https:// URI`,
-        'Write the contact as a URI, e.g. "mailto:security@example.com" or "https://example.com/security".',
-      );
-    }
-  }
-  const expires = fields.get('expires') ?? [];
-  const [expiry] = expires;
-  const time = expiry === undefined ? Number.NaN : Date.parse(expiry);
-  if (expiry === undefined) {
-    problem(
-      'security.txt has no Expires field',
-      `Add a line like "Expires: ${new Date(now + YEAR / 2).toISOString().slice(0, 10)}T00:00:00Z".`,
-    );
-  } else if (expires.length > 1) {
-    problem('security.txt has more than one Expires field', 'Keep a single Expires line.');
-  } else if (Number.isNaN(time)) {
-    problem(
-      `security.txt Expires "${expiry}" is not a date`,
-      'Write Expires as an ISO 8601 date and time, e.g. "Expires: 2027-01-01T00:00:00Z".',
-    );
-  } else if (time <= now) {
-    problem(
-      `security.txt expired on ${expiry}`,
-      'Review the file and move Expires to a date less than a year away.',
-    );
-  } else if (time - now > YEAR) {
-    problem(
-      `security.txt Expires ${expiry} is more than a year away`,
-      'Set Expires less than a year ahead so the file is reviewed at least yearly.',
-      'warn',
-    );
-  }
-  return findings;
-};
-
-interface ReportOptions {
-  severity?: Severity;
-  details?: string[];
-  fix: string;
-}
 
 export const security: Audit = {
   name: 'security',
   description: 'security headers, clickjacking, unsafe CSP, mixed content, SRI and security.txt',
   requires: 'dist',
-  async run({ config, builtPages, dist, log }) {
+  async run({ config, builtPages, dist, log, headersFor, headerSource }) {
     const options = config.security;
     const pages = builtPages(config.exclude).filter(
       (page) => !matchesAny(options.exclude, page.path),
     );
     if (!pages.length) return { status: 'skipped', summary: 'no pages to check' };
 
-    const grouped = new Map<string, Finding>();
-    const report = (message: string, where: string, { severity, details, fix }: ReportOptions) => {
-      const key = [message, ...(details ?? [])].join('\n');
-      const finding = grouped.get(key) ?? {
-        message,
-        where: [],
-        ...(details ? { details } : {}),
-        ...(severity ? { severity } : {}),
-        fix,
-      };
-      if (!finding.where?.includes(where)) finding.where?.push(where);
-      grouped.set(key, finding);
-    };
-
+    const grouped = groupFindings();
     const origin = config.origin.replace(/\/$/, '');
-    const loaded = loadHeaderRules(config.root, dist, options.file);
-    const headers = new Map<string, HeaderMap>();
-    let source = '';
+    const source = headerSource.sources.join(', ');
+    for (const note of headerSource.notes) log(note);
 
-    if (origin) {
-      source = origin;
-      await inParallel(8, pages, async (page) => {
-        try {
-          headers.set(page.path, await fetchHeaders(origin + page.path));
-        } catch (error) {
-          report('could not fetch headers', page.path, {
+    let headers = new Map<string, HeaderMap>();
+    if (origin || headerSource.sources.length) {
+      headers = await fetchHeaders(pages, headersFor, (path, error) =>
+        grouped.add(
+          {
+            message: 'could not fetch headers',
             details: [error instanceof Error ? error.message : String(error)],
             fix: `Make sure ${origin} is up and serves this page, or drop ${config.server.command ? 'server.command' : '--origin'} to read ${options.file} from the build.`,
-          });
-        }
-      });
-    } else if (loaded.sources.length) {
-      source = loaded.sources.join(', ');
-      for (const page of pages) headers.set(page.path, headersFor(loaded.rules, page.path));
+          },
+          path,
+        ),
+      );
+      if (!origin && !pages.some((page) => Object.keys(headers.get(page.path) ?? {}).length)) {
+        log(`no header rule from ${source} matches any page`);
+      }
     } else {
       log(
         `header checks skipped: no ${options.file} in the build and no --origin to fetch headers from`,
       );
     }
 
-    const headerHome = origin ? "your host's header config" : `/* in ${options.file}`;
+    const loopback = isLoopbackHttp(origin);
+    if (loopback) {
+      log('strict-transport-security not checked: HSTS is ignored over http on localhost');
+    }
+    const required: RequiredContext = {
+      require: options.require,
+      skipHsts: loopback,
+      home: origin ? "your host's header config" : `/* in ${options.file}`,
+    };
 
     for (const page of pages) {
-      const where = page.path;
-      const received = headers.get(where);
-
-      if (received) {
-        for (const [name, pattern] of Object.entries(options.require)) {
-          if (pattern === false) continue;
-          const key = name.toLowerCase();
-          const value = received[key];
-          const skip = `set security.require["${key}"] to false to skip`;
-          const recommended = RECOMMENDED[key];
-          if (value === undefined) {
-            report(`missing ${key} header`, where, {
-              fix: recommended
-                ? `Add "${recommended}" to ${headerHome}, or ${skip}.`
-                : `Add a ${key} header matching ${pattern || 'any value'} to ${headerHome}, or ${skip}.`,
-            });
-          } else if (pattern && !new RegExp(pattern, 'i').test(value)) {
-            report(`${key} header does not match ${pattern}`, where, {
-              details: [value],
-              fix: recommended
-                ? `Change it to "${recommended}" in ${headerHome}, or relax security.require["${key}"].`
-                : `Change it to a value matching ${pattern} in ${headerHome}, or relax security.require["${key}"].`,
-            });
-          }
-        }
-
-        if (options.clickjacking) {
-          const ancestors = headerPolicies(received)
-            .map((policy) => parsePolicy(policy).get('frame-ancestors'))
-            .filter((sources) => sources !== undefined);
-          const framed = ancestors.some((sources) => !sources.some((s) => ANY_ANCESTOR.test(s)));
-          const xfo = /^\s*(deny|sameorigin)\s*$/i.test(received['x-frame-options'] ?? '');
-          if (!framed && !xfo) {
-            report(
-              ancestors.length
-                ? 'no clickjacking protection: frame-ancestors allows any origin'
-                : 'no clickjacking protection: add CSP frame-ancestors or X-Frame-Options',
-              where,
-              {
-                fix: ancestors.length
-                  ? `Replace the "*" or scheme source in frame-ancestors with 'self' or explicit hosts, or send X-Frame-Options: DENY as a header.`
-                  : `Send "Content-Security-Policy: frame-ancestors 'self'" (or X-Frame-Options: DENY) as a header; a <meta> CSP can't set frame-ancestors.`,
-              },
-            );
-          }
-        }
-
-        if (origin) {
-          const poweredBy = received['x-powered-by'];
-          if (poweredBy) {
-            report('x-powered-by header leaks the stack', where, {
-              severity: 'warn',
-              details: [poweredBy],
-              fix: 'Remove the X-Powered-By header in your server or framework config (e.g. app.disable("x-powered-by") in Express).',
-            });
-          }
-          const server = received.server;
-          if (server && VERSION.test(server)) {
-            report('server header leaks a version', where, {
-              severity: 'warn',
-              details: [server],
-              fix: 'Hide the version in the Server header (e.g. "server_tokens off;" in nginx, "ServerTokens Prod" in Apache).',
-            });
-          }
-        }
-      }
-
-      if (options.unsafeInline) {
-        const policies = [
-          ...(received ? headerPolicies(received) : []),
-          ...metaPolicies(page.html),
-        ];
-        const unsafe = new Set(policies.flatMap((policy) => unsafeSources(parsePolicy(policy))));
-        const weak = new Map(
-          [
-            ...(received ? headerPolicies(received) : []).map((policy) => [policy, false] as const),
-            ...metaPolicies(page.html).map((policy) => [policy, true] as const),
-          ].flatMap(([policy, meta]) => weakCsp(parsePolicy(policy), meta)),
-        );
-        for (const [message, fix] of weak) report(message, where, { severity: 'warn', fix });
-        for (const keyword of unsafe) {
-          report(`CSP allows ${keyword} scripts`, where, {
-            severity: 'warn',
-            fix: UNSAFE_FIXES[keyword] ?? `Drop ${keyword} from script-src.`,
-          });
-        }
-      }
-
-      if (options.mixedContent) {
-        for (const url of new Set(insecureResources(page.html))) {
-          report(`mixed content: ${url}`, where, { fix: 'Load it over https:// or self-host it.' });
-        }
-      }
-
-      if (options.sri) {
-        for (const { kind, url, integrity, crossorigin } of crossOriginResources(
-          page,
-          config.siteUrl,
-        )) {
-          if (!integrity) {
-            report(`cross-origin <${kind}> without integrity: ${url}`, where, {
-              severity: 'warn',
-              fix: 'Add integrity="sha384-…" and crossorigin="anonymous", or self-host the file.',
-            });
-          } else if (!crossorigin) {
-            report(`cross-origin <${kind}> with integrity but no crossorigin: ${url}`, where, {
-              fix: 'Add crossorigin="anonymous" to the tag, or the browser blocks the file.',
-            });
-          }
-        }
-      }
+      const received = headers.get(page.path);
+      const policies = policiesOf(page, received);
+      const issues: Finding[] = [
+        ...(received ? requiredHeaderFindings(received, required) : []),
+        ...(received && options.clickjacking ? clickjackingFindings(received) : []),
+        ...(received && origin ? leakFindings(received) : []),
+        ...(options.unsafeInline
+          ? unsafeCspFindings(policies, tags(page.html, 'form').length > 0)
+          : []),
+        ...(options.csp ? missingCspFindings(policies, options) : []),
+        ...(options.mixedContent ? mixedContentFindings(page.html) : []),
+        ...(options.sri ? sriFindings(page, config.siteUrl) : []),
+      ];
+      for (const issue of issues) grouped.add(issue, page.path);
     }
 
-    const findings = [...grouped.values()];
+    const findings = grouped.values();
     if (options.securityTxt) {
-      if (basePathOf(config.siteUrl)) {
+      const base = basePathOf(config.siteUrl);
+      if (base) {
         log(
-          `security.txt check skipped: the site is served under ${basePathOf(config.siteUrl)}/, security.txt belongs at the origin root`,
+          `security.txt check skipped: the site is served under ${base}/, security.txt belongs at the origin root`,
         );
       } else findings.push(...securityTxtFindings(dist, Date.now()));
     }

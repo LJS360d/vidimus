@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { loadFailureFix as a11yLoadFix, issueFix, techniqueUrl } from '../src/audits/a11y.ts';
-import { loadFailureFix as lighthouseLoadFix, scoreFix } from '../src/audits/lighthouse.ts';
+import { loadFailureFix as lighthouseLoadFix, scoreFix } from '../src/audits/lighthouse/fixes.ts';
 import { brokenLinkFix } from '../src/audits/links.ts';
 import { defectFix } from '../src/audits/r12s.ts';
-import { changedShotFix } from '../src/audits/shots.ts';
+import { changedShotFix } from '../src/audits/shots/findings.ts';
 
 const techniques = 'https://www.w3.org/WAI/WCAG21/Techniques';
 
@@ -38,7 +38,7 @@ describe('a11y fixes', () => {
       issueFix('WCAG2AA.Principle1.Guideline1_4.1_4_3.G18.Fail'),
       `Apply ${techniques}/general/G18 to the element listed, or add the code to a11y.ignore if it is a false positive.`,
     );
-    assert.match(issueFix('custom-rule'), /^Fix the element listed, .*a11y\.ignore/);
+    assert.match(issueFix('Custom_Rule'), /^Fix the element listed, .*a11y\.ignore/);
     assert.match(a11yLoadFix(60_000), /a11y\.timeout \(now 60000ms\).*a11y\.exclude/);
   });
 });

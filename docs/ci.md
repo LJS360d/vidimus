@@ -257,6 +257,6 @@ export default defineConfig({
   each job serves the build on its own runner.
 - On small runners, lower `a11y.concurrency`, `r12s.concurrency`, `privacy.concurrency` and
   `shots.concurrency`
-  (default: half the cores, 2 to 8): the non-exclusive audits run at the same time.
+  (default: half the cores, 2 to 8): the non-exclusive audits run at the same time. `browser.maxPages` caps the pages they have open together.
 - `links.checkExternal: false` keeps a pull request job independent of other sites; check
   external links in a scheduled job instead.

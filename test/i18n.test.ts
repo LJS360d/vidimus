@@ -60,6 +60,23 @@ describe('i18n key comparison', () => {
     assert.deepEqual(finding?.details, ['hi', 'bye', 'n_few']);
     assert.ok(finding?.fix);
   });
+
+  it('reports a missing locale file without hiding other locales', async () => {
+    const cwd = fixture({
+      'locales/en.json': JSON.stringify({ a: 'A', b: 'B' }),
+      'locales/fr.json': JSON.stringify({ a: 'A' }),
+      'vidimus.config.json': JSON.stringify({
+        locales: ['en', 'it', 'fr'],
+        defaultLocale: 'en',
+        i18n: { files: 'locales/{locale}.json' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['i18n'], reporters: [] });
+    assert.deepEqual(
+      results[0]?.findings.map(({ message }) => message),
+      ['no translation file for "it"', 'fr: 1 missing key(s)'],
+    );
+  });
 });
 
 describe('i18n PO files', () => {
@@ -82,5 +99,23 @@ describe('i18n PO files', () => {
       ['it: 1 missing key(s)'],
     );
     assert.deepEqual(findings[0]?.details, ['bye']);
+  });
+
+  it('handles plurals, contexts and blank default msgstr', async () => {
+    const cwd = fixture({
+      'locales/en.po':
+        'msgid "Open {{n}}"\nmsgstr ""\n\nmsgctxt "menu"\nmsgid "Open"\nmsgstr ""\n\nmsgid "file"\nmsgid_plural "files"\nmsgstr[0] ""\nmsgstr[1] ""\n',
+      'locales/it.po':
+        'msgid "Open {{n}}"\nmsgstr ""\n\nmsgctxt "menu"\nmsgid "Open"\nmsgstr "Apri"\n\nmsgid "file"\nmsgid_plural "files"\nmsgstr[0] "file"\nmsgstr[1] "file"\n',
+      'vidimus.config.json': JSON.stringify({
+        locales: ['en', 'it'],
+        defaultLocale: 'en',
+        i18n: { files: 'locales/{locale}.po' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['i18n'], reporters: [] });
+    const findings = results[0]?.findings ?? [];
+    assert.deepEqual(findings[0]?.message, 'it: 1 empty key(s)');
+    assert.deepEqual(findings[0]?.details, ['Open {{n}}']);
   });
 });

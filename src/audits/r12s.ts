@@ -6,6 +6,7 @@ interface LayoutDefect {
   rule: string;
   detail: string;
   nodes: string[];
+  samples?: string[];
 }
 
 const EMBED = /^(iframe|video|embed|object)\b/;
@@ -35,10 +36,14 @@ export const defectFix = (
 // Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
 /* node:coverage disable */
 const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefect[] => {
-  const describe = (el: Element) => {
+  const snippet = (el: Element) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 32);
+  const selectorOf = (el: Element) => {
     const cls = (el.getAttribute('class') || '').trim().split(/\s+/).slice(0, 3).join('.');
-    const text = (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 32);
-    return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${cls ? `.${cls}` : ''}${text ? ` «${text}»` : ''}`;
+    return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${cls ? `.${cls}` : ''}`;
+  };
+  const describe = (el: Element) => {
+    const text = snippet(el);
+    return `${selectorOf(el)}${text ? ` «${text}»` : ''}`;
   };
   const isPerceivable = (el: Element) => {
     if (!el.getClientRects().length) return false;
@@ -49,7 +54,6 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     ) {
       const style = getComputedStyle(node);
       if (style.visibility === 'hidden' || style.opacity === '0') return false;
-      // Screen-reader-only elements (sr-only, visually-hidden) are clipped away.
       if (/^rect\(0(px)?,? 0(px)?,? 0(px)?,? 0(px)?\)$/.test(style.clip)) return false;
       if (
         (style.position === 'absolute' || style.position === 'fixed') &&
@@ -60,14 +64,11 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     }
     return true;
   };
-  // innerWidth grows to fit wide content under mobile emulation; the layout viewport does not.
   const vw = document.documentElement.clientWidth;
   const findings: LayoutDefect[] = [];
 
   const scrollWidth = document.documentElement.scrollWidth;
   if (scrollWidth > vw + 1) {
-    // Content inside a scrolling or clipping box does not scroll the page; neither does content
-    // off the start edge (a skip link at left:-999px in a left-to-right page).
     const rtl = getComputedStyle(document.documentElement).direction === 'rtl';
     const clipped = (el: Element) => {
       for (let node = el.parentElement; node && node !== document.body; node = node.parentElement)
@@ -121,8 +122,11 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     if (nearestNeighbourCentre >= minTarget) continue;
     findings.push({
       rule: 'target-size',
-      detail: `${Math.round(target.r.width)}x${Math.round(target.r.height)}px target, nearest neighbour centre ${nearestNeighbourCentre.toFixed(1)}px away`,
-      nodes: [describe(target.el)],
+      detail: `target under ${minTarget}px with a neighbour centre closer than ${minTarget}px`,
+      nodes: [selectorOf(target.el)],
+      samples: [
+        `${describe(target.el)}: ${Math.round(target.r.width)}x${Math.round(target.r.height)}px, neighbour centre ${nearestNeighbourCentre.toFixed(1)}px away`,
+      ],
     });
   }
 
@@ -132,7 +136,12 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
     if (!isPerceivable(el)) continue;
     const size = Number.parseFloat(getComputedStyle(el).fontSize);
     if (size < minFont)
-      findings.push({ rule: 'font-size', detail: `${size}px`, nodes: [describe(el)] });
+      findings.push({
+        rule: 'font-size',
+        detail: `text under ${minFont}px`,
+        nodes: [selectorOf(el)],
+        samples: [`${describe(el)}: ${size}px`],
+      });
   }
 
   const meta = document.querySelector('meta[name="viewport"]')?.getAttribute('content');
@@ -207,10 +216,21 @@ export const r12s: Audit = {
         a.width - b.width,
     );
 
-    const byDefect = new Map<string, LayoutDefect & { paths: Set<string>; widths: Set<number> }>();
+    const byDefect = new Map<
+      string,
+      LayoutDefect & { paths: Set<string>; widths: Set<number>; samples: string[] }
+    >();
     for (const failure of failures) {
       const key = [failure.rule, failure.detail, ...failure.nodes].join(' | ');
-      const defect = byDefect.get(key) ?? { ...failure, paths: new Set(), widths: new Set() };
+      const defect = byDefect.get(key) ?? {
+        ...failure,
+        paths: new Set(),
+        widths: new Set(),
+        samples: [],
+      };
+      for (const sample of failure.samples ?? [])
+        if (defect.samples.length < 5 && !defect.samples.includes(sample))
+          defect.samples.push(sample);
       defect.paths.add(pathOf(failure.url, origin));
       defect.widths.add(failure.width);
       byDefect.set(key, defect);
@@ -218,7 +238,7 @@ export const r12s: Audit = {
 
     const findings: Finding[] = [...byDefect.values()].map((defect) => ({
       message: `${defect.rule} @${[...defect.widths].join('/')}px - ${defect.detail}`,
-      details: defect.nodes,
+      details: [...defect.nodes, ...defect.samples],
       where: [...defect.paths],
       fix: defectFix(defect, minTarget, minFont),
     }));

@@ -45,7 +45,7 @@ Not counted: iframes and what they load (Lighthouse counts them), CSS background
 or stylesheet loads, unless [`render.mode`](../how-it-works#client-rendered-sites) is on. With
 rendering, `html` is still the shipped file, and the other kinds are the build files the browser
 requested while rendering: stylesheets, scripts (lazy chunks included) and images by request
-type, while fonts, media and `fetch` requests (models, data) count toward `page` only. In static mode fonts count toward `page` only (raw bytes): `<link rel="preload" as="font">` and `url()` in `@font-face` rules of linked stylesheets, resolved against the build directory. Each `<img>`, including the fallback of a `<picture>`, counts once, so `<source>` and `srcset` variants add nothing to the page total.
+type, while fonts, media and `fetch` requests (models, data) count toward `page` only. In static mode fonts count toward `page` only (raw bytes): `<link rel="preload" as="font">` and `url()` in `@font-face` rules of linked stylesheets, resolved against the build directory. Each `<img>`, including the fallback of a `<picture>`, counts once, so `<source>` and `srcset` variants add nothing to the page total (they are still checked against `budget.image`). Per `@font-face` only one file counts: the `woff2` source, else the first. Brotli is measured at quality 5, close to what CDNs serve. `<img>` elements with `position:absolute` or `width:100%;height:100%` inline styles are exempt from the dimensions check.
 
 ### Checks
 

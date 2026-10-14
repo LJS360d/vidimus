@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { existsSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { CONFIG_FILES, type LoadConfigOptions, loadConfig } from './config/load.ts';
@@ -8,9 +7,8 @@ import type { UserConfig } from './config/types.ts';
 import { UsageError } from './core/errors.ts';
 import { diffProfiles, type ProfileLevel } from './core/profile.ts';
 import { auditRegistry, run } from './core/run.ts';
+import { version } from './core/version.ts';
 import { REPORTERS } from './reporters/registry.ts';
-
-const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
 
 interface ConfigFlags {
   config?: string | false;
@@ -29,6 +27,7 @@ interface RunFlags extends ConfigFlags {
   updateBaseline?: boolean;
   acceptFindings?: boolean;
   strict?: boolean;
+  cache?: boolean;
   reporter?: string[];
   profile?: ProfileLevel | true;
   serial?: boolean;
@@ -77,33 +76,29 @@ const runOverrides = (flags: RunFlags): UserConfig => ({
   ...(flags.updateBaseline && { shots: { updateBaseline: true } }),
   ...(flags.acceptFindings && { baseline: { update: true } }),
   ...(flags.strict && { strict: true }),
+  ...(flags.cache === false && { cache: { enabled: false } }),
   ...(flags.reporter?.length && { reporters: flags.reporter }),
   timeout: flags.timeout,
   auditTimeout: flags.auditTimeout,
 });
 
+const MODULE_CONFIG = `import { defineConfig } from 'vidimus';
+
+export default defineConfig({
+  distDir: 'dist',
+  siteUrl: '',
+  exclude: [],
+});
+`;
+
 const INIT_TEMPLATES = {
   ts: {
     file: 'vidimus.config.ts',
-    content: `import { defineConfig } from 'vidimus';
-
-export default defineConfig({
-  distDir: 'dist',
-  siteUrl: '',
-  exclude: [],
-});
-`,
+    content: MODULE_CONFIG,
   },
   js: {
     file: 'vidimus.config.mjs',
-    content: `import { defineConfig } from 'vidimus';
-
-export default defineConfig({
-  distDir: 'dist',
-  siteUrl: '',
-  exclude: [],
-});
-`,
+    content: MODULE_CONFIG,
   },
   json: {
     file: 'vidimus.config.json',
@@ -141,6 +136,7 @@ withConfigOptions(
   .option('--update-baseline', 'shots: record the current screenshots as the baseline')
   .option('--accept-findings', 'record current findings in the baseline file so only new ones fail')
   .option('--strict', 'fail on warnings too')
+  .option('--no-cache', 'ignore and do not write the per-page audit cache')
   .option('-r, --reporter <name[:file]>', `${REPORTERS.join(' | ')}, repeatable`, collect)
   .addOption(
     new Option(
@@ -163,7 +159,9 @@ withConfigOptions(
       console.error(
         `vidimus: run stopped after timeout (${config.timeout} ms); raise timeout, or set auditTimeout to find the audit that hangs`,
       );
-    process.exitCode = report.timedOut ? 2 : report.ok ? 0 : 1;
+    const code = report.timedOut ? 2 : report.ok ? 0 : 1;
+    process.exitCode = code;
+    if (report.timedOut) process.exit(code);
   });
 
 withConfigOptions(program.command('list').description('list available audits')).action(

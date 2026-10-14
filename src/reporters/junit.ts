@@ -66,7 +66,6 @@ ${cases.join('\n')}${suiteOutput(result, suppressed)}
   return { xml, counts };
 };
 
-// Verbose only: the audit's log and what ignore rules or the baseline hid.
 const suiteOutput = (result: AuditResult, suppressed: Finding[] | undefined) => {
   if (!suppressed) return '';
   const lines = [...result.log, ...suppressed.map((finding) => `suppressed: ${finding.message}`)];

@@ -121,13 +121,9 @@ const common = (engine: Engine, page: Page) => ({
   edit: editUrl(page),
   flavors: flavorLinks(engine, page.slug),
   ...(page.csp && { csp: page.csp }),
-  // The hand-written themes load a page's stylesheet in <head>: linked from the body it holds
-  // back the rest of <main>, and on phones the sidebar below it paints first, then jumps.
   ...(page.style && { style: `${base}${page.style}` }),
 });
 
-// Pages with a `script` in their frontmatter load it as a module; VitePress does it in its config.
-// VitePress adds the base to /showcase/ URLs in raw HTML in its config; the other flavors get it here.
 const withScript = (page: Page, markdown: string, styled = false) => {
   const body = (
     styled && page.style
@@ -146,7 +142,6 @@ const slugify = (text: string) =>
     .trim()
     .replace(/\s/g, '-');
 
-// The client-rendered flavors get their pages as HTML in a JSON module, rendered in the browser.
 const appPages = (engine: 'react' | 'angular', all: Page[]) =>
   all.map((page) => {
     const seen = new Map<string, number>();
@@ -173,8 +168,6 @@ const appPages = (engine: 'react' | 'angular', all: Page[]) =>
     };
   });
 
-// Vite turns a JSON import into JSON.parse('…'), which parses much faster than an object
-// literal; Angular's build inlines the literal, so it gets the JSON.parse module directly.
 const writeApp = (engine: 'react' | 'angular', all: Page[]) => {
   const data = JSON.stringify({
     pages: appPages(engine, all),
@@ -333,7 +326,6 @@ const SECTION_COLORS = [
   [0.75, 0.75, 0.8],
 ];
 
-// The docs as a graph: a node per page, coloured by nav section, an edge per link between pages.
 const pageGraph = (all: Page[]) => {
   const groups = (
     JSON.parse(readFileSync(join(docs, 'nav.json'), 'utf8')) as { items: { link: string }[] }[]
@@ -355,7 +347,6 @@ const pageGraph = (all: Page[]) => {
         edges.add([Math.min(from, target), Math.max(from, target)].join(','));
     }
   }
-  // Points spread evenly on a sphere, in nav order, so each section forms a band.
   const golden = Math.PI * (3 - Math.sqrt(5));
   const positions = nodes.map((_, i) => {
     const y = 1 - (2 * (i + 0.5)) / nodes.length;
@@ -434,7 +425,6 @@ const writeGlb = (file: string, { positions, colors, edges }: ReturnType<typeof 
   );
 };
 
-// The same graph from the front, for browsers without WebGL.
 const posterSvg = ({ positions, colors, edges }: ReturnType<typeof pageGraph>) => {
   const [width, height] = [800, 450];
   const at = ([x, y]: readonly number[]) =>
@@ -474,7 +464,6 @@ const showcaseAssets = async (all: Page[]) => {
   ])
     copyFileSync(join(docs, 'showcase', file), join(showcaseDir, posix.basename(file)));
   const media = (file: string) => join(docs, 'showcase', 'media', file);
-  // Every image in AVIF, WebP and JPEG at each width; `crop` is the art-directed narrow version.
   const variants = (
     name: string,
     source: string,
@@ -615,7 +604,6 @@ const build = async () => {
   clean(dist);
   await showcaseAssets(all);
   await run('pnpm', ['exec', 'vite', 'build', '--config', 'docs/showcase/vite.config.ts']);
-  // VitePress empties docs/dist, so it goes first; the others each write their own subfolder.
   await run('pnpm', ['exec', 'vitepress', 'build', 'docs']);
   await Promise.all([
     run('pnpm', ['exec', 'vite', 'build', '--config', 'docs/react/vite.config.ts']),
@@ -633,9 +621,6 @@ const build = async () => {
       copyFileSync(join(docs, 'public', asset), join(dist, engine, asset));
 };
 
-// GitHub Pages has no rewrites: before deploying, give every route of the client-rendered
-// flavors a copy of the app's index.html, where Pages looks for it. The audit runs before this,
-// on one index.html per app, as a host with rewrites would serve it.
 const pagesCopies = () => {
   const all = pages().filter(({ slug }) => slug);
   for (const id of ['react', 'angular'] as const) {

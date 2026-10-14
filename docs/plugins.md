@@ -47,7 +47,7 @@ A plugin with the same name as a built-in audit replaces it.
 | `name` | what the CLI, `severity`, `ignore` and reports call it |
 | `description` | one line, shown by `npx vidimus list` |
 | `requires` | `source`, `dist` or `server` (default) |
-| `exclusive` | `true` to run alone, after the other audits |
+| `exclusive` | `true`, or a function of the config returning it, to run alone after the other audits |
 | `run(context)` | returns `{ summary, findings?, status? }` |
 
 `requires` is `source` (no build), `dist` (reads files) or `server` (the default: the build is
@@ -73,6 +73,7 @@ such as timing measurements; the built-in `lighthouse` does.
 | `builtPages(exclude?)` | the built HTML files as `{ file, rel, path, html }`, minus files matching `exclude` |
 | `log(line?)` | adds lines to the audit's log; multi-line strings are split |
 | `span(name, fn, attrs?)` | times `fn` as a named span in [`--profile`](./profiling) runs; just calls `fn` otherwise |
+| `signal` | aborted when the audit times out; `inParallel` and `inParallelTabs` stop on it, check it in your own long loops |
 | `importPeer(name)` | imports an optional dependency, with an install hint if it is missing |
 | `launchBrowser(options?)` | launches puppeteer with the `browser` config |
 

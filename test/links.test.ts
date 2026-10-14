@@ -40,3 +40,21 @@ describe('links options', () => {
     assert.match(finding?.message ?? '', /^redirect .*\/new /);
   });
 });
+
+describe('links count', () => {
+  it('does not count skipped links', async () => {
+    const cwd = fixture({
+      'dist/index.html':
+        '<title>home</title><h1>x</h1><a href="https://example.com/a">a</a><a href="/b">b</a>',
+      'dist/b/index.html': '<title>b</title><h1>x</h1>',
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['links'],
+      reporters: [],
+      overrides: { port: 0, links: { checkExternal: false } },
+    });
+    assert.match(results[0]?.summary ?? '', /^3 links checked/);
+  });
+});

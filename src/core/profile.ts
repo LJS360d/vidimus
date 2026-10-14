@@ -1,9 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import diagnostics from 'node:diagnostics_channel';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
 import { join, relative } from 'node:path';
 import { monitorEventLoopDelay, PerformanceObserver, performance } from 'node:perf_hooks';
+
+import { analyse, hintsOf, wall } from './profile-analysis.ts';
+
+export { diffProfiles, formatProfile } from './profile-report.ts';
 
 export type ProfileLevel = 'spans' | 'cpu';
 
@@ -98,7 +102,6 @@ const open = (name: string, attrs?: Record<string, unknown>): Span => {
   return span;
 };
 
-// Times fn as a child of the current span; its own awaits become its children. Off: just fn().
 export const span = <T>(
   name: string,
   fn: () => Promise<T>,
@@ -118,7 +121,6 @@ export const span = <T>(
   });
 };
 
-// Times a promise that is already running (a wrapped library call), without a new context.
 const record = <T>(name: string, promise: Promise<T>, attrs?: Record<string, unknown>) => {
   const current = open(name, attrs);
   promise.then(
@@ -133,9 +135,6 @@ const record = <T>(name: string, promise: Promise<T>, attrs?: Record<string, unk
   return promise;
 };
 
-// Adds timings a library measured itself (Lighthouse's lhr.timing.entries) as children of the
-// current span. They use performance.now() too; if they do not fall inside [from, to], they are
-// shifted so the first one starts at from.
 export const addSpans = (
   entries: { name: string; startTime: number; duration: number }[],
   from: number,
@@ -144,7 +143,6 @@ export const addSpans = (
   if (!recorder || !entries.length) return;
   const first = entries.reduce((min, entry) => Math.min(min, entry.startTime), Infinity);
   const shift = first >= from && first <= to ? 0 : from - first;
-  // Entries come flat; nest each inside the innermost entry that contains it.
   const stack: Span[] = [];
   for (const entry of [...entries].sort(
     (a, b) => a.startTime - b.startTime || b.duration - a.duration,
@@ -165,7 +163,6 @@ const label = (value: unknown) => {
   if (typeof value === 'function')
     return value.name || value.toString().replace(/\s+/g, ' ').slice(0, 60);
   if (typeof value !== 'string') return '';
-  // Injected libraries (pa11y's HTML_CodeSniffer, axe) arrive as long source strings.
   return value.length > 80 || value.includes('\n') ? `<script ${value.length} chars>` : value;
 };
 
@@ -180,8 +177,6 @@ const WRAPPED_RESULTS = new Set(['createBrowserContext', 'newPage']);
 const NESTED = new Set(['keyboard', 'mouse']);
 const proxies = new WeakMap<object, unknown>();
 
-// Every async method call on a Browser, BrowserContext, Page (and its keyboard/mouse) becomes a
-// span: "page.goto", "page.evaluate <function>", "page.keyboard.type"…
 export const instrument = <T extends object>(target: T, prefix: string): T => {
   if (!recorder) return target;
   const cached = proxies.get(target);
@@ -253,7 +248,6 @@ export const startProfile = async (level: ProfileLevel) => {
   });
   gcObserver.observe({ entryTypes: ['gc'] });
 
-  // Node's fetch (undici) reports every request: links, security, assets, forms' page fetches.
   const requests = new WeakMap<object, Span>();
   const onCreate = (message: unknown) => {
     const { request } = message as { request: { origin: string; path: string; method: string } };
@@ -319,180 +313,11 @@ export const startProfile = async (level: ProfileLevel) => {
 
 // ---- analysis ----
 
-const union = (intervals: [number, number][]) => {
-  let total = 0;
-  let reach = Number.NEGATIVE_INFINITY;
-  for (const [start, end] of intervals.sort((a, b) => a[0] - b[0])) {
-    if (end <= reach) continue;
-    total += end - Math.max(start, reach);
-    reach = end;
-  }
-  return total;
-};
-
-const wall = (span: Span) => span.end - span.start;
-
-const childrenOf = (spans: Span[]) => {
-  const children = new Map<number, Span[]>();
-  for (const span of spans)
-    if (span.parent !== null)
-      children.set(span.parent, [...(children.get(span.parent) ?? []), span]);
-  return children;
-};
-
-// Self time: the part of a span no child covers. Parallel children overlap, so take their union.
-const selfOf = (span: Span, children: Map<number, Span[]>) =>
-  wall(span) -
-  union(
-    (children.get(span.id) ?? []).map((child) => [
-      Math.max(child.start, span.start),
-      Math.min(child.end, span.end),
-    ]),
-  );
-
-const descendants = (root: Span, children: Map<number, Span[]>) => {
-  const out: Span[] = [];
-  const stack = [...(children.get(root.id) ?? [])];
-  while (stack.length) {
-    const span = stack.pop() as Span;
-    out.push(span);
-    stack.push(...(children.get(span.id) ?? []));
-  }
-  return out;
-};
-
-const rowsOf = (spans: Span[], children: Map<number, Span[]>) => {
-  const rows = new Map<string, Row>();
-  for (const span of spans) {
-    const row = rows.get(span.name) ?? {
-      name: span.name,
-      count: 0,
-      totalMs: 0,
-      selfMs: 0,
-      maxMs: 0,
-    };
-    row.count += 1;
-    row.totalMs += wall(span);
-    row.selfMs += selfOf(span, children);
-    row.maxMs = Math.max(row.maxMs, wall(span));
-    rows.set(span.name, row);
-  }
-  return [...rows.values()].sort((a, b) => b.selfMs - a.selfMs);
-};
-
-const pathOfUrl = (url: string) => {
-  try {
-    return new URL(url).pathname;
-  } catch {
-    return url;
-  }
-};
-
-const analyse = (spans: Span[], top: number) => {
-  const children = childrenOf(spans);
-  const audits = spans.filter((span) => span.name.startsWith('audit '));
-  // Anything timed outside an audit is setup: serving the build, finding routes.
-  const setup = rowsOf(
-    spans.filter((span) => span.parent === null && !span.name.startsWith('audit ')),
-    children,
-  );
-  return {
-    setup,
-    audits: audits.map((audit): AuditProfile => {
-      const inside = descendants(audit, children);
-      const pages = new Map<string, number>();
-      for (const span of inside) {
-        const url = span.attrs?.url;
-        if (typeof url !== 'string' || span.name.startsWith('fetch')) continue;
-        // Count each page once: its outermost span (the task or navigate holding the rest).
-        // Inside an audit every span has a parent, up to the audit itself.
-        let parent = spans[span.parent as number] as Span;
-        let nested = false;
-        while (parent.id !== audit.id) {
-          if (parent.attrs?.url === url) nested = true;
-          parent = spans[parent.parent as number] as Span;
-        }
-        if (!nested) pages.set(pathOfUrl(url), (pages.get(pathOfUrl(url)) ?? 0) + wall(span));
-      }
-      const pools = inside
-        .filter((span) => span.name === 'pool')
-        .map((pool): PoolStats => {
-          const tasks = children.get(pool.id) ?? [];
-          const workers = Number(pool.attrs?.workers ?? 1);
-          const slowest = tasks.reduce<Span | undefined>(
-            (a, b) => (a && wall(a) >= wall(b) ? a : b),
-            undefined,
-          );
-          return {
-            workers,
-            items: tasks.length,
-            busy: tasks.reduce((sum, task) => sum + wall(task), 0) / (wall(pool) * workers || 1),
-            queuedMs: tasks.reduce((sum, task) => sum + Number(task.attrs?.waitMs ?? 0), 0),
-            meanMs: tasks.reduce((sum, task) => sum + wall(task), 0) / (tasks.length || 1),
-            slowest: { item: String(slowest?.attrs?.item ?? ''), ms: slowest ? wall(slowest) : 0 },
-          };
-        });
-      const rows = rowsOf(inside, children);
-      return {
-        name: audit.name.slice('audit '.length),
-        wallMs: wall(audit),
-        workMs: rows.reduce((sum, row) => sum + row.selfMs, selfOf(audit, children)),
-        rows: rows.slice(0, top),
-        pages: [...pages]
-          .map(([path, ms]) => ({ path, ms }))
-          .sort((a, b) => b.ms - a.ms)
-          .slice(0, top),
-        pools,
-      };
-    }),
-  };
-};
-
-// Spans that only group others; their self time is untimed waiting, not a thing to optimise.
-const GENERIC = new Set(['task', 'pool', 'navigate']);
-
-export const hintsOf = (summary: Omit<ProfileSummary, 'hints'>) => {
-  const hints: string[] = [];
-  for (const audit of summary.audits) {
-    const first = audit.rows.find((row) => !GENERIC.has(row.name));
-    if (first && first.selfMs > audit.workMs * 0.3)
-      hints.push(
-        `${audit.name}: "${first.name}" is ${Math.round((first.selfMs / audit.workMs) * 100)}% of its work (${first.count} calls)`,
-      );
-    // The slowest item against the mean of the others: it dominates when it is several times longer.
-    for (const pool of audit.pools)
-      if (
-        pool.items >= 3 &&
-        pool.slowest.ms > audit.wallMs * 0.5 &&
-        pool.slowest.ms > ((pool.meanMs * pool.items - pool.slowest.ms) / (pool.items - 1)) * 3
-      )
-        hints.push(
-          `${audit.name}: one item (${pool.slowest.item}) holds the run for ${Math.round(pool.slowest.ms)}ms; split or sample it`,
-        );
-      else if (pool.items > pool.workers && pool.busy > 0.9)
-        hints.push(
-          `${audit.name}: all ${pool.workers} workers busy ${Math.round(pool.busy * 100)}% of the time with ${pool.items} items; more concurrency may help if the machine has spare CPU`,
-        );
-  }
-  const imports = summary.setup.concat(summary.audits.flatMap((a) => a.rows));
-  for (const row of imports)
-    if (row.name.startsWith('import ') && row.maxMs > 1000)
-      hints.push(`${row.name} took ${Math.round(row.maxMs)}ms to load`);
-  if (summary.node.gcMs > summary.wallMs * 0.05)
-    hints.push(
-      `garbage collection took ${Math.round(summary.node.gcMs)}ms (${Math.round((summary.node.gcMs / summary.wallMs) * 100)}% of the run)`,
-    );
-  if (summary.node.cpu > 0.9) hints.push('the Node process was CPU bound: try --profile cpu');
-  return [...new Set(hints)];
-};
-
 const average = (values: number[]) =>
   values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
 
 // ---- Chrome trace format: opens in ui.perfetto.dev, chrome://tracing and speedscope ----
 
-// Parallel spans cannot share a trace lane, so each goes in the first lane where it either
-// starts after everything open has ended or fits inside the innermost open span.
 const lanesOf = (spans: Span[]) => {
   const lanes: Span[][] = [];
   const lane = new Map<number, number>();
@@ -563,13 +388,11 @@ export const stopProfile = async (outDir: string, root: string, top = 5) => {
   recorder = undefined;
   const cpuProfile = await active.stop();
   const stopped = performance.now();
-  // Spans still open (a hung page, a crash) end with the run instead of vanishing.
   for (const span of active.spans)
     if (Number.isNaN(span.end)) {
       span.end = stopped;
       span.error = true;
     }
-  // What one span costs to record, so the summary can say how much of the run is the profiler.
   const perSpan =
     time(() => {
       for (let i = 0; i < 1000; i++) store.run(i, () => performance.now());
@@ -620,89 +443,3 @@ export const stopProfile = async (outDir: string, root: string, top = 5) => {
 };
 
 // ---- comparing two runs ----
-
-const ms = (value: number) =>
-  Math.abs(value) >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
-
-export const diffProfiles = (before: string, after: string, top = 15) => {
-  const load = (file: string) => {
-    const { vidimus } = JSON.parse(readFileSync(file, 'utf8')) as {
-      vidimus?: { spans: Span[]; summary: ProfileSummary };
-    };
-    if (!vidimus) throw new Error(`${file} is not a vidimus trace`);
-    const { spans } = vidimus;
-    const children = childrenOf(spans);
-    const rows = new Map<string, Row>();
-    for (const audit of spans.filter((span) => span.name.startsWith('audit ')))
-      for (const row of [
-        {
-          name: '(audit wall)',
-          count: 1,
-          totalMs: wall(audit),
-          selfMs: wall(audit),
-          maxMs: wall(audit),
-        },
-        ...rowsOf(descendants(audit, children), children),
-      ])
-        rows.set(`${audit.name.slice(6)} › ${row.name}`, row);
-    const { wallMs } = vidimus.summary;
-    rows.set('run', { name: 'run', count: 1, totalMs: wallMs, selfMs: wallMs, maxMs: wallMs });
-    return rows;
-  };
-  const a = load(before);
-  const b = load(after);
-  const keys = [...new Set([...a.keys(), ...b.keys()])];
-  const lines = keys
-    .map((key) => {
-      const was = a.get(key);
-      const now = b.get(key);
-      const delta = (now?.selfMs ?? 0) - (was?.selfMs ?? 0);
-      return { key, was, now, delta };
-    })
-    .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
-    .slice(0, top);
-  const width = Math.max(...lines.map(({ key }) => key.length), 4);
-  return [
-    `${'span'.padEnd(width)}  ${'before'.padStart(8)}  ${'after'.padStart(8)}  ${'change'.padStart(8)}`,
-    ...lines.map(
-      ({ key, was, now, delta }) =>
-        `${key.padEnd(width)}  ${(was ? ms(was.selfMs) : '-').padStart(8)}  ${(now ? ms(now.selfMs) : '-').padStart(8)}  ${`${delta > 0 ? '+' : ''}${ms(delta)}`.padStart(8)}`,
-    ),
-    '',
-    'self time (time not spent in child spans), largest changes first',
-  ];
-};
-
-// ---- terminal summary ----
-
-export const formatProfile = (summary: ProfileSummary) => {
-  const pct = (value: number) => `${Math.round(value * 100)}%`;
-  const row = ({ name, count, selfMs, totalMs }: Row) =>
-    `${name} ${ms(selfMs)} self${totalMs - selfMs > 1 ? ` / ${ms(totalMs)}` : ''} ×${count}`;
-  const lines = [
-    `run ${ms(summary.wallMs)} · ${summary.spans} spans · profiler overhead ~${ms(summary.overheadMs)}`,
-  ];
-  if (summary.setup.length)
-    lines.push(`setup  ${summary.setup.map((r) => `${r.name} ${ms(r.totalMs)}`).join(' · ')}`);
-  for (const audit of summary.audits) {
-    lines.push(`${audit.name}  ${ms(audit.wallMs)}`);
-    for (const r of audit.rows) lines.push(`    ${row(r)}`);
-    if (audit.pages.length)
-      lines.push(
-        `  slowest pages  ${audit.pages.map(({ path, ms: t }) => `${path} ${ms(t)}`).join(' · ')}`,
-      );
-    for (const pool of audit.pools)
-      lines.push(
-        `  pool  ${pool.workers} workers · ${pool.items} items · busy ${pct(pool.busy)} · queued ${ms(pool.queuedMs)}${pool.slowest.item ? ` · slowest ${pool.slowest.item} ${ms(pool.slowest.ms)}` : ''}`,
-      );
-  }
-  const { node } = summary;
-  lines.push(
-    `node  cpu ${pct(node.cpu)} · loop busy ${pct(node.loopBusy)} · lag max ${ms(node.lagMaxMs)} · heap max ${Math.round(node.heapMaxMb)}MB · gc ${ms(node.gcMs)} (max pause ${ms(node.gcMaxMs)})`,
-  );
-  for (const hint of summary.hints) lines.push(`hint  ${hint}`);
-  lines.push(`trace ${summary.trace} (open in ui.perfetto.dev or speedscope.app)`);
-  if (summary.cpuProfile)
-    lines.push(`cpu   ${summary.cpuProfile} (open in Chrome DevTools or speedscope.app)`);
-  return lines;
-};

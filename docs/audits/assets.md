@@ -117,9 +117,9 @@ warning listing the pages that gave the sign away; an invalid one is an error.
   way; vidimus never asks for one, since no page can tell whether your app shows ads.
 - **change-password** ([W3C](https://w3c.github.io/webappsec-change-password-url/)): lets
   password managers send users straight to the page where they change their password. It
-  counts when the build has the path as a file or folder, or `_redirects` has a rule from it.
+  counts when the build has the path as a file or folder, or a redirect rule (wildcards included) in `_redirects`, `vercel.json`, `netlify.toml`, `firebase.json` or `staticwebapp.config.json` covers it. With `origin` set, the audit requests the URL without following redirects instead.
   The fix suggests the first page with an `autocomplete="new-password"` field as target. A
-  redirect set up on the server instead is invisible in the build: set the option to `'off'`.
+  redirect only the server knows about is invisible in the build: set the option to `'off'`.
 - **apple-app-site-association**: `.well-known/` or the root, a JSON object with an
   `applinks`, `webcredentials`, `appclips` or `activitycontinuation` section.
 - **assetlinks.json**: a non-empty JSON array of statements with `relation` and `target`.

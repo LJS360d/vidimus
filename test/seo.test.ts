@@ -214,6 +214,21 @@ describe('seo audit', () => {
     assert.deepEqual(find(result, /noindex page in the sitemap/)?.where, ['/about/']);
   });
 
+  it('scopes X-Robots-Tag agents and honours none', async () => {
+    const headers = (value: string) =>
+      audit(
+        site({
+          'dist/about/index.html': page({ path: '/about/', links: ['/'] }),
+          'dist/_headers': `/about/*\n  X-Robots-Tag: ${value}\n`,
+        }),
+      );
+    assert.equal(
+      find(await headers('bingbot: noindex'), /noindex in the production build/),
+      undefined,
+    );
+    assert.ok(find(await headers('none'), /noindex in the production build/));
+  });
+
   it('fails on a noindex page listed in the sitemap', async () => {
     const result = await audit(
       site({
@@ -422,6 +437,15 @@ describe('seo audit', () => {
     );
     assert.equal(find(scoped, /User-agent: BadBot/)?.severity, 'warn');
     assert.equal(scoped.status, 'warned');
+  });
+
+  it('prefers the Googlebot group over * in robots.txt', async () => {
+    const result = await audit(
+      site({
+        'dist/robots.txt': `User-agent: *\nAllow: /\n\nUser-agent: Googlebot\nDisallow: /about/\nSitemap: ${SITE}/sitemap.xml\n`,
+      }),
+    );
+    assert.ok(find(result, /disallowed by robots.txt/));
   });
 
   it('warns on indexable pages disallowed by robots.txt', async () => {

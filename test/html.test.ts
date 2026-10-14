@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { createPageReader, isNoindex, localFile, meta, textOf } from '../src/core/html.ts';
+import { createPageReader, isNoindex, localFile, meta, tags, textOf } from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -204,5 +205,79 @@ describe('textOf within', () => {
     const pages = createPageReader(dist)();
     assert.match(pages[0]?.html ?? '', /<title>café<\/title>/);
     assert.match(pages[1]?.html ?? '', /<title>café<\/title>/);
+  });
+});
+
+describe('html audit config files', () => {
+  it('reads .htmlvalidate.cjs', async () => {
+    const result = await audit({
+      'dist/index.html': duplicateIds,
+      '.htmlvalidate.cjs': 'module.exports = { rules: { "no-dup-id": "off" } };',
+    });
+    assert.equal(result.status, 'passed');
+  });
+});
+
+describe('html audit source', () => {
+  it('rejects an unknown html.source', async () => {
+    await assert.rejects(
+      audit({ 'dist/index.html': duplicateIds, 'vidimus.config.json': config({ source: 'x' }) }),
+      /html.source/,
+    );
+  });
+});
+
+describe('html audit srcdoc', () => {
+  it('still validates iframe srcdoc markup', async () => {
+    const result = await audit({
+      'dist/index.html': page('<iframe title="t" srcdoc="<p id=a></p><p id=a></p>"></iframe>'),
+    });
+    assert.ok(result.findings?.some(({ details }) => details?.some((d) => d.includes('srcdoc'))));
+  });
+});
+
+describe('html audit srcdoc line', () => {
+  it('omits the line for srcdoc problems', async () => {
+    const result = await audit({
+      'dist/index.html': page('<iframe title="t" srcdoc="<p id=a></p><p id=a></p>"></iframe>'),
+    });
+    assert.ok(result.findings?.every(({ line }) => line === undefined));
+  });
+});
+
+describe('localFile memo', () => {
+  it('resets when a page reader is created', () => {
+    const root = fixture({ 'dist/a.html': page('') });
+    const dist = join(root, 'dist');
+    assert.equal(localFile(dist, '/b'), null);
+    writeFileSync(join(dist, 'b.html'), page(''));
+    assert.equal(localFile(dist, '/b'), null);
+    createPageReader(dist);
+    assert.equal(localFile(dist, '/b'), join(dist, 'b.html'));
+  });
+});
+
+describe('tags cache', () => {
+  it('named lookup matches full parse and survives many pages', () => {
+    const pages = Array.from({ length: 80 }, (_, i) => page(`<a href="/p${i}">x</a><div></div>`));
+    for (const html of pages) {
+      assert.deepEqual(
+        tags(html, 'A'),
+        tags(html).filter(({ name }) => name === 'a'),
+      );
+    }
+    assert.equal(tags(pages[0] ?? '', 'a')[0]?.attrs.href, '/p0');
+  });
+});
+
+describe('html audit cache', () => {
+  it('writes per-page results and reuses them', async () => {
+    const cwd = fixture({ 'dist/index.html': duplicateIds });
+    const first = await run({ cwd, env: {}, audits: ['html'], reporters: [] });
+    const dir = join(cwd, '.vidimus/cache/html');
+    assert.equal(readdirSync(dir).length, 1);
+    const second = await run({ cwd, env: {}, audits: ['html'], reporters: [] });
+    assert.deepEqual(second.results[0]?.findings, first.results[0]?.findings);
+    assert.ok(first.results[0]?.findings.length);
   });
 });

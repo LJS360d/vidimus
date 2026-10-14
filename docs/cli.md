@@ -183,3 +183,5 @@ Formats, targets and custom reporters are covered in [Reporters](./reporters).
 Usage errors print one line starting with `vidimus:`; unexpected errors print a stack trace.
 
 Running in CI, including GitHub Actions annotations and JUnit reports: [CI](./ci).
+
+`--no-cache` ignores and skips writing the per-page audit cache (`cache.dir`, default `.vidimus/cache`). The `html` audit reuses results for pages whose markup, audit config and vidimus version are unchanged; cache the directory in CI.

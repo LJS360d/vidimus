@@ -52,7 +52,6 @@ const COMPRESSIBLE = /text|json|xml|svg|manifest|wasm/;
 const wantsPage = (req: IncomingMessage, pathname: string) =>
   !extname(pathname) || /text\/html/.test(String(req.headers.accept ?? ''));
 
-// Requests with this header get the rendered DOM of a page instead of the built file, if any.
 export const RENDERED_HEADER = 'x-vidimus-rendered';
 
 type Snapshot = (pathname: string) => string | undefined;

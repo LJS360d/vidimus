@@ -7,7 +7,6 @@ export interface Request {
   kind: string;
   ref: string;
   via: string;
-  // A literal in a request call is a certain request; a bare URL in code only might be one.
   certain: boolean;
   from: string;
   source: string;
@@ -22,6 +21,7 @@ interface Ref {
 }
 
 const INLINE = /<(script|style)\b(?![^>]*\ssrc\s*=)([^>]*)>([\s\S]*?)<\/\1\s*>/dgi;
+const NONCE = /\bnonce\s*=\s*["']?([^"'\s>]+)/i;
 const SCRIPT_TYPE = /\btype\s*=\s*["']?([^"'\s>]*)/i;
 const EXECUTABLE =
   /^(|module|importmap|speculationrules|(text|application)\/(x-)?(java|ecma|j)script(1\.\d)?)$/i;
@@ -33,7 +33,8 @@ export const inlineBlocks = (html: string) =>
     const body = html.slice(start, end);
     const type = SCRIPT_TYPE.exec(match[2] ?? '')?.[1] ?? '';
     const skip = !body.trim() || (kind === 'script' && !EXECUTABLE.test(type));
-    return skip ? [] : [{ kind, body }];
+    const nonce = NONCE.exec(match[2] ?? '')?.[1];
+    return skip ? [] : [{ kind, body, nonce }];
   });
 
 const STRING = /"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;

@@ -1,6 +1,6 @@
 ---
 title: lighthouse
-description: How the lighthouse audit runs Google Lighthouse on your pages, compares category scores with thresholds and saves the reports.
+description: How the lighthouse audit runs Google Lighthouse on your pages, compares category scores with thresholds and saves the reports. Old `*.html` reports in the output directory are removed at the start of each run.
 ---
 
 # lighthouse: category scores
@@ -59,13 +59,17 @@ cookie wall are measured rather than the wall itself.
 Lighthouse runs only the categories named in `lighthouse.thresholds`. For each page and
 category, the score (0 to 100) is compared with the threshold multiplied by 100:
 
-- A score below it fails with `<path> <category> <score> (want <min>)`. The detail lists up to
-  three failing Lighthouse audits in that category, heaviest weight first, which is where the
-  points went.
+- A score below it fails with `<path> <category> <score> (want <min>)`. The details list up to
+  three failing Lighthouse audits in that category, heaviest weight first, with their value and
+  score, then their ids. Known ids (`image-alt`, `unused-javascript`, `font-display`, ...) get a
+  specific fix. Ids in `lighthouse.ignoreAudits` are left out of the details and of the category
+  score.
+- A metric above `lighthouse.metrics` fails with `<path> <id> <value> (want <= <max>)`; an audit
+  set to `'error'` in `lighthouse.audits` fails when it does not pass, and `'off'` ignores it.
 - A threshold of `0` never fails; the score is still logged.
 - On pages Lighthouse reports as not crawlable (`noindex`), the SEO score is not checked and is
   shown as `-`.
-- A page Lighthouse cannot load fails with `failed to load <path>` and Lighthouse's error code.
+- A page Lighthouse cannot load fails with `failed to load <path>` and Lighthouse's error code, with a tailored fix for `ERRORED_DOCUMENT_REQUEST`, `FAILED_DOCUMENT_REQUEST` and `NO_FCP`. With `runs` above 1, a page where only some runs succeeded logs `(2/3 runs ok)`.
   If no page produces a report at all, the audit fails with `no page produced a report`.
 
 Every page's scores are printed in the log, and its HTML report is written to
@@ -109,13 +113,17 @@ A clean run ends with `✔ lighthouse: 4 pages meet every threshold, reports in 
 | Key | Default | Description |
 | --- | --- | --- |
 | `lighthouse.thresholds` | `{ performance: 0.9, accessibility: 1, 'best-practices': 0.9, seo: 1 }` | minimum score per category, 0 to 1 |
-| `lighthouse.overrides` | `[]` | `{ match, thresholds }` rules: other thresholds for the pages whose path matches, later rules win |
+| `lighthouse.metrics` | `{}` | maximum audit `numericValue` by id, such as `'largest-contentful-paint': 2500` |
+| `lighthouse.audits` | `{}` | `{ id: 'error' \| 'off' }`: fail when the audit does not pass, or ignore it |
+| `lighthouse.ignoreAudits` | `[]` | audit ids excluded from failure details and category scores |
+| `lighthouse.overrides` | `[]` | `{ match, thresholds, metrics }` rules: other thresholds or metric maximums for the pages whose path matches, later rules win |
 | `lighthouse.sample` | `[]` | URL path patterns: audit only the first page matching each, and every page that matches none |
 | `lighthouse.all` | `false` | audit every page, ignoring `sample` and the one-per-directory default |
 | `lighthouse.urls` | `[]` | fixed list of paths to audit instead of the built pages |
 | `lighthouse.exclude` | `[]` | URL path patterns to skip |
 | `lighthouse.preset` | `'mobile'` | `'desktop'` switches to Lighthouse's desktop form factor, screen emulation and throttling |
-| `lighthouse.runs` | `1` | runs per page; each category score is the median across runs, ignoring runs where it is unavailable, and the report and failing audits come from the median run |
+| `lighthouse.concurrency` | `0` | pages tested at once; `0` means 1 when `performance` is a category (the audit then runs alone, after the other audits) and 3 otherwise, where it runs alongside them |
+| `lighthouse.runs` | `1` | runs per page; each category score is the median across runs, ignoring runs where it is unavailable, and the report and failing audits come from the run closest to the median performance score; a run that errors stops the remaining runs for that page |
 | `lighthouse.outDir` | `'lighthouse'` | report folder inside the top-level `outDir` (`.vidimus`) |
 
 Objects merge deeply, so setting one threshold keeps the others. Setting a category to `0`

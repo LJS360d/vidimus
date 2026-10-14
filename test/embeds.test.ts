@@ -206,6 +206,6 @@ describe('embeds in browser audits', { skip: noBrowser }, () => {
       { 'dist/index.html': page('', '<p>slow</p>') },
       { a11y: { timeout: 1 } },
     );
-    assert.match(result.findings[0]?.message ?? '', /^failed to audit \/: /);
+    assert.match(result.findings[0]?.message ?? '', /^failed to audit \/$/);
   });
 });

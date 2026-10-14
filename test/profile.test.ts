@@ -10,7 +10,6 @@ import {
   addSpans,
   diffProfiles,
   formatProfile,
-  hintsOf,
   instrument,
   type ProfileSummary,
   profiling,
@@ -18,6 +17,7 @@ import {
   startProfile,
   stopProfile,
 } from '../src/core/profile.ts';
+import { hintsOf } from '../src/core/profile-analysis.ts';
 import { run } from '../src/index.ts';
 import { pretty } from '../src/reporters/pretty.ts';
 import { fixture } from './helpers.ts';

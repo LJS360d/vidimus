@@ -115,7 +115,9 @@ Requests sent from inside web workers are outside the sandbox; pages that start 
 | `<fields> shows an error without aria-invalid` | warn |
 | `script errors while filling or submitting` | warn |
 | `page starts web workers, whose requests the sandbox cannot see` | warn |
-| `form case timed out: <field>/<case>`: the page never settled within `forms.caseTimeout` (a blocking dialog, an infinite loop), so the case was abandoned and the page reopened | error |
+| `submit shows a blocking dialog (alert/confirm/prompt)`: dialogs are accepted automatically so they do not stall the run | warn |
+| `<n> cases skipped after repeated timeouts`: a form is abandoned after 3 consecutive timed-out cases | error |
+| `form case timed out: <field>/<case>`: the page never settled within `forms.caseTimeout` (an infinite loop, a navigation that never commits), so the case was abandoned and the page reopened | error |
 | `<n> cases not run` (`forms.maxCases` reached) | warn |
 | `failed to load <page>`, `could not be exercised` | error |
 
@@ -155,6 +157,7 @@ An Angular reactive form with `Validators.required`, `Validators.email`, `Valida
 | --- | --- | --- |
 | `forms.concurrency` | half the cores (2 to 8) | pages, then forms, handled at the same time |
 | `forms.timeout` | `60000` | ms to wait for a page's `load` event |
+| `forms.screenshots` | `true` | keep a screenshot of the form before the submit for failing cases, `false` skips taking them |
 | `forms.caseTimeout` | `30000` | ms one case may run before it is abandoned and reported as a finding, `0` for no limit |
 | `forms.settle` | `500` | ms to wait for a request after pressing submit |
 | `forms.exclude` | `[]` | URL path patterns to skip |
@@ -187,4 +190,4 @@ export default defineConfig({
 
 - "valid input sent nothing" means the audit could not find values your form accepts. Give it one in `forms.values`, or, if the form needs an API answer first, use `forms.stub: 'ok'` or `forms.allowRequests`.
 - Client-side validation is for users. The server must check the same rules anyway: anyone can send a request without your form.
-- Each case runs on a freshly loaded page unless the browser blocked the submit, so a form with many fields takes a while. `forms.sample` and `forms.skip` keep big sites fast.
+- Each case runs on a freshly loaded page unless the previous case sent nothing and did not submit, so a form with many fields takes a while. `forms.sample` and `forms.skip` keep big sites fast.

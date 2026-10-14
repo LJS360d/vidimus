@@ -27,6 +27,8 @@ npx vidimus security --origin https://preview.example.com  # headers from a live
 
 ## Where headers come from
 
+On an `http://` origin at localhost, 127.x or [::1] (including `server.command` runs), `strict-transport-security` is not checked, since browsers ignore HSTS there.
+
 Static hosts set headers outside the HTML, so vidimus reads them from one of two places (the second also covers [host config files](#host-config-files)):
 
 1. **A live origin**, when `--origin` (or the `origin` config key) is set. vidimus sends a
@@ -63,10 +65,13 @@ https://example.com/admin/*
   Content-Security-Policy: frame-ancestors 'self' https://cms.example.com
 ```
 
-- `*` matches anything, including `/`. `:name` matches one path segment.
+- `*` matches anything, including `/`. `:name` matches one path segment; `:name*`, `:name+` and
+  `:name?` match anything, anything non-empty, and an optional segment.
 - A trailing slash is optional: `/about` also matches `/about/`.
 - Every rule that matches a path applies, in file order. When two rules set the same header,
-  the values are joined with `, `.
+  the values are joined with `, ` and repeated values are dropped. `X-Frame-Options`,
+  `X-Content-Type-Options`, `Strict-Transport-Security` and `Referrer-Policy` take the last rule's value.
+  Invalid JSON and unsupported patterns in host files are logged.
 - An indented `! Name` removes a header that an earlier rule set for that path.
 
 ### Host config files
@@ -140,14 +145,18 @@ The other header checks:
 
 ### HTML (always)
 
-- **Unsafe CSP** (`security.unsafeInline`): the `script-src` of every CSP, from headers and
+- **Missing CSP** (`security.csp`, `'warn'` by default, `'error'` or `false`): a page with no CSP in a header or `<meta>` (`no Content-Security-Policy (header or <meta>)`), or whose CSPs have neither `script-src` nor `default-src`, is reported with a starter policy. Skipped when `security.require` already requires `content-security-policy`.
+- **Unsafe CSP** (`security.unsafeInline`): the `script-src-elem`/`script-src` of every CSP, from headers and
   `<meta http-equiv="content-security-policy">`, falling back to `default-src`. `'unsafe-eval'`
-  is a warning. `'unsafe-inline'` is a warning unless the same list has a nonce or a
-  `sha256-`/`sha384-`/`sha512-` hash, in which case browsers ignore it. The [csp](./csp) audit
+  is a warning. `'unsafe-inline'` is a warning unless the same list has a nonce, a
+  `sha256-`/`sha384-`/`sha512-` hash or `'strict-dynamic'`, in which case browsers ignore it. The [csp](./csp) audit
   checks that those hashes match your inline scripts. The same option warns when `script-src`
-  (or `default-src`) allows `*`, `https:` or `data:`, when a CSP that governs scripts has no
+  (or `default-src`) allows `*`, `https:` or `data:` (not with `'strict-dynamic'`), when a CSP that governs scripts has no
   `object-src` (and no `default-src`) or no `base-uri`, and when a `<meta>` CSP sets
-  `frame-ancestors`, `report-uri` or `sandbox`, which browsers ignore there.
+  `frame-ancestors`, `report-uri` or `sandbox`, which browsers ignore there. It also warns on `http:`,
+  wildcard hosts and known script-gadget hosts (`ajax.googleapis.com`, `cdnjs.cloudflare.com`, `*.cloudfront.net`, …) in
+  `script-src`, `'unsafe-hashes'`, `'unsafe-inline'`/`'unsafe-eval'` in `style-src`, `report-uri` without
+  `report-to`, and a missing `form-action` on pages with a `<form>`.
 - **Mixed content** (`security.mixedContent`): any `http://` URL in `<script src>`,
   `<img src|srcset>`, `<source src|srcset>`, `<iframe src>`, `<video src|poster>`,
   `<audio src>`, `<object data>`, `<embed src>`, `<form action>`, and `<link href>` with `rel`
@@ -214,6 +223,7 @@ With `--origin`, the fixes say "your host's header config" instead of `/* in _he
 | --- | --- | --- |
 | `security.file` | `'_headers'` | headers file, relative to the build output |
 | `security.require` | the four headers above | header name → regex its value must match; `''` requires presence, `false` skips |
+| `security.csp` | `'warn'` | report pages without a CSP, or with one that does not restrict scripts; `'error'` or `false` |
 | `security.clickjacking` | `true` | require `frame-ancestors` or `X-Frame-Options` |
 | `security.unsafeInline` | `true` | warn on `'unsafe-inline'` without hashes or nonces, and on `'unsafe-eval'` |
 | `security.mixedContent` | `true` | fail on resources loaded over `http://` |

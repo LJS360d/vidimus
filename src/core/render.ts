@@ -23,8 +23,6 @@ export interface Renderer {
   close: () => Promise<void>;
 }
 
-// Runs in the page: every URL the rendered DOM points at, and whether it shows a not-found view.
-// Runs in the browser: the browser tests exercise it, Node coverage cannot see it.
 /* node:coverage disable */
 const collect = (selector: string, text: string) => {
   const absolute = (value: string | null) => {

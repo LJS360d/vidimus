@@ -16,8 +16,9 @@ reader output and hydration mismatches start. It is not in the default set.
   `"html-validate" is not installed. Add it as a dev dependency: npm i -D html-validate`.
 - The build (`dist/`). No server or browser is started.
 
-With [`render.mode`](../how-it-works#client-rendered-sites) on, it checks the DOM a browser
-renders instead of the shipped HTML file.
+It checks the shipped HTML files. With [`render.mode`](../how-it-works#client-rendered-sites)
+on, `html.source: 'rendered'` checks the DOM a browser renders instead; the browser has already
+fixed some markup errors there, and line numbers refer to the serialised DOM, so findings carry no `line`.
 
 ## Run it
 
@@ -54,8 +55,7 @@ and its example locations read `/path/ <iframe srcdoc>:line:column`. An `<iframe
 
 1. `html.extends`, `['html-validate:standard']` by default.
 2. A `.htmlvalidate.json` (or `.htmlvalidate.js`, `.htmlvalidate.cjs`, `.htmlvalidate.mjs`, checked in that order) in the project root, if present, replaces `html.extends` completely:
-   its `extends`, `rules` and other keys are used as is. Other html-validate config file names
-   (`.htmlvalidate.js`, `.htmlvalidate.cjs`) are not read.
+   its `extends`, `rules` and other keys are used as is.
 3. `html.rules` is merged on top of the rules from either source.
 
 The resulting config is marked `root: true`, so html-validate does not look for further config

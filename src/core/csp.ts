@@ -20,22 +20,23 @@ export const parsePolicy = (policy: string): Policy => {
   return parsed;
 };
 
+const splitPolicies = (value: string) =>
+  value.split(/,\s*(?=[a-z-]+(?:\s|$))/i).filter((policy) => policy.trim());
+
 export const headerPolicies = (headers: Record<string, string>) =>
-  (headers['content-security-policy'] ?? '').split(',').filter((policy) => policy.trim());
+  splitPolicies(headers['content-security-policy'] ?? '');
 
 export const metaPolicies = (html: string) =>
   tags(html, 'meta')
     .filter(({ attrs }) => attrs['http-equiv']?.toLowerCase() === 'content-security-policy')
-    .map(({ attrs }) => attrs.content ?? '');
+    .flatMap(({ attrs }) => splitPolicies(attrs.content ?? ''));
 
 const NETWORK_SCHEMES = ['http:', 'https:', 'ws:', 'wss:'];
 const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
 
-// A scheme matches itself, and http also allows its secure upgrade.
 const schemeMatches = (scheme: string, protocol: string) =>
   protocol === scheme || (scheme === 'http:' && protocol === 'https:');
 
-// CSP source expression matching (CSP Level 3, "Does url match expression in origin").
 const matchesSource = (source: string, url: URL, self: URL) => {
   if (source === "'self'")
     return (
@@ -77,9 +78,15 @@ const FETCH_CHAINS: Record<string, string[]> = {
   script: ['script-src-elem', 'script-src', 'default-src'],
   worker: ['worker-src', 'child-src', 'script-src', 'default-src'],
   form: ['form-action'],
+  base: ['base-uri'],
+  prefetch: ['prefetch-src', 'default-src'],
 };
 
-// The directive in effect for a kind of request and whether it allows url; no directive allows everything.
+export const effectiveSources = (policy: Policy, kind: string) => {
+  const name = (FETCH_CHAINS[kind] ?? []).find((directive) => policy.has(directive));
+  return name ? policy.get(name) : undefined;
+};
+
 export const requestAllowed = (policy: Policy, kind: string, url: URL, self: URL) => {
   const directive = (FETCH_CHAINS[kind] ?? []).find((name) => policy.has(name));
   if (!directive) return { directive: '', allowed: true };

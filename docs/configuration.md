@@ -109,10 +109,12 @@ vidimus: VIDIMUS_PORT: "abc" is not a number
 vidimus: config file not found: /path/to/site/vidimus.config.json
 ```
 
-Key names are checked; values in a config file are not. Use the JSON Schema or the types of
-`defineConfig` to catch a string where a number belongs. `ignore` rules are checked in full
-([below](#ignore-rules-in-detail)); entries of other arrays, such as `server.headers` rules, are
-not.
+Key names and values are checked: each value must have the type of its default (a string where a
+number belongs is an error), counts such as `concurrency` and `routes.limit` must be at least 1, other
+numbers must be finite and not negative, and `lighthouse.thresholds` keys must be Lighthouse categories
+with values from 0 to 1. Every pattern list, `csp.ignore` and the `forms.values` keys must be valid
+regular expressions. `ignore` rules are checked in full ([below](#ignore-rules-in-detail)); entries of
+other arrays, such as `server.headers` rules, are not.
 
 ## Top-level keys
 
@@ -148,8 +150,11 @@ strings. The top-level `exclude` matches built file paths (`admin/index.html`); 
 | `ignore` | `[]` | rules that drop findings |
 | `baseline.file` / `baseline.update` | `vidimus.baseline.json` / `false` | the findings baseline; `''` turns it off |
 | `baseline.matchWhere` | `false` | also match accepted findings by page list (`where`) |
+| `baseline.fuzzy` | `false` | ignore digits when matching accepted findings, so `html 312 kB` still matches `html 313 kB` |
+| `baseline.failOnStale` | `false` | fail the run when baseline entries no longer occur (also listed in the report as `staleBaseline` and `detail.stale`) |
 | `plugins` | `[]` | custom audits, see [Custom audits and API](./plugins) |
 | `reporters` | `[]` | reporter names, `name:file`, `{ type, file, verbose }` or reporter objects, see [Reporters](./reporters) |
+| `browser.maxPages` | 4 x half the cores (8 to 32) | pages open at once across all audits sharing the browser; further pages wait for a free slot, lower it on small runners |
 | `browser.args` | `['--no-sandbox', '--disable-dev-shm-usage']` | Chrome flags for every browser audit |
 | `browser.executablePath` | `''` | a Chrome or Chromium to use instead of puppeteer's |
 | `browser.state` | `{}` | `localStorage`, `sessionStorage`, `cookies` and a `script` seeded into every page a browser audit opens, see [below](#browser-state) |
@@ -210,8 +215,11 @@ export default defineConfig({
 - `severity`: per audit, `error` (default), `warn` (findings become warnings) or `off` (left
   out of the default set and of `all`; naming it on the command line still runs it).
 - `ignore`: drop findings. Every key is an optional regular expression: `audit` matches the
-  audit name, `message` the finding, `where` the pages. A rule with `where` removes only the
+  audit name, `rule` the finding's stable `rule` id (when the audit sets one), `message` the finding, `where` the pages. A rule with `where` removes only the
   matching pages from a finding and keeps the rest.
+  An optional `reason` string documents why the rule exists. After a run of every audit, a rule
+  that matched nothing is reported on stderr (`ignore[2] (audit=seo, message=^orphan) matched
+  nothing`), and `--strict` fails the run on it. Partial runs (`vidimus seo`) do not report.
 - Findings baseline: `npx vidimus --accept-findings` writes every current finding to
   `vidimus.baseline.json` (`baseline.file`). Later runs hide those findings and fail only on new
   ones, so a legacy site can adopt an audit today and pay the debt down over time. Commit the
@@ -264,3 +272,7 @@ missing baseline file is treated as empty; a file that is not valid JSON, or has
 array, is an error. Set `baseline.file` to `''` to turn the baseline off.
 
 The workflow for an existing site is in [Adopting on an existing site](./adopting).
+
+## cache
+
+`cache.enabled` (default `true`) and `cache.dir` (default `.vidimus/cache`) control the per-page audit cache, currently used by `html`.

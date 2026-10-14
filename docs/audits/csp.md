@@ -3,7 +3,7 @@ title: csp
 description: The csp audit checks that inline code is hashed in the page's CSP and that every request the site's HTML, CSS and JavaScript can make is allowed by it.
 ---
 
-# csp: inline code against the meta CSP
+# csp: inline code against the CSP
 
 A strict Content Security Policy blocks every inline `<script>` and `<style>` it does not explicitly allow. On a static site the usual way to allow them is a `sha256-…` hash per block in a `<meta http-equiv="content-security-policy">` tag. When a build changes an inline block, its hash changes, the browser silently refuses to run it, and the only trace is a console error. `csp` recomputes the hash of every inline block and checks it is listed in the page's policy.
 
@@ -26,7 +26,7 @@ It is part of the default set.
 
 For every HTML file in the build that is not excluded:
 
-1. It looks for a `<meta http-equiv="content-security-policy" content="…">` tag. Pages without one are skipped. Attribute order and quoting do not matter, and the tag may span several lines. Only the first such tag on a page is read.
+1. It looks for a `<meta http-equiv="content-security-policy" content="…">` tag. Pages without one are skipped. Attribute order and quoting do not matter, and the tag may span several lines. Every such tag is read, and a content value with several comma-separated policies is split; a block must satisfy all of them.
 2. For each block it picks the effective directive, `script-src` or `style-src`, falling back to `default-src`. Blocks are skipped when no directive restricts them, or when the directive allows `'unsafe-inline'` and lists no hashes or nonces.
 3. For every other inline `<script>` and `<style>` element it computes the sha256, sha384 and sha512 of the element's content, exactly as the browser does (whitespace included), and reports each block whose hash is not listed in the effective directive.
 
@@ -36,7 +36,7 @@ Blocks that are not checked:
 - empty or whitespace-only blocks.
 - script elements whose `type` is not JavaScript, such as `application/json`, `application/ld+json` and `text/x-template`, which browsers do not execute.
 
-Everything else is checked, including `type="module"` and import maps. Nonces are not matched against markup. Inline code is checked against the meta CSP only; the [`security`](./security) audit covers headers.
+Everything else is checked, including `type="module"` and import maps. A `<script nonce>` or `<style nonce>` is allowed when the policy has the same `'nonce-…'` source; a nonce repeated on every page is a warning, since it must change per response. Inline code is checked against every enforced policy: meta tags, the header rules the `security` audit reads (`_headers`, `vercel.json`, `netlify.toml`, `firebase.json`, `staticwebapp.config.json`, or the `origin` response) and `server.headers`. A block must satisfy all of them.
 
 Attributes are checked too, against the effective directive (`style-src-attr` then `style-src` for `style="…"`; `script-src-attr` then `script-src` for `on*="…"` handlers; `script-src-elem` then `script-src` for `javascript:` hrefs; each falling back to `default-src`). They are blocked unless the directive allows `'unsafe-inline'` with no hashes or nonces, or lists `'unsafe-hashes'` with the attribute's hash: `inline style= attribute blocked by CSP`.
 
@@ -76,12 +76,12 @@ If no page in the build has a CSP or embeds a third-party iframe, the audit is s
 ✖ inline <script> has no CSP hash 'sha256-grSKtzTyWzK3U3gH+Hy9nXsKrEMp4ip3zNEsMv5RHYM='
     document.documentElement.dataset.theme = localStorage.getItem('theme') ?? 'light…
     in: dist/index.html
-    → Add 'sha256-grSKtzTyWzK3U3gH+Hy9nXsKrEMp4ip3zNEsMv5RHYM=' to script-src in the meta CSP, or move the code to a file.
+    → Add 'sha256-grSKtzTyWzK3U3gH+Hy9nXsKrEMp4ip3zNEsMv5RHYM=' to script-src in the CSP, or move the code to a file.
 
 ✖ inline <style> has no CSP hash 'sha256-egm7B1NCtsuIIqSmjXl7Ql5BDoP5oSS1hYO+v3RydGw='
     .hero{background:url(/img/hero.avif) center/cover}…
     in: dist/about/index.html
-    → Add 'sha256-egm7B1NCtsuIIqSmjXl7Ql5BDoP5oSS1hYO+v3RydGw=' to style-src in the meta CSP, or move the code to a file.
+    → Add 'sha256-egm7B1NCtsuIIqSmjXl7Ql5BDoP5oSS1hYO+v3RydGw=' to style-src in the CSP, or move the code to a file.
 
 ✖ csp: 2 of 38 inline block(s) would be blocked. Add their hashes to the CSP. (0.1s)
 ```

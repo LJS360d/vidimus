@@ -7,9 +7,8 @@ import {
   classifyRequest,
   firstPartyHostsOf,
   isFirstPartyCookie,
-  knownService,
-  requestFix,
-} from '../src/audits/privacy.ts';
+} from '../src/audits/privacy/hosts.ts';
+import { knownService, requestFix } from '../src/audits/privacy/known.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -121,6 +120,25 @@ describe('privacy audit', () => {
     assert.match(request?.fix ?? '', /privacy\.allow/);
     assert.match(cookie?.fix ?? '', /after consent/);
     for (const finding of result?.findings ?? []) assert.ok(finding.fix?.trim(), finding.message);
+  });
+
+  it('fails one page, not the audit, when the reject click navigates', {
+    skip: noBrowser,
+  }, async () => {
+    const page = `<!doctype html><html lang="en"><head><title>t</title></head>
+<body><button id="no" onclick="location.href='/gone'">no</button></body></html>`;
+    const cwd = fixture({ 'dist/index.html': page });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['privacy'],
+      reporters: [],
+      overrides: {
+        port: await freePort(),
+        privacy: { wait: 100, rejectSelector: '#missing, #no' },
+      },
+    });
+    assert.notEqual(results[0]?.status, 'errored');
   });
 
   it('reports storage written on load', { skip: noBrowser }, async () => {

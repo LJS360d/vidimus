@@ -9,6 +9,17 @@ const esc = (text: string) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
+const STYLE = `
+:root{--bg:#fff;--fg:#1a1a1a;--line:#d0d7de;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--line:#30363d;--ok:#3fb950;--bad:#f85149;--warn:#d29922}}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:60rem;padding:1rem}
+pre{overflow:auto}table{border-collapse:collapse;width:100%}
+td,th{border-bottom:1px solid var(--line);padding:.25rem .5rem;text-align:left}
+details,section{border:1px solid var(--line);border-radius:.25rem;margin:.5rem 0;padding:.25rem .75rem}
+.badge{border:1px solid currentColor;border-radius:1rem;font-size:.75rem;padding:0 .5rem}
+.passed,.ok{color:var(--ok)}.failed,.errored,.error{color:var(--bad)}.warned,.warn{color:var(--warn)}
+`;
+
 const BAD = new Set(['failed', 'errored']);
 
 const finding = ({ message, details = [], where = [], fix, severity }: Finding) => {
@@ -32,7 +43,6 @@ const section = (audit: AuditResult, extra = '') =>
 const row = (audit: AuditResult) =>
   `<tr><td>${esc(audit.name)}</td><td><span class="badge ${esc(audit.status)}">${esc(audit.status)}</span></td><td>${esc(audit.summary)}</td><td>${audit.durationMs} ms</td></tr>`;
 
-// Verbose only: log and suppressed findings per audit, then the run itself.
 const more = (audit: AuditResult, report: RunReport) => {
   const hidden = report.detail?.suppressed[audit.name] ?? [];
   return [
@@ -69,14 +79,7 @@ export const toHtml = (report: RunReport, verbose = false) => {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vidimus ${date}</title>
 <style>
-:root{--bg:#fff;--fg:#1a1a1a;--line:#d0d7de;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700}
-@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--line:#30363d;--ok:#3fb950;--bad:#f85149;--warn:#d29922}}
-body{background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:60rem;padding:1rem}
-pre{overflow:auto}table{border-collapse:collapse;width:100%}
-td,th{border-bottom:1px solid var(--line);padding:.25rem .5rem;text-align:left}
-details,section{border:1px solid var(--line);border-radius:.25rem;margin:.5rem 0;padding:.25rem .75rem}
-.badge{border:1px solid currentColor;border-radius:1rem;font-size:.75rem;padding:0 .5rem}
-.passed,.ok{color:var(--ok)}.failed,.errored,.error{color:var(--bad)}.warned,.warn{color:var(--warn)}
+${STYLE}
 </style>
 </head>
 <body>

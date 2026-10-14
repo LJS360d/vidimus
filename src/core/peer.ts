@@ -24,7 +24,23 @@ export const importPeer = <T>(peer: string): Promise<T> => {
   return loaded.get(peer) as Promise<T>;
 };
 
-export const sharedBrowser = (launch: () => Promise<Browser>) => {
+const semaphore = (limit: number) => {
+  let free = limit;
+  const waiting: (() => void)[] = [];
+  const take = async () => {
+    if (free > 0) free -= 1;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+  };
+  const give = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else free += 1;
+  };
+  return { take, give };
+};
+
+export const sharedBrowser = (launch: () => Promise<Browser>, maxPages = Infinity) => {
+  const pages = semaphore(maxPages);
   let current: Promise<Browser> | undefined;
   let users = 0;
   const leave = async (launching: Promise<Browser>, browser: Browser) => {
@@ -52,17 +68,42 @@ export const sharedBrowser = (launch: () => Promise<Browser>) => {
       await leave(launching, browser).catch(() => {});
       throw error;
     }
+    const held = new Set<() => void>();
+    const openPage = async () => {
+      await pages.take();
+      let page: Page;
+      try {
+        page = await context.newPage();
+      } catch (error) {
+        pages.give();
+        throw error;
+      }
+      const free = () => {
+        if (held.delete(free)) pages.give();
+      };
+      held.add(free);
+      return new Proxy(page, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property === 'close')
+            return (...args: unknown[]) =>
+              (value as Page['close']).apply(target, args as []).finally(free);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    };
     let released = false;
     const release = async () => {
       if (released) return;
       released = true;
       await context.close().catch(() => {});
+      for (const free of [...held]) free();
       await leave(launching, browser);
     };
     return new Proxy(browser, {
       get(target, property) {
         if (property === 'close') return release;
-        if (property === 'newPage') return () => context.newPage();
+        if (property === 'newPage') return openPage;
         const value = Reflect.get(target, property, target);
         return typeof value === 'function' ? value.bind(target) : value;
       },
@@ -78,15 +119,13 @@ export const sharedBrowser = (launch: () => Promise<Browser>) => {
   return Object.assign(acquire, { closeAll });
 };
 
-// Runs in the page before its own scripts, so it must stay self-contained.
 const seed = (local: Record<string, string>, session: Record<string, string>) => {
   try {
     for (const [key, value] of Object.entries(local)) localStorage.setItem(key, value);
     for (const [key, value] of Object.entries(session)) sessionStorage.setItem(key, value);
-  } catch {} // about:blank and opaque origins have no storage
+  } catch {}
 };
 
-// Every page opened through the returned browser, or a context it creates, gets `state`.
 export const withState = (browser: Browser, state: BrowserState, origin: string): Browser => {
   const { localStorage, sessionStorage, cookies, script } = state;
   const storage = Object.keys(localStorage).length + Object.keys(sessionStorage).length > 0;

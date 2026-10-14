@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import { subtractBaseline } from '../src/core/findings.ts';
-import { createReporters, type RunReport } from '../src/index.ts';
+import { createReporters, loadConfig, type RunReport, runAudits } from '../src/index.ts';
 import { annotation, github } from '../src/reporters/github.ts';
 import { toHtml } from '../src/reporters/html.ts';
 import { toJUnit } from '../src/reporters/junit.ts';
@@ -13,10 +13,19 @@ import { toSarif } from '../src/reporters/sarif.ts';
 import { fixture } from './helpers.ts';
 
 const report: RunReport = {
+  schemaVersion: 1,
+  totals: {
+    errors: 0,
+    warnings: 0,
+    suppressed: 0,
+    audits: { passed: 0, warned: 0, failed: 0, errored: 0, skipped: 0 },
+  },
   ok: false,
   origin: 'http://localhost:4322',
+  distDir: '',
   startedAt: '2026-01-01T00:00:00.000Z',
   durationMs: 1500,
+  staleBaseline: 0,
   results: [
     {
       name: 'csp',
@@ -117,7 +126,7 @@ describe('sarif reporter', () => {
     assert.equal(results[0]?.level, 'error');
     assert.match(results[0]?.message?.text ?? '', /fix: repair it/);
     assert.deepEqual(results[0]?.locations?.[0]?.physicalLocation, {
-      artifactLocation: { uri: 'dist/a.html' },
+      artifactLocation: { uri: 'dist/a.html', uriBaseId: '%SRCROOT%' },
       region: { startLine: 7 },
     });
     assert.equal(results[1]?.level, 'warning');
@@ -358,6 +367,7 @@ describe('github reporter output', () => {
         [{ message: 'm', file: join(root, 'a.html'), line: 3 }],
         baseline,
         false,
+        false,
       ),
       [],
     );
@@ -434,6 +444,7 @@ describe('verbose reports', () => {
       notes: [],
       pages: ['/en/'],
       config: { port: 1 },
+      stale: [],
       suppressed: { links: [{ message: 'hidden finding' }] },
     },
   };
@@ -462,5 +473,83 @@ describe('verbose reports', () => {
     assert.match(read('a.json'), /"detail"/);
     assert.doesNotMatch(read('b.json'), /"detail"/);
     assert.match(read('c.xml'), /hidden finding/);
+  });
+});
+
+describe('config redaction', () => {
+  it('keeps keys but hides state values and env assignments in the report config', async () => {
+    const cwd = fixture({});
+    let seen: RunReport | undefined;
+    const { config } = await loadConfig({
+      cwd,
+      env: {},
+      overrides: {
+        browser: {
+          state: {
+            cookies: [{ name: 'sid', value: 'secret' }],
+            localStorage: { token: 'secret' },
+          },
+        },
+        server: { command: 'TOKEN=abc123 npm start' },
+      },
+    });
+    await runAudits(
+      config,
+      [],
+      [
+        {
+          name: 'spy',
+          onEnd: (finished) => {
+            seen = finished;
+          },
+        },
+      ],
+    );
+    const text = JSON.stringify(seen?.detail?.config);
+    assert.doesNotMatch(text, /secret|abc123/);
+    assert.match(text, /"sid"/);
+    assert.match(text, /"token":"<redacted>"/);
+    assert.match(text, /TOKEN=<redacted> npm start/);
+  });
+});
+
+describe('sarif locations', () => {
+  it('relativises files, maps pages to dist and reports errored audits', () => {
+    const log = toSarif(
+      {
+        ...report,
+        distDir: '/repo/dist',
+        results: [
+          {
+            name: 'seo',
+            status: 'failed',
+            summary: 's',
+            findings: [
+              { message: 'a', file: '/repo/src/a.astro' },
+              { message: 'b', where: ['/blog/'] },
+            ],
+            suppressed: 0,
+            log: [],
+            durationMs: 1,
+          },
+          {
+            name: 'links',
+            status: 'errored',
+            summary: 'boom',
+            findings: [],
+            suppressed: 0,
+            log: [],
+            durationMs: 1,
+          },
+        ],
+      },
+      false,
+      '/repo',
+    );
+    const run = log.runs[0];
+    const uris = run?.results.map((r) => r.locations?.[0]?.physicalLocation.artifactLocation.uri);
+    assert.deepEqual(uris, ['src/a.astro', 'dist/blog/index.html']);
+    assert.equal(run?.originalUriBaseIds['%SRCROOT%'].uri, 'file:///repo/');
+    assert.equal(run?.invocations[0]?.toolExecutionNotifications[0]?.message.text, 'links: boom');
   });
 });
