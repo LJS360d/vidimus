@@ -1,5 +1,126 @@
 # vidimus
 
+## 0.21.0
+
+### Minor Changes
+
+- 6a718ca: The privacy audit loads each page again with Global Privacy Control set and reports third-party requests that still fire (`privacy.gpc`, on by default).
+- 6a718ca: The privacy audit also reports Cache Storage caches and service worker registrations written on load, and still present after rejecting consent (`privacy.cookies`).
+- 6a718ca: The privacy audit warns when a third-party request sends the page path or query in its `Referer` header, which happens without a restrictive `Referrer-Policy`.
+- 6a718ca: The privacy audit lists each cookie's attributes in its finding: whether it is a session cookie or its expiry date, and its `Secure`, `HttpOnly` and `SameSite` values.
+- 6a718ca: CSP audit follows CSP3 more closely: a `nonce` or a hash matching `integrity` allows an external script or stylesheet; `'unsafe-inline'` is ignored next to `'strict-dynamic'`; a header splits into policies at every comma while a `<meta>` policy is never split; a source naming the site's own origin allows same-site URLs; only real event handler attributes (not `once=`) count as inline script; imports are followed past 1000 files; nonce-matched blocks are counted once.
+- 6a718ca: Security audit: `<track src>` and `<input type="image" src>` over http are mixed content; `<form action>`/`formaction` over http is now a warning (`form submits over http: …`) instead of a mixed-content error; `http:` in `script-src` is not warned about next to `'strict-dynamic'`; security.txt `Expires` dates that do not exist (`2027-02-30`, `T24:00`) are rejected.
+- 6a718ca: HSTS default now requires a `max-age` of at least 31536000 (one year); a policy without `includeSubDomains` gets its own warning, `strict-transport-security lacks includeSubDomains`. Values from 31536001 to 31999999 are no longer rejected.
+
+### Patch Changes
+
+- 6a718ca: Forms audit no longer marks a field invalid because of a visible `aria-describedby` hint, so it stops inferring `required` and reporting "shows an error without aria-invalid" for hint text (WAI-ARIA 1.2 describes aria-describedby as description, not error).
+- 6a718ca: Forms audit matches field kinds on whole words, so "microphone", "headphones", "unzip" and product, company or file names are no longer treated as phone, postal or name fields, and stop getting the WCAG 1.3.5 missing-autocomplete warning (WCAG 1.3.5 covers only information about the user).
+- 6a718ca: r12s overflow no longer names hidden or visually-hidden boxes past the viewport edge as the cause of sideways scrolling, so only perceivable content is listed (WCAG 1.4.10).
+- 6a718ca: r12s viewport check now flags a `maximum-scale` below 2 that blocks 200% text zoom (WCAG 1.4.4), not only values up to 1.
+- 6a718ca: r12s overflow no longer lists tables, images, SVG or canvas as the cause of sideways scrolling, since content that needs two-dimensional layout is exempt from reflow (WCAG 1.4.10).
+- 6a718ca: Forms audit no longer treats `aria-required="true"` as a constraint, so an empty field with only that attribute is not reported as sent empty while required, per WHATWG HTML constraint validation (`required` only).
+- 6a718ca: The html audit now also runs the `html-validate:a11y` preset by default, so ARIA and accessibility rules such as `aria-hidden-body` are checked alongside the standard rules.
+- 6a718ca: Document that `a11y.standard` selects WCAG 2.0 (and, with `axe`, 2.1) success criteria and that WCAG 2.2 criteria are not checked, since pa11y 10 has no WCAG 2.2 level.
+- 6a718ca: Link a11y technique fixes to the WCAG 2.2 Techniques pages (`/WAI/WCAG22/Techniques/`) instead of the WCAG 2.1 path, matching the current W3C Recommendation.
+- 6a718ca: r12s target-size now checks the WCAG 2.5.8 24px spacing circle against neighbouring target boxes instead of centre-to-centre distance.
+- 6a718ca: html: markup inside `textarea`, `title`, `xmp`, `iframe`, `noembed` and `noframes` is treated as text (WHATWG 13.2.5), so links, meta and seo audits no longer report elements that browsers do not render.
+- 6a718ca: html: comments end at `<!-->`, `<!--->` and `--!>` as in WHATWG 13.2.5.43-45, so markup after such a comment is no longer hidden from the audits.
+- 6a718ca: html: numeric character references follow WHATWG 13.2.5.80, so `&#150;` decodes to an en dash, C1 controls map through windows-1252, and NUL, surrogate and out-of-range values decode to U+FFFD.
+- 6a718ca: html: named character references use the full WHATWG table (2231 names), are case-sensitive, and legacy names decode without `;` in text and outside attribute values per WHATWG 13.2.5.72-73.
+- 6a718ca: Forms audit infers fractional `min` and `max` on number fields from the field's `step` (or to six decimals with `step="any"`) instead of rounding them to the next integer, per WHATWG HTML number state, which allows any floating-point bound.
+- 6a718ca: Manifest audit derives the default `scope` from `start_url` per the Web App Manifest spec, so manifests outside the site root with no `scope` no longer fail with a false "outside scope" error.
+- 6a718ca: The assets audit now requires `/.well-known/change-password` to answer with a 3xx redirect that has a `Location` header, instead of accepting any response below 400, so a page served there no longer passes.
+- 6a718ca: Budget sizes now use a precompressed sibling only when its codec matches `budget.compression` (`.gz` for gzip, `.br` for brotli), so the "gzipped", "brotli" and "raw" labels always describe the bytes measured.
+- 6a718ca: SVG images with only a `width` or only a `height` now get the other dimension from the viewBox aspect ratio instead of reporting the viewBox size, which ignored the given value.
+- 6a718ca: The assets audit now measures ICO manifest icons from their file header, so their declared `sizes` are checked against the largest embedded image instead of going unchecked.
+- 6a718ca: The assets audit now measures each apple-touch-icon file and warns when it is not 180x180, instead of only checking that the file exists.
+- 6a718ca: The assets audit now warns when `_headers` or the host serves `apple-app-site-association` or `assetlinks.json` with a Content-Type other than `application/json`, since Android requires JSON and Apple expects it.
+- 6a718ca: assets audit now warns when `_headers` serves `/ads.txt` with a Content-Type other than `text/plain`, instead of ignoring the served type.
+- 6a718ca: The assets audit now warns when `apple-app-site-association` is only at the site root, since the `/.well-known/` location is the one Apple documents.
+- 6a718ca: Web app manifests with a leading UTF-8 byte order mark are parsed instead of being reported as invalid JSON, since the Infra JSON parsing algorithm the Web App Manifest spec relies on strips the BOM.
+- 6a718ca: Warn when a page lacks the OGP required `og:type` or `og:url` meta tags, per ogp.me.
+- 6a718ca: Read Open Graph and Twitter card meta tags only from the document `<head>`, so tags placed in `<body>` are reported as missing.
+- 6a718ca: Images whose `width` or `height` does not parse as a number (such as `100%` or `auto`) now warn as lacking dimensions, per the HTML rules for parsing dimension values; `100px` counts as 100.
+- 6a718ca: Error when `twitter:image` is a relative URL and warn when `twitter:card` is not a known card type, per the X Cards documentation.
+- 6a718ca: AVIF dimensions no longer come from an arbitrary `ispe` box when the primary item has none; the image is reported as unsized instead, per the AVIF/HEIF spec.
+- 6a718ca: AVIF images with a 90 or 270 degree `irot` transform on the primary item are now reported with width and height swapped, matching how they display (HEIF, ISO/IEC 23008-12).
+- 6a718ca: An invalid manifest `display` value is now a warning instead of an error, since the Web App Manifest spec makes browsers fall back to `browser` rather than reject the manifest.
+- 6a718ca: Icon checks for favicon links and manifest icons now require the href to name an existing file, so an icon pointing at an `.html` page or directory `index.html` with the same path is reported as missing.
+- 6a718ca: Serve `.htm` as HTML with charset detection and give the common extensions missing from the built-in server their registered media types (RFC 9110 §8.3), instead of `application/octet-stream`.
+- 6a718ca: Answer requests whose path contains an encoded slash (`%2F`) with no file instead of resolving them as a path separator, since `%2F` is data and not `/` (RFC 3986 §2.2, §6.2.2.2).
+- 6a718ca: Document that `links.checkFragments` accepts `href="#x"` on `<a id>` permalink anchors as a target for `#x` (linkinator behaviour, per WHATWG HTML id matching).
+- 6a718ca: Links audit honours the first `<base href>` even when an earlier `<base>` has no href, per WHATWG HTML.
+- 6a718ca: Links audit no longer reports a link as `ERR` when its `#fragment` has malformed percent-encoding, as browsers accept such links per WHATWG HTML; the page itself is still checked, so `/missing/#%E0%A4%A` reports `404`.
+- 6a718ca: External-link skipping now matches the audit origin on a host boundary, so URLs that only start with the audit origin text (such as a longer port on the same host) are checked as external (per WHATWG URL origin comparison).
+- 6a718ca: Sitemap route discovery without `siteUrl` no longer turns URLs on other hosts into local routes; the first sitemap URL's origin is used as the site, per the sitemaps.org protocol.
+- 6a718ca: Links audit checks an internal route with a dot in its last segment, such as `/release-1.2`, for the not-found view, as route discovery already does.
+- 6a718ca: The csp request scanner resolves local stylesheet, script and module references against the first `<base href>` and now checks `<input type="image">`, SVG `<image href>` and `<link rel="prefetch">` requests.
+- 6a718ca: Honour `accept-encoding` q-values in the built-in server, so `gzip;q=0` (or `*;q=0`) is no longer answered with a gzipped body (RFC 9110 §12.5.3).
+- 6a718ca: Answer methods other than GET and HEAD with `405 Method Not Allowed` and an `Allow: GET, HEAD` header (RFC 9110 §15.5.6) instead of serving the file body.
+- 6a718ca: Send `Vary: Accept-Encoding` on every compressible response when `server.gzip` is on, and merge it with any `Vary` set in `server.headers` instead of overwriting it (RFC 9110 §12.5.5).
+- 6a718ca: Treat an origin-form request target starting with `//` as a path instead of a host, so the built-in server serves the requested path rather than the index page (RFC 9112 §3.2.1).
+- 6a718ca: Stop the built-in server's SPA fallback answering requests outside the `siteUrl` base path with a 200, so they get a `404` as the target does not exist (RFC 9110 §15.5.5).
+- 6a718ca: Answer internal server failures with `500` instead of `400`, and open the file before committing a success status so an unreadable file gets a `500` rather than a truncated `200` (RFC 9110 §15.6.1).
+- 6a718ca: Send `cache-control: no-cache` on the built-in server's trailing-slash `301`, so a browser does not keep a redirect that goes stale when the directory changes (RFC 9111 §4.2.2).
+- 6a718ca: Serve `.ico` as `image/vnd.microsoft.icon`, `.wav` as `audio/wave` and `.json`/`.map` as `application/json` without a charset parameter, using the IANA-registered names (RFC 2361, RFC 8259 §11).
+- 6a718ca: JUnit: findings of an errored audit are now written as `<error>` elements and counted as errors, so the suite counts match the XML body.
+- 6a718ca: The GitHub step summary now escapes `|` in audit names and statuses too, and caps the table at 1 MiB so GitHub does not reject the step's summary.
+- 6a718ca: Flush buffered stdout before exiting after a timed-out run instead of cutting it off, per Node.js process.exit docs.
+- 6a718ca: Pretty footer counts only passed audits as passed instead of counting warned ones too, per the reporters doc.
+- 6a718ca: Reports no longer include `user:password` credentials passed with `--origin`, in the `origin` field or the recorded config.
+- 6a718ca: SARIF `artifactLocation.uri` values now percent-encode each path segment, so files with spaces or `#`, `?`, `%` in their names are located correctly per RFC 3986.
+- 6a718ca: SARIF results without a file or page are now located at the served `index.html`, so GitHub code scanning displays site-wide findings (GitHub requires at least one location per result).
+- 6a718ca: SARIF rules now carry the audit description as `shortDescription`, `fullDescription` and `help`, the text GitHub code scanning requires per rule.
+- 6a718ca: SARIF results now carry a `partialFingerprints.primaryLocationLineHash`, so GitHub code scanning does not show duplicate alerts for direct API uploads.
+- 6a718ca: SARIF locations are now relative to `GITHUB_WORKSPACE` when set (else the working directory), and `invocations[0].workingDirectory` declares that root, per the GitHub SARIF support docs.
+- 6a718ca: CLI: `--timeout` and `--audit-timeout` now reject anything that is not a whole number of milliseconds as a usage error naming the flag (exit `2`), instead of a generic config error or a silently accepted fraction.
+- 6a718ca: SARIF `$schema` now points at the OASIS SARIF 2.1.0 schema instead of the schemastore mirror, per the OASIS SARIF specification.
+- 6a718ca: The HTML report now sets a Content-Security-Policy meta that blocks scripts and external resources, since the page needs only its inline style.
+- 6a718ca: `netlify.toml` header values decode TOML escapes and may be multi-line strings, folded to one line.
+- 6a718ca: HTML parsing: numeric character references without `;` decode; an unclosed comment or raw-text element runs to the end of the document; `<title>` text keeps markup-like text and non-breaking spaces; the `<meta>` charset prescan reads only `charset` and `http-equiv` content-type declarations and skips unknown labels; a UTF-8 BOM is dropped. Pathological unclosed tags and long `&` runs no longer take quadratic time.
+- 6a718ca: Forms read the autofill field before a trailing `webauthn` token; the assets audit reports a cross-origin manifest `start_url` as such and rounds SVG sizes derived from `viewBox`; images are sized from their first 64 KiB; r12s compares target sizes unrounded; ads.txt publisher collection is linear.
+- 6a718ca: Reporters: SARIF fingerprints count identical findings (`:1`, `:2`, …) and paths outside the repository get no location; JUnit keeps tabs and newlines in attributes; the GitHub step summary is cut at a row end and annotations resolve relative files against the root; `server.command` flag values such as `--api-token x` are redacted in the JSON report.
+- 6a718ca: SEO audit: robots.txt lines may end in a bare CR, an empty `Googlebot` group overrides `*`, paths are compared after RFC 9309 percent-encoding normalisation, and rules with many `*` wildcards match in linear time; sitemap `<loc>` values decode XML (not HTML) references.
+- 6a718ca: The built-in server answers `HEAD` without reading the file, matches file extensions case-insensitively, collapses leading slashes in directory redirects (`//about` no longer redirects to host `about`) and caches each HTML file's charset.
+- 6a718ca: CSP audit no longer reports same-origin requests as blocked by `https:` or `wss:` source expressions on https sites, per CSP3 scheme-source semantics.
+- 6a718ca: CSP audit now matches `ws:` and scheme-less host sources against `wss:` URLs on https sites (and `ws:` on http sites), per CSP3 scheme-part matching.
+- 6a718ca: Referrer-Policy checks now judge fallback lists by their last recognised token, so `unsafe-url, strict-origin` passes while `strict-origin, unsafe-url` is still flagged.
+- 6a718ca: HSTS default now accepts a quoted `max-age` value, as RFC 6797 §6.2 allows.
+- 6a718ca: Mixed content audit now flags `ws://` resources on pages, since browsers block insecure WebSocket URLs from `https:` pages.
+- 6a718ca: Subresource integrity check now covers cross-origin `<link rel="preload">` and `<link rel="modulepreload">` tags that carry `integrity`, flagging missing `crossorigin` per the HTML spec.
+- 6a718ca: Header fetching now retries with GET when a HEAD request fails with any 4xx or 5xx status, not only 405, so static hosts that refuse HEAD no longer yield empty headers.
+- 6a718ca: Skip Vercel `headers` rules gated by `has` or `missing`, which were applied unconditionally, and log them as unsupported.
+- 6a718ca: security.txt is now checked for UTF-8 bytes, a Canonical field when PGP-signed, and at most one Preferred-Languages line, as RFC 9116 requires.
+- 6a718ca: CSP audit now warns when `script-src` (or `default-src` governing scripts) allows `blob:`, which lets the page run scripts from any blob URL it creates.
+- 6a718ca: Inline `<script data-type>` and `data-nonce` attributes are no longer mistaken for `type` and `nonce`, so real inline scripts are checked against the CSP.
+- 6a718ca: Mixed content audit now scans `apple-touch-icon`, `apple-touch-icon-precomposed` and `mask-icon` link URLs for `http://` resources.
+- 6a718ca: security.txt Expires must be an RFC 3339 date-time with an offset; date-only and offset-less values are now reported as errors.
+- 6a718ca: security.txt Contact must be a mailto:, tel: or https:// URI; ftp:, javascript: and http: values now reported errors.
+- 6a718ca: Clickjacking audit now treats `frame-ancestors` sources with a wildcard host (`https://*`) as allowing any origin, per CSP3 host-source matching.
+- 6a718ca: CSP audit now accepts base64url hash sources (`'sha256-…'` with `-` and `_`) as matching the inline block, per CSP3 hash-source equivalence of base64 and base64url.
+- 6a718ca: CSP audit under `'strict-dynamic'` now checks static `<script src>` tags against their `nonce` instead of allowing every script host, per CSP3 strict-dynamic (only scripts loaded by already-trusted code are exempt).
+- 6a718ca: Fix `X-Robots-Tag` `noindex` being dropped when a Google directive with a value (such as `max-snippet:50`) precedes it, per the Google robots meta tag docs (rules without a user agent apply to all crawlers).
+- 6a718ca: The `seo` audit now reports relative `Sitemap:` lines in `robots.txt` and relative sitemap index children as `sitemap reference is not an absolute URL` instead of silently ignoring them, per the sitemaps.org protocol.
+- 6a718ca: A `.xml.gz` sitemap that is not valid gzip is now reported as a `sitemap is not valid gzip` finding instead of aborting the SEO audit, per the sitemaps.org gzip convention.
+- 6a718ca: A sitemap `<loc>` with an unescaped `&` or a named HTML entity such as `&copy;` is now reported as a `sitemap <loc> is not entity-escaped` finding, per the sitemaps.org rule that all data values must be entity-escaped.
+- 6a718ca: A sitemap `<loc>` wrapped in `<![CDATA[...]]>` is now read literally, so `&amp;` inside it is no longer decoded to `&`, per the XML rule that CDATA content is not entity-decoded.
+- 6a718ca: The `seo` audit now flags sitemap `<loc>` values of 2,048 characters or more, `<lastmod>` values that are not W3C Datetime, and sitemap indexes listing more than 50,000 sitemaps, per sitemaps.org.
+- 6a718ca: Warn when robots.txt is larger than 500 KiB, since RFC 9309 §2.5 crawlers may ignore rules past their parsing limit.
+- 6a718ca: Fix robots.txt rules treating a mid-pattern `$` as an end anchor so such rules now match the literal character, per RFC 9309 §2.2.3 (`$` designates the end of the match pattern only when last).
+- 6a718ca: SEO audit rejects protocol-relative `//host/path` hreflang hrefs as not absolute, since Google requires fully-qualified http(s) URLs for hreflang.
+- 6a718ca: SEO audit docs now state that the requirement for an absolute canonical href is deliberate policy, stricter than RFC 6596, and why it is kept.
+- 6a718ca: SEO audit reports an empty `<html lang="">` as a warning (language unknown) instead of an error saying the attribute is missing, per WHATWG HTML.
+- 6a718ca: Sitemap references on another origin than `siteUrl` no longer read local files of the same path, per sitemaps.org (a sitemap index lists only sitemaps on the same site).
+- 6a718ca: SEO audit reads `rel="canonical"` and `rel="alternate"` hreflang links from `Link` response headers, so a canonical sent in a header no longer reports `no canonical link`.
+- 6a718ca: SEO audit counts `<title>` and meta description length in code points rather than UTF-16 code units, so emoji and other astral characters no longer count as two characters.
+- 6a718ca: Stop flagging robots.txt as "disallows everything" when the same user-agent group also has an `Allow` rule, per RFC 9309 §2.2.2 (the most specific match wins and `Allow` wins ties).
+- 6a718ca: Googlebot now obeys the `User-agent: *` group when robots.txt has no `Googlebot` group, instead of being matched to other `googlebot-*` crawlers such as `Googlebot-Image` (RFC 9309 §2.2.1).
+- 6a718ca: Fix robots meta `none` matching inside other directives such as `max-image-preview:none`, so only standalone `noindex` and `none` tokens mark a page noindex, per the Google robots meta tag docs.
+- 6a718ca: SEO audit now accepts well-formed BCP 47 `lang` and `hreflang` tags with private-use, variant, extlang and grandfathered subtags (e.g. `en-US-x-twain`, `ca-ES-valencia`, `en-GB-oed`) per RFC 5646 instead of rejecting them.
+- 6a718ca: i18n placeholder check now reads only ICU argument names, so translations whose select or plural branch text differs from the reference no longer raise a false mismatched-placeholders warning.
+- 6a718ca: seo: a `<meta charset="utf-16">` label without a BOM is decoded and served as UTF-8, per WHATWG 13.2.3.2, instead of as UTF-16.
+
 ## 0.20.0
 
 ### Minor Changes
