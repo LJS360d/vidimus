@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { gzipSync } from 'node:zlib';
+import { disallowedBy, robotsRules } from '../src/audits/seo-robots.ts';
 import type { UserConfig } from '../src/config/types.ts';
+import { readSitemaps } from '../src/core/sitemap.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -169,6 +171,28 @@ describe('seo audit', () => {
     assert.deepEqual(find(result, /invalid <html lang> "english"/)?.where, ['/about/']);
   });
 
+  it('warns on empty html lang instead of reporting it missing', async () => {
+    const result = await audit(
+      site({
+        'dist/about/index.html': page({ path: '/about/', lang: '', links: ['/'] }),
+      }),
+    );
+    assert.equal(find(result, /missing <html lang>/), undefined);
+    const finding = find(result, /empty <html lang> \(language unknown\)/);
+    assert.deepEqual(finding?.where, ['/about/']);
+    assert.equal(finding?.severity, 'warn');
+  });
+
+  it('counts title length in code points, not UTF-16 units', async () => {
+    const result = await audit(
+      site({ 'dist/index.html': page({ path: '/', title: '😀'.repeat(5), links: ['/about/'] }) }),
+      { seo: { titleLength: { min: 6, max: 60 } } },
+    );
+    const finding = find(result, /title outside 6-60 characters/);
+    assert.equal(finding?.severity, 'warn');
+    assert.deepEqual(finding?.details, ['/: 5']);
+  });
+
   it('warns on duplicate titles and bad lengths', async () => {
     const result = await audit(
       site({
@@ -229,6 +253,16 @@ describe('seo audit', () => {
     assert.ok(find(await headers('none'), /noindex in the production build/));
   });
 
+  it('reads rel=canonical from a Link header instead of reporting no canonical', async () => {
+    const result = await audit(
+      site({
+        'dist/about/index.html': page({ path: '/about/', canonical: null, links: ['/'] }),
+        'dist/_headers': `/about/*\n  Link: <${SITE}/about/>; rel="canonical"\n`,
+      }),
+    );
+    assert.equal(find(result, /no canonical link/), undefined);
+  });
+
   it('fails on a noindex page listed in the sitemap', async () => {
     const result = await audit(
       site({
@@ -259,6 +293,7 @@ describe('seo audit', () => {
       }),
     );
     assert.deepEqual(find(result, /canonical URL is not absolute/)?.where, ['/a/']);
+    assert.match(find(result, /canonical URL is not absolute/)?.fix ?? '', /absolute URL/);
     assert.deepEqual(find(result, /canonical points outside https:\/\/example.com/)?.where, [
       '/b/',
     ]);
@@ -293,6 +328,28 @@ describe('seo audit', () => {
     assert.deepEqual(find(result, /hreflang URL is not absolute/)?.where, ['/']);
   });
 
+  it('rejects protocol-relative hreflang hrefs', async () => {
+    const alt = (lang: string, href: string) =>
+      `<link rel="alternate" hreflang="${lang}" href="${href}">`;
+    const result = await audit(
+      site({
+        'dist/index.html': page({
+          path: '/',
+          links: ['/about/', '/it/'],
+          head: alt('en', `${SITE}/`) + alt('it', '//example.com/it/'),
+        }),
+        'dist/it/index.html': page({
+          path: '/it/',
+          lang: 'it',
+          links: ['/'],
+          head: alt('it', `${SITE}/it/`) + alt('en', `${SITE}/`),
+        }),
+        'dist/sitemap.xml': sitemap('/', '/about/', '/it/'),
+      }),
+    );
+    assert.deepEqual(find(result, /hreflang URL is not absolute/)?.where, ['/']);
+  });
+
   it('validates hreflang codes, self-reference and x-default', async () => {
     const alt = (lang: string, href: string) =>
       `<link rel="alternate" hreflang="${lang}" href="${href}">`;
@@ -317,6 +374,32 @@ describe('seo audit', () => {
     assert.equal(find(result, /hreflang set has no x-default/)?.severity, 'warn');
     assert.equal(find(result, /hreflang missing self-reference/)?.where?.[0], '/');
     assert.equal(find(result, /hreflang missing self-reference/)?.where?.length, 1);
+  });
+
+  it('accepts well-formed BCP 47 tags with private use, variants and grandfathered forms', async () => {
+    const alt = (lang: string, href: string) =>
+      `<link rel="alternate" hreflang="${lang}" href="${href}">`;
+    const result = await audit(
+      site({
+        'dist/index.html': page({
+          path: '/',
+          lang: 'en-US-x-twain',
+          links: ['/it/'],
+          head: alt('en-GB-oed', `${SITE}/`) + alt('ca-ES-valencia', `${SITE}/it/`),
+        }),
+        'dist/it/index.html': page({
+          path: '/it/',
+          lang: 'ca-ES-valencia',
+          links: ['/'],
+          head:
+            alt('de-CH-1996', `${SITE}/`) +
+            alt('ca-ES-valencia', `${SITE}/it/`) +
+            alt('x-default', `${SITE}/`),
+        }),
+        'dist/sitemap.xml': sitemap('/', '/it/'),
+      }),
+    );
+    assert.equal(find(result, /invalid (<html lang>|hreflang)/), undefined);
   });
 
   it('reports canonical and hreflang pointing at noindex, redirect or canonical chains', async () => {
@@ -387,6 +470,18 @@ describe('seo audit', () => {
     ]);
   });
 
+  it('reports relative sitemap references in robots.txt and sitemap indexes', async () => {
+    const result = await audit(
+      site({
+        'dist/robots.txt': 'User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n',
+        'dist/sitemap-index.xml': `<sitemapindex><sitemap><loc>/sitemap-0.xml</loc></sitemap></sitemapindex>`,
+      }),
+    );
+    const relative = find(result, /not an absolute URL/);
+    assert.deepEqual([...(relative?.where ?? [])].sort(), ['/sitemap-0.xml', '/sitemap.xml']);
+    assert.ok(relative?.fix?.trim());
+  });
+
   it('reads gzipped sitemaps and reports ones over the protocol limits', async () => {
     const paths = Array.from({ length: 50_001 }, (_, index) => `/p${index}/`);
     const result = await audit(
@@ -400,6 +495,59 @@ describe('seo audit', () => {
     );
     assert.match(find(result, /sitemap exceeds the protocol limits/)?.fix ?? '', /sitemap index/);
     assert.equal(find(result, /sitemap target is missing/), undefined);
+  });
+
+  it('reports sitemap indexes over 50,000 sitemaps, locs of 2,048 characters and non-W3C lastmod', async () => {
+    const children = Array.from(
+      { length: 50_001 },
+      (_, index) => `<sitemap><loc>${SITE}/s${index}.xml</loc></sitemap>`,
+    ).join('');
+    const long = `${SITE}/?q=${'x'.repeat(2048)}`;
+    const result = await audit(
+      site({
+        'dist/sitemap-index.xml': `<sitemapindex>${children}</sitemapindex>`,
+        'dist/sitemap.xml': `<urlset><url><loc>${SITE}/</loc><lastmod>2026-13-01</lastmod></url><url><loc>${long}</loc></url><url><loc>${SITE}/about/</loc><lastmod>2026-11-03T12:00:00+00:00</lastmod></url></urlset>`,
+      }),
+    );
+    assert.match(find(result, /more than 50,000 sitemaps/)?.file ?? '', /sitemap-index\.xml$/);
+    assert.deepEqual(find(result, /2,048 characters/)?.where, [long]);
+    assert.deepEqual(find(result, /W3C Datetime/)?.where, ['2026-13-01']);
+  });
+
+  it('reports a corrupt gzipped sitemap instead of throwing', async () => {
+    const result = await audit(
+      without(
+        site({
+          'dist/robots.txt': `User-agent: *\nAllow: /\nSitemap: ${SITE}/sitemap.xml.gz\n`,
+          'dist/sitemap.xml.gz': sitemap('/'),
+        }),
+        'dist/sitemap.xml',
+      ),
+    );
+    assert.match(find(result, /sitemap is not valid gzip/)?.file ?? '', /sitemap\.xml\.gz$/);
+  });
+
+  it('reports sitemap locs that are not entity-escaped', async () => {
+    const result = await audit(
+      site({
+        'dist/sitemap.xml': `<urlset><url><loc>${SITE}/?a=1&b=2</loc></url><url><loc>${SITE}/&copy;/</loc></url><url><loc><![CDATA[${SITE}/?a=1&b=2]]></loc></url><url><loc>${SITE}/about/?x=1&amp;y=2</loc></url></urlset>`,
+      }),
+    );
+    assert.deepEqual(find(result, /not entity-escaped/)?.where, [
+      `${SITE}/&copy;/`,
+      `${SITE}/?a=1&b=2`,
+    ]);
+  });
+
+  it('reads CDATA sitemap locs literally, without entity decoding', async () => {
+    const result = await audit(
+      site({
+        'dist/sitemap.xml': `<urlset><url><loc>${SITE}/</loc></url><url><loc><![CDATA[https://other.com/?a=1&amp;b=2]]></loc></url></urlset>`,
+      }),
+    );
+    assert.deepEqual(find(result, /sitemap URL outside/)?.where, [
+      'https://other.com/?a=1&amp;b=2',
+    ]);
   });
 
   it('follows sitemap indexes and reports extra, foreign and missing URLs', async () => {
@@ -419,6 +567,22 @@ describe('seo audit', () => {
     assert.equal(missing?.severity, 'warn');
   });
 
+  it('does not read local files for sitemap references on another origin', async () => {
+    const result = await audit(
+      without(
+        site({
+          'dist/sitemap-index.xml': `<sitemapindex><sitemap><loc>https://staging.other.com/sitemap-0.xml</loc></sitemap></sitemapindex>`,
+          'dist/sitemap-0.xml': sitemap('/'),
+        }),
+        'dist/sitemap.xml',
+      ),
+    );
+    assert.deepEqual(find(result, /sitemap target outside/)?.where, [
+      'https://staging.other.com/sitemap-0.xml',
+    ]);
+    assert.deepEqual(find(result, /missing from the sitemap/)?.where, ['/', '/about/']);
+  });
+
   it('checks robots.txt', async () => {
     const missing = await audit(without(site(), 'dist/robots.txt'));
     assert.equal(find(missing, /no robots.txt/)?.severity, 'warn');
@@ -428,6 +592,10 @@ describe('seo audit', () => {
     const wildcard = await audit(site({ 'dist/robots.txt': 'User-agent: *\nDisallow: /*\n' }));
     assert.ok(find(wildcard, /disallows everything/));
     assert.equal(find(wildcard, /disallows everything/)?.severity, undefined);
+    const overridden = await audit(
+      site({ 'dist/robots.txt': 'User-agent: *\nDisallow: /\nAllow: /public/\n' }),
+    );
+    assert.equal(find(overridden, /disallows everything/), undefined);
     assert.equal(find(blocked, /no Sitemap line/)?.severity, 'warn');
 
     const scoped = await audit(
@@ -596,5 +764,53 @@ describe('seo audit', () => {
     for (const finding of findings) {
       assert.ok(finding.fix?.trim(), `no fix for "${finding.message}"`);
     }
+  });
+});
+
+describe('robots.txt matching (RFC 9309)', () => {
+  const blocked = (text: string, path: string) => disallowedBy(robotsRules(text).groups)(path);
+
+  it('splits lines on bare CR', () => {
+    assert.equal(blocked('User-agent: *\rDisallow: /private/\r', '/private/a'), true);
+  });
+
+  it('lets an empty Googlebot group override the * group', () => {
+    const text = 'User-agent: Googlebot\nDisallow:\n\nUser-agent: *\nDisallow: /about/';
+    assert.equal(blocked(text, '/about/'), false);
+  });
+
+  it('matches * and $ wildcards', () => {
+    const text = 'User-agent: *\nDisallow: /*.pdf$\nDisallow: /a*b*c\nDisallow: /x$y';
+    assert.equal(blocked(text, '/d/e.pdf'), true);
+    assert.equal(blocked(text, '/d/e.pdf?x'), false);
+    assert.equal(blocked(text, '/a1b2c3'), true);
+    assert.equal(blocked(text, '/acb'), false);
+    assert.equal(blocked(text, '/x$y/z'), true);
+  });
+
+  it('compares paths after RFC 9309 percent-encoding normalisation', () => {
+    const text = 'User-agent: *\nDisallow: /%7Eold/\nDisallow: /café/\nDisallow: /a%2fb';
+    assert.equal(blocked(text, '/~old/x'), true);
+    assert.equal(blocked(text, '/caf%C3%A9/'), true);
+    assert.equal(blocked(text, '/caf%c3%a9/'), true);
+    assert.equal(blocked(text, '/a/b'), false);
+    assert.equal(blocked(text, '/a%2Fb'), true);
+  });
+
+  it('stays linear on rules with many wildcards', () => {
+    const start = performance.now();
+    blocked(`User-agent: *\nDisallow: /${'*a'.repeat(30)}*c`, `/${'a'.repeat(5000)}`);
+    assert.ok(performance.now() - start < 500);
+  });
+});
+
+describe('sitemap <loc> decoding (XML 1.0)', () => {
+  it('decodes XML entities and numeric references as code points', () => {
+    const cwd = fixture({
+      'dist/sitemap.xml':
+        '<urlset><url><loc>https://x.test/a&#150;b&amp;c&#x41;&copy;</loc></url></urlset>',
+    });
+    const [sitemap] = readSitemaps(`${cwd}/dist`, 'https://x.test');
+    assert.deepEqual(sitemap?.urls, ['https://x.test/a\u0096b&cA&copy;']);
   });
 });

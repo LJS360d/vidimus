@@ -81,7 +81,7 @@ After the wait, each loaded page's `<link rel="preconnect">` and `<link rel="dns
 
 ### Cookies
 
-With `privacy.cookies` on, every cookie present in the browser context after the wait is reported with its name and domain:
+With `privacy.cookies` on, every cookie present in the browser context after the wait is reported with its name and domain, and a detail line with its attributes: `session` or the expiry date, then `Secure`, `HttpOnly` and `SameSite=<value>` when set. Session and long-lived cookies can then be told apart, and a tracker's expiry is visible without opening the browser:
 
 - A cookie on a first-party domain is a warning. It may be strictly necessary (a session, a language choice), in which case it belongs in your cookie notice rather than behind consent.
 - A cookie on any other domain fails.
@@ -90,17 +90,23 @@ A script from a third party can set a cookie on your own domain (Google Analytic
 
 ### Client-side storage
 
-With `privacy.cookies` on, the keys of `localStorage` and `sessionStorage` and the names of IndexedDB databases (`indexedDB.databases()`) present after the wait are reported, one warning per storage kind with the key or database names (the first 10, then `and N more`) and the pages. Only names are read, never values. Storage written by first-party or third-party scripts on load counts alike, because both land in your origin. Browsers without `indexedDB.databases()` report no databases. Defer the writes until the visitor consents, or document them in your privacy notice if they are strictly necessary. `privacy.allow` does not apply to storage.
+With `privacy.cookies` on, the keys of `localStorage` and `sessionStorage`, the names of IndexedDB databases (`indexedDB.databases()`), the names of Cache Storage caches (`caches.keys()`) and the scopes of service worker registrations (`navigator.serviceWorker.getRegistrations()`) present after the wait are reported, one warning per storage kind with the key, database, cache or scope names (the first 10, then `and N more`) and the pages. Only names are read, never values. Storage written by first-party or third-party scripts on load counts alike, because both land in your origin. Browsers without `indexedDB.databases()` report no databases, and Cache Storage and service workers are only read in secure contexts. Requests issued by a service worker are not seen by the audit, so the traffic of a registered worker is not part of the report. Defer the writes until the visitor consents, or document them in your privacy notice if they are strictly necessary. `privacy.allow` does not apply to storage.
 
 ### After rejecting consent
 
 Set `privacy.rejectSelector` to the CSS selector of your consent banner's reject button to also check the state after a visitor refuses. After the initial checks, vidimus clicks the button, waits `privacy.wait` ms, and reports as failures:
 
 - every third-party request made since the click (`privacy.allow` applies as above),
-- every cookie present after the click, and every `localStorage`, `sessionStorage` and IndexedDB key present (with `privacy.cookies` on).
+- every cookie present after the click, and every `localStorage`, `sessionStorage`, IndexedDB, Cache Storage and service worker entry present (with `privacy.cookies` on).
 
 Items that were already present before the click are included, so a tracker that survives rejection is reported here as well as in the pre-consent findings. If the selector matches nothing on a page, a warning `reject button not found: <selector>` lists those pages. The check is off while the selector is empty.
 
+### Global Privacy Control
+
+With `privacy.gpc` on (the default), each page is loaded a second time in a fresh browser context that sends the `Sec-GPC: 1` request header and sets `navigator.globalPrivacyControl` to `true`, the signal of the [Global Privacy Control](https://globalprivacycontrol.org/) specification. Third-party requests that still fire in that load are reported as warnings, `third-party request to <host> with Global Privacy Control set`, with example URLs and the pages they appear on. Some US state privacy laws treat GPC as a valid opt-out of sale or sharing, so a host that still receives requests under the signal is worth a look. Requests are classified exactly as in the first load, so `privacy.allow` applies. Cookies and storage are not checked in this pass. The pass doubles the page loads of the audit; set `privacy.gpc` to `false` to skip it.
+
+### Referrer
+Every third-party request is also checked for the `Referer` header the browser actually sent. When it carries a path or query (the full page URL, not only its origin), the audit warns `third-party request to <host> sends the page path in Referer`, with example referrers and pages. The browser decides what to send from the page's `Referrer-Policy`, so a page with a restrictive policy passes. Set `Referrer-Policy: strict-origin-when-cross-origin` (or stricter) to send only the origin. The check runs on the first load only, not after rejecting consent.
 ### Load failures
 
 A page that does not load within `privacy.timeout` becomes a failing finding (`failed to load /path/`) and the other pages are still checked.
@@ -122,6 +128,7 @@ A page that does not load within `privacy.timeout` becomes a failing finding (`f
     → Self-host the resource, load it only after consent, or add a pattern to privacy.allow if it is covered by your privacy policy.
 
 ⚠ cookie lang set on load (127.0.0.1)
+    session, SameSite=Lax
     on: /
     → Set it only after consent, or add it to your cookie notice if it is strictly necessary.
 
@@ -142,6 +149,7 @@ The privacy-enhanced `youtube-nocookie.com` domain is not in the table, so it ge
 | `privacy.sample` | `[]` | URL path patterns: load one page per matching template |
 | `privacy.allLocales` | `false` | also load pages of translated locales |
 | `privacy.cookies` | `true` | report cookies and client-side storage written on load |
+| `privacy.gpc` | `true` | load each page again with Global Privacy Control set and report third-party requests that still fire |
 | `privacy.wait` | `1500` | ms to wait after `load` for late requests |
 | `privacy.timeout` | `60000` | ms to wait for a page's `load` event |
 | `privacy.rejectSelector` | `''` | CSS selector of the reject button to click, then check what remains |
@@ -189,3 +197,62 @@ Replace video and map embeds with a placeholder that loads the iframe only on cl
 A small script swaps the button for the iframe when clicked, so nothing is requested until the visitor asks for it.
 
 Load analytics only after consent: render the snippet from your consent banner's callback rather than in the page `<head>`.
+
+## Standards
+
+The audit implements the standards below. Each case is checked in the code; clauses are given where they apply.
+
+### RFC 6265: HTTP State Management Mechanism
+
+[RFC 6265](https://www.rfc-editor.org/rfc/rfc6265)
+
+- §4.1.2: `Secure`, `HttpOnly`, `SameSite` and the expiry are reported as the browser holds them (see Cookies).
+- §5.1.3 domain matching: a cookie is first-party when its domain, leading dot ignored, equals a first-party host or is a parent domain of one, so `example.org` covers `www.example.org`.
+
+### ePrivacy Directive 2002/58/EC, Article 5(3)
+
+[Directive 2002/58/EC](https://eur-lex.europa.eu/eli/dir/2002/58/oj)
+
+- Cookies and client-side storage (`localStorage`, `sessionStorage`, IndexedDB, Cache Storage, service worker scopes) present after load are reported, names only (see Client-side storage).
+
+### GDPR, Regulation (EU) 2016/679, Articles 4(11) and 7(3)
+
+[Regulation (EU) 2016/679](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
+
+- Art. 4(11): no consent is given on the first load, so every third-party request, cookie and storage entry on it is reported.
+- Art. 7(3): with `privacy.rejectSelector` set, the reject button is clicked and third-party requests made after the click, plus every cookie and storage entry still present, are reported.
+
+### Global Privacy Control
+
+[Global Privacy Control](https://w3c.github.io/gpc/)
+
+- Each page is loaded again with the `Sec-GPC: 1` header and `navigator.globalPrivacyControl` set to `true`; third-party requests that still fire are warnings.
+
+### Referrer Policy
+
+[Referrer Policy](https://www.w3.org/TR/referrer-policy/)
+
+- The `Referer` header the browser actually sent with a third-party request is checked; one carrying a path or query is a warning.
+
+### URL Standard
+
+[URL Standard](https://url.spec.whatwg.org/)
+
+- Only `http`, `https`, `ws` and `wss` request URLs are classified, and the host compared is the parsed `hostname`, so ports do not matter.
+
+### HTML Standard
+
+[HTML Standard](https://html.spec.whatwg.org/multipage/)
+
+- `<link rel>` values are split on ASCII whitespace and compared case-insensitively, so `rel="Preconnect"` is checked like `rel="preconnect"`.
+- `preconnect` and `dns-prefetch` hints are read from the rendered HTML, and their hrefs are resolved against the page URL.
+
+### Not checked
+
+- Requests issued by a service worker are not seen, so its traffic is not reported.
+- Resource hint hrefs ignore `<base href>`.
+- First-party matching uses hostnames only: no public-suffix or eTLD+1 grouping, and cookie domains are not checked against the public-suffix list.
+- Cookies are read from the browser and not validated against RFC 6265.
+- The Global Privacy Control pass does not check cookies or storage.
+- The Referer check runs on the first load only, and the `Referrer-Policy` header itself is not read.
+- Only the reject button is clicked; accept is never clicked, so what loads after consent is not checked.

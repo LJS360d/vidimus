@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { relative, sep } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import type { Finding } from '../core/types.ts';
 import { firstFew } from '../core/util.ts';
 import type { Reporter } from './types.ts';
@@ -9,6 +9,21 @@ const escapeData = (text: string) =>
 
 const escapeProperty = (text: string) =>
   escapeData(text).replaceAll(':', '%3A').replaceAll(',', '%2C');
+
+const STEP_SUMMARY_BUDGET = 1024 * 1024 - 1024;
+
+const cell = (text: string) => text.replaceAll('|', '\\|').replaceAll(/\r?\n/g, '<br>');
+
+const fitBudget = (text: string) => {
+  if (Buffer.byteLength(text) <= STEP_SUMMARY_BUDGET) return text;
+  const notice = '\n\n_Summary truncated to fit the 1 MiB step limit._\n';
+  const keep = STEP_SUMMARY_BUDGET - Buffer.byteLength(notice);
+  // Cut at a line end: no half table row, and no split UTF-8 sequence growing past the limit.
+  const head = Buffer.from(text).subarray(0, keep).toString('latin1');
+  return (
+    Buffer.from(head.slice(0, Math.max(0, head.lastIndexOf('\n'))), 'latin1').toString() + notice
+  );
+};
 
 const describe = ({ message, details = [], where = [], fix }: Finding) =>
   [
@@ -27,7 +42,9 @@ export const annotation = (
   line?: number,
 ) => {
   const properties = [
-    ...(file ? [`file=${escapeProperty(relative(root, file).split(sep).join('/'))}`] : []),
+    ...(file
+      ? [`file=${escapeProperty(relative(root, resolve(root, file)).split(sep).join('/'))}`]
+      : []),
     ...(file && line ? [`line=${line}`] : []),
     `title=${escapeProperty(title)}`,
   ].join(',');
@@ -52,19 +69,20 @@ export const github = (
     onEnd({ results }) {
       if (!env.GITHUB_STEP_SUMMARY) return;
       const rows = results.map(
-        ({ name, status, summary }) =>
-          `| ${name} | ${status} | ${summary.replaceAll('|', '\\|').replaceAll(/\r?\n/g, '<br>')} |`,
+        ({ name, status, summary }) => `| ${cell(name)} | ${cell(status)} | ${cell(summary)} |`,
       );
       appendFileSync(
         env.GITHUB_STEP_SUMMARY,
-        [
-          '### vidimus',
-          '',
-          '| Audit | Status | Summary |',
-          '| --- | --- | --- |',
-          ...rows,
-          '',
-        ].join('\n'),
+        fitBudget(
+          [
+            '### vidimus',
+            '',
+            '| Audit | Status | Summary |',
+            '| --- | --- | --- |',
+            ...rows,
+            '',
+          ].join('\n'),
+        ),
       );
     },
   };

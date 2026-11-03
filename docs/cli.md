@@ -51,8 +51,8 @@ An unknown audit name is an error that lists the known ones.
 | `--accept-findings` | write the current findings to the [baseline file](./configuration#severity-ignores-and-the-findings-baseline) |
 | `--profile [level]` | record where the run spends its time: `spans` (default) or `cpu`, see [Profiling](./profiling) |
 | `--serial` | run audits one at a time instead of in parallel |
-| `--timeout <ms>` | stop the whole run after this many milliseconds |
-| `--audit-timeout <ms>` | error an audit that runs longer than this |
+| `--timeout <ms>` | stop the whole run after this many whole milliseconds |
+| `--audit-timeout <ms>` | error an audit that runs longer than this, in whole milliseconds |
 
 Except `--profile` and `--serial`, which change how the run is measured and scheduled, each
 flag sets a config key and wins over every other source:

@@ -172,9 +172,13 @@ export const defaults = (cwd: string): VidimusConfig => ({
     file: '_headers',
     exclude: [],
     require: {
-      'strict-transport-security': 'max-age=(3[1-9]\\d{6}|[4-9]\\d{7}|\\d{9,})',
+      'strict-transport-security':
+        // max-age >= 31536000 (one year): every 8-digit number from 31536000 up, or 9+ digits.
+        // A missing includeSubDomains is a separate warning.
+        '^(?=.*\\bmax-age="?0*(3153600\\d|315360[1-9]\\d|31536[1-9]\\d{2}|3153[7-9]\\d{3}|315[4-9]\\d{4}|31[6-9]\\d{5}|3[2-9]\\d{6}|[4-9]\\d{7}|[1-9]\\d{8,}))',
       'x-content-type-options': '^nosniff$',
-      'referrer-policy': '^(?!.*(unsafe-url|no-referrer-when-downgrade)).+$',
+      'referrer-policy':
+        '^(?!(?:.*,)?\\s*(?:unsafe-url|no-referrer-when-downgrade)\\s*(?:,(?!\\s*(?:no-referrer|no-referrer-when-downgrade|same-origin|origin|strict-origin|origin-when-cross-origin|strict-origin-when-cross-origin|unsafe-url)\\s*(?:,|$))[^,]*)*$).+$',
       'permissions-policy': '',
     },
     csp: 'warn',
@@ -190,6 +194,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
     sample: [],
     allLocales: false,
     cookies: true,
+    gpc: true,
     wait: 1500,
     rejectSelector: '',
     concurrency: halfTheCores,
@@ -202,7 +207,7 @@ export const defaults = (cwd: string): VidimusConfig => ({
   html: {
     exclude: [],
     source: 'dist',
-    extends: ['html-validate:standard'],
+    extends: ['html-validate:standard', 'html-validate:a11y'],
     rules: {},
   },
   budget: {

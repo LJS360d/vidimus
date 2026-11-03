@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import type { SiteFileCheck } from '../config/types.ts';
-import { redirectMatches } from '../core/headers.ts';
+import { type HeaderMap, redirectMatches } from '../core/headers.ts';
 import {
   type BuiltPage,
   isFile,
@@ -121,14 +121,26 @@ const served = (dist: string, redirects: string[], path: string) =>
 const firstFile = (dist: string, paths: string[]) =>
   paths.map((path) => join(dist, path)).find(isFile);
 
-export const siteFileFindings = (
+const rootPath = (dist: string, file: string) => `/${relative(dist, file).split(sep).join('/')}`;
+
+const wrongType = async (
+  headersFor: (path: string) => Promise<HeaderMap | undefined>,
+  path: string,
+  mime: string,
+) => {
+  const type = (await headersFor(path))?.['content-type'];
+  return type && type.split(';')[0]?.trim().toLowerCase() !== mime ? type : undefined;
+};
+
+export const siteFileFindings = async (
   pages: BuiltPage[],
   dist: string,
   siteUrl: string,
   options: SiteFileOptions,
   log: (line: string) => void,
   redirects: string[] = [],
-): Located[] => {
+  headersFor: (path: string) => Promise<HeaderMap | undefined> = async () => undefined,
+): Promise<Located[]> => {
   const pathsWhere = (mode: SiteFileCheck, test: (page: BuiltPage) => boolean) =>
     mode === 'off' ? [] : pages.filter(test).map(({ path }) => path);
   const platforms = new Map<BuiltPage, string[]>();
@@ -211,12 +223,22 @@ export const siteFileFindings = (
       for (const [, id] of page.html.matchAll(/\bca-pub-(\d{10,20})\b/g)) {
         const key = `pub-${id}`;
         const on = publishers.get(key) ?? [];
-        if (!on.includes(page.path)) on.push(page.path);
+        // Pages come one at a time, so a repeat can only be the last one pushed.
+        if (on.at(-1) !== page.path) on.push(page.path);
         publishers.set(key, on);
       }
     }
-    if (isFile(join(dist, 'ads.txt'))) checkAdsFile('ads.txt', adPages, publishers);
-    else {
+    if (isFile(join(dist, 'ads.txt'))) {
+      checkAdsFile('ads.txt', adPages, publishers);
+      const served = await wrongType(headersFor, '/ads.txt', 'text/plain');
+      if (served)
+        add({
+          message: `ads.txt is served as ${served}, not text/plain`,
+          severity: 'warn',
+          file: join(dist, 'ads.txt'),
+          fix: 'Serve it as text/plain: add a "Content-Type: text/plain" line for /ads.txt in _headers, or configure the host to send it with that type.',
+        });
+    } else {
       add(
         {
           message: 'no /ads.txt on a site that shows ads',
@@ -269,6 +291,22 @@ export const siteFileFindings = (
         file,
         fix: 'Make it a JSON object with an "applinks", "webcredentials" or "appclips" section, e.g. {"applinks": {"details": [{"appIDs": ["TEAMID.com.example.app"], "components": [{"/": "/*"}]}]}}.',
       });
+    } else {
+      if (rootPath(dist, file) !== '/.well-known/apple-app-site-association')
+        add({
+          message: `apple-app-site-association is at ${rootPath(dist, file)}, not /.well-known/apple-app-site-association`,
+          severity: 'warn',
+          file,
+          fix: 'Move it to .well-known/apple-app-site-association: the root location is legacy, so move the file into the .well-known folder of the build root.',
+        });
+      const served = await wrongType(headersFor, rootPath(dist, file), 'application/json');
+      if (served)
+        add({
+          message: `apple-app-site-association is served as ${served}, not application/json`,
+          severity: 'warn',
+          file,
+          fix: 'Serve it as application/json: add a "Content-Type: application/json" line for that path in _headers, or configure the host to send it with that type.',
+        });
     }
   }
 
@@ -297,6 +335,15 @@ export const siteFileFindings = (
         file,
         fix: 'Make it a JSON array of statements like {"relation": ["delegate_permission/common.handle_all_urls"], "target": {"namespace": "android_app", "package_name": "com.example.app", "sha256_cert_fingerprints": ["…"]}}.',
       });
+    } else {
+      const served = await wrongType(headersFor, rootPath(dist, file), 'application/json');
+      if (served)
+        add({
+          message: `assetlinks.json is served as ${served}, not application/json`,
+          severity: 'warn',
+          file,
+          fix: 'Serve it as application/json: add a "Content-Type: application/json" line for that path in _headers, or configure the host to send it with that type.',
+        });
     }
   }
 

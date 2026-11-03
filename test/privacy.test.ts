@@ -98,7 +98,7 @@ describe('privacy audit', () => {
     const page = `<!doctype html>
 <html lang="en"><head><title>t</title>
 <link rel="stylesheet" href="http://127.0.0.2:${thirdPartyPort}/x.css">
-<script>document.cookie = 'a=1; path=/'</script>
+<script>document.cookie = 'a=1; path=/; SameSite=Strict'</script>
 </head><body><p>hi</p></body></html>`;
     const cwd = fixture({ 'dist/index.html': page, 'dist/about/index.html': page });
     const { results } = await run({
@@ -117,6 +117,7 @@ describe('privacy audit', () => {
     assert.deepEqual(request?.details, [`http://127.0.0.2:${thirdPartyPort}/x.css`]);
     assert.equal(cookie?.message, 'cookie a set on load (127.0.0.1)');
     assert.equal(cookie?.severity, 'warn');
+    assert.deepEqual(cookie?.details, ['session, SameSite=Strict']);
     assert.match(request?.fix ?? '', /privacy\.allow/);
     assert.match(cookie?.fix ?? '', /after consent/);
     for (const finding of result?.findings ?? []) assert.ok(finding.fix?.trim(), finding.message);
@@ -141,20 +142,51 @@ describe('privacy audit', () => {
     assert.notEqual(results[0]?.status, 'errored');
   });
 
+  it('reports third-party requests that still fire with Global Privacy Control set', {
+    skip: noBrowser,
+  }, async () => {
+    const beacon = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'image/gif' });
+      res.end();
+    });
+    const beaconPort = await listen(beacon, '127.0.0.2');
+    after(() => beacon.close());
+
+    const page = `<!doctype html><html lang="en"><head><title>t</title></head>
+<body><img src="http://127.0.0.2:${beaconPort}/pixel.gif" alt=""></body></html>`;
+    const cwd = fixture({ 'dist/index.html': page });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['privacy'],
+      reporters: [],
+      overrides: { port: await freePort(), privacy: { wait: 100 } },
+    });
+    const finding = results[0]?.findings.find(
+      (f) => f.message === 'third-party request to 127.0.0.2 with Global Privacy Control set',
+    );
+    assert.deepEqual(finding?.where, ['/']);
+    assert.match(finding?.fix ?? '', /globalPrivacyControl/);
+  });
+
   it('reports storage written on load', { skip: noBrowser }, async () => {
     const writer = `<!doctype html><html lang="en"><head><title>t</title>
-<script>localStorage.setItem('theme','dark');sessionStorage.setItem('sid','1');indexedDB.open('appdb')</script>
+<script>localStorage.setItem('theme','dark');sessionStorage.setItem('sid','1');indexedDB.open('appdb');
+(async () => { await caches.open('pages'); await navigator.serviceWorker.register('/sw.js'); })()</script>
 </head><body><p>hi</p></body></html>`;
     const quiet =
       '<!doctype html><html lang="en"><head><title>t</title></head><body>hi</body></html>';
     const check = async (page: string) => {
-      const cwd = fixture({ 'dist/index.html': page });
+      const cwd = fixture({
+        'dist/index.html': page,
+        'dist/sw.js': 'self.addEventListener("install", () => {});',
+      });
       const { results } = await run({
         cwd,
         env: {},
         audits: ['privacy'],
         reporters: [],
-        overrides: { port: 0, privacy: { wait: 100 } },
+        overrides: { port: 0, privacy: { wait: 500 } },
       });
       return results[0];
     };
@@ -163,6 +195,11 @@ describe('privacy audit', () => {
     assert.deepEqual(byMessage('localStorage written on load')?.details, ['theme']);
     assert.deepEqual(byMessage('sessionStorage written on load')?.details, ['sid']);
     assert.deepEqual(byMessage('indexedDB written on load')?.details, ['appdb']);
+    assert.deepEqual(byMessage('cacheStorage written on load')?.details, ['pages']);
+    assert.match(
+      byMessage('serviceWorker written on load')?.details?.[0] ?? '',
+      /^http:\/\/[^/]+\/$/,
+    );
     for (const finding of found?.findings ?? []) assert.match(finding.fix ?? '', /consent/);
     assert.equal((await check(quiet))?.findings.length, 0);
   });
@@ -230,6 +267,37 @@ describe('privacy audit', () => {
     assert.equal(warn?.severity, 'warn');
     assert.ok(!missing.some((f) => f.message.includes('after rejecting')));
     for (const finding of [...found, ...missing]) assert.ok(finding.fix?.trim(), finding.message);
+  });
+
+  it('reports third-party requests whose Referer carries the page path', {
+    skip: noBrowser,
+  }, async () => {
+    const pixel = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'image/gif' });
+      res.end();
+    });
+    const pixelPort = await listen(pixel, '127.0.0.2');
+    after(() => pixel.close());
+    const img = `<img src="http://127.0.0.2:${pixelPort}/pixel.gif" alt="">`;
+    const cwd = fixture({
+      'dist/index.html': `<!doctype html><html lang="en"><head><title>t</title></head><body>${img}</body></html>`,
+      'dist/about/index.html': `<!doctype html><html lang="en"><head><title>t</title><meta name="referrer" content="unsafe-url"></head><body>${img}</body></html>`,
+    });
+    const port = await freePort();
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['privacy'],
+      reporters: [],
+      overrides: { port, privacy: { wait: 100, gpc: false } },
+    });
+    const finding = results[0]?.findings.find(
+      (f) => f.message === 'third-party request to 127.0.0.2 sends the page path in Referer',
+    );
+    assert.deepEqual(finding?.where, ['/about/']);
+    assert.deepEqual(finding?.details, [`http://127.0.0.1:${port}/about/`]);
+    assert.equal(finding?.severity, 'warn');
+    assert.match(finding?.fix ?? '', /Referrer-Policy/);
   });
 
   it('follows the top-level allLocales', { skip: noBrowser }, async () => {

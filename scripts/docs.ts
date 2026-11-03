@@ -550,7 +550,9 @@ const injectMdbook = (all: Page[]) => {
           `<link rel="canonical" href="${canonicalUrl(slug)}">`,
           `<meta property="og:url" content="${canonicalUrl(slug)}">`,
           `<meta property="og:title" content="${escapeHtml(page.slug ? h1Of(page.body) || page.title : home.title)}">`,
+          '<meta property="og:type" content="website">',
           `<meta property="og:image" content="${site}/og.png">`,
+          '<meta property="og:image:alt" content="vidimus: pre-publication checks for static websites">',
           '<meta name="twitter:card" content="summary_large_image">',
         ].join('\n')}\n</head>`,
       )

@@ -34,12 +34,14 @@ const infer = async (page: Page, index: number, field: FieldInfo, base: Value) =
   }
   if (typeof base === 'string' && field.type === 'number' && base !== '') {
     const value = Number(base);
+    const unit = field.step === 'any' ? 1e-6 : Number(field.step) > 0 ? Number(field.step) : 1;
+    const at = (k: number) => String(Number((k * unit).toFixed(6)));
     if (field.min === undefined && !(await ok(String(-UPPER)))) {
-      found.min = String(await search(-UPPER, value, String));
+      found.min = at(await search(-UPPER / unit, value / unit, at));
       found.inferred.push('min');
     }
     if (field.max === undefined && !(await ok(String(UPPER)))) {
-      found.max = String(-(await search(-UPPER, -value, (n) => String(-n))));
+      found.max = at(-(await search(-UPPER / unit, -value / unit, (k) => at(-k))));
       found.inferred.push('max');
     }
   }

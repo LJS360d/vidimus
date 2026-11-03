@@ -54,6 +54,19 @@ describe('csp audit', () => {
     assert.equal(await count('', template), 0);
   });
 
+  it('accepts base64url hash sources as equal to the base64 digest', async () => {
+    const body = 'console.log(2)';
+    const digest = createHash('sha256').update(body).digest('base64');
+    const base64url = digest.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const cwd = fixture({
+      'dist/index.html': `<meta http-equiv="content-security-policy" content="script-src 'sha256-${base64url}'">
+<script>${body}</script>`,
+    });
+    const { ok, results } = await run({ cwd, env: {}, audits: ['csp'], reporters: [] });
+    assert.equal(ok, true);
+    assert.equal(results[0]?.findings.length, 0);
+  });
+
   it('flags style attributes, event handlers and javascript: URLs the CSP blocks', async () => {
     const markup = `<p style="color:red" onclick="go()"><a href="javascript:void(0)">x</a></p>`;
     const count = async (policy: string) => {

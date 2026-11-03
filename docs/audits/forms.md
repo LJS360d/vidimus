@@ -1,6 +1,6 @@
 ---
 title: forms
-description: The forms audit finds every form, fills it with valid and invalid values for each rule it can see or infer, and submits it in a network sandbox so nothing reaches a server.
+description: The forms audit fills every form with valid and invalid values for each rule it can see or infer, and submits it in a sandbox so nothing reaches a server.
 ---
 
 # forms: form validation, sandboxed
@@ -52,7 +52,7 @@ Every form gets a stable id, used in findings and report file names:
 
 The audit reads the rules each field declares:
 
-- HTML attributes: `required`, `minlength`, `maxlength`, `min`, `max`, `step`, `pattern`, `type`;
+- HTML attributes: `required`, `minlength`, `maxlength`, `min`, `max`, `step`, `pattern`, `type` (`aria-required` is announced to assistive technology but is not a constraint, so it does not make a field required);
 - **react-hook-form**: the rules passed to `register()` (`required`, `minLength`, `maxLength`, `min`, `max`, `pattern`, `validate`), read from the form's control;
 - **Angular**: field names from `formControlName`, and each control's state from the `ng-valid`/`ng-invalid` classes, in production builds too;
 - the field's meaning from its type, `autocomplete` token, name and label: a `type="text"` field labelled "Email" is tested as an email.
@@ -60,7 +60,7 @@ The audit reads the rules each field declares:
 Then it **infers rules the page does not declare** (Angular `Validators`, Zod or Yup schemas, hand-written checks) by changing one field at a time and reading back whether it was marked invalid:
 
 - `required`: the empty value is rejected;
-- `min` and `max` for numbers, and `minLength` and `maxLength` for free text: found by binary search between a rejected and an accepted value.
+- `min` and `max` for numbers, searched on the field's `step` grid so fractional bounds are found too, and `minLength` and `maxLength` for free text: found by binary search between a rejected and an accepted value.
 
 Inferred rules are listed under `inferred` in the report and get the same cases as declared ones. Findings about them say "rule inferred from the page".
 
@@ -82,7 +82,7 @@ Every field first gets one value it accepts. The audit tries, in order: `forms.v
 
 Plus the whole form: all accepted values, all empty, and a double click on submit. Text values are typed, the last character with real key events, so frameworks see user input and the browser applies `minlength`. If the browser refuses a value (typing past `maxlength`), the case is marked as not testing anything.
 
-For every case the report records each field's state in three layers: the **browser** (`validity`), the **framework** (react-hook-form errors, Angular classes) and the **UI** (`aria-invalid`, error classes such as `is-invalid` or `Mui-error`, and visible error text, such as `[role=alert]` or `.error` right after the field). Then the outcome of pressing submit: `blocked:native` (browser validation), `blocked:script` (the submit handler stopped it), `sent` or `navigated` (a request left the form and the sandbox stopped it), `none` or `not-submitted`.
+For every case the report records each field's state in three layers: the **browser** (`validity`), the **framework** (react-hook-form errors, Angular classes) and the **UI** (`aria-invalid`, error classes such as `is-invalid` or `Mui-error`, and visible error text, such as `[role=alert]` or `.error` right after the field, or the text of `aria-errormessage`; a visible `aria-describedby` hint alone does not make the field invalid). Then the outcome of pressing submit: `blocked:native` (browser validation), `blocked:script` (the submit handler stopped it), `sent` or `navigated` (a request left the form and the sandbox stopped it), `none` or `not-submitted`.
 
 ### The sandbox
 
@@ -191,3 +191,40 @@ export default defineConfig({
 - "valid input sent nothing" means the audit could not find values your form accepts. Give it one in `forms.values`, or, if the form needs an API answer first, use `forms.stub: 'ok'` or `forms.allowRequests`.
 - Client-side validation is for users. The server must check the same rules anyway: anyone can send a request without your form.
 - Each case runs on a freshly loaded page unless the previous case sent nothing and did not submit, so a form with many fields takes a while. `forms.sample` and `forms.skip` keep big sites fast.
+
+## Standards
+
+The standards the audit implements, with the clauses its cases check. The CSRF, plain HTTP, password-in-URL and sandbox checks are audit heuristics, not clauses of a standard.
+
+### WCAG 2.2
+
+[Web Content Accessibility Guidelines 2.2](https://www.w3.org/TR/WCAG22/)
+
+- 1.3.5 Identify Input Purpose: a field that means an e-mail, phone number, URL, postal code or name must carry the matching `autocomplete` token (`email`, `tel`, `url`, `postal-code`, `name`) from the [HTML autofill list](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#autofill). Fields with no `autocomplete` at all are reported in one warning.
+
+### WAI-ARIA 1.2
+
+[WAI-ARIA 1.2](https://www.w3.org/TR/wai-aria-1.2/)
+
+- `aria-invalid="true"`: a field that the framework or the UI marks invalid, while the browser's own validation does not, must carry it. Otherwise it is reported as showing an error without `aria-invalid`.
+- An error is signalled by `aria-errormessage` text and by visible error text (`role=alert`, `aria-live=assertive`, error classes on the field or its nearest ancestors). `aria-describedby` text is not: a hint is not an error.
+
+### HTML Living Standard
+
+[HTML Living Standard](https://html.spec.whatwg.org/multipage/)
+
+- Constraint validation: a value the browser rejects for `required`, `minlength`, `maxlength`, `min`, `max`, `step`, `pattern` or the input type must not leave the form. A sent value is reported as an error (`sent empty while required`, `not matching pattern`, `below min`, and so on).
+- `pattern` (section 4.10.5.3.6): compiled with the `v` flag and anchored as `^(?:...)$`, as the browser does. Pattern cases use only values the compiled pattern rejects.
+- `type="email"` and `type="url"`: malformed samples such as `vidimus@@example.com` or `http://` must be refused by the type check, or by `pattern` when the field has one.
+- `min`, `max` and `step` on number and date fields: the value one step below `min`, the value one step above `max`, and, for number fields with a step other than 1, a value off the step grid.
+- A `required` text field holding only spaces passes the browser check, so it is a warning (`accepts only spaces as a required value`), not an error.
+- A `type="text"` field that looks like a password is a warning: the browser does not mask it.
+
+### Not checked
+
+- WCAG 2.2 3.3.7 Redundant Entry and 3.3.8 Accessible Authentication: no check.
+- 1.3.5 covers only the five purposes above. A field with any `autocomplete` value, even a wrong one, is not flagged. A phone field is tested with one malformed sample only.
+- `aria-required="true"` does not make a field required, since it is not a constraint. Only native `required`, react-hook-form rules and rules inferred from the page count.
+- Inference assumes that a longer or larger value is accepted once a shorter or smaller one is. Rules that do not follow that shape are not reliably found. `min` and `max` are inferred for number fields only; `minLength` and `maxLength` for text-like fields without a `pattern`.
+- Error text is read only from `aria-errormessage` targets, `role=alert`, `aria-live=assertive`, and a fixed list of error selectors and classes. Error text in other markup is not seen.
+- Generated values for `pattern` cover a common subset of pattern syntax (classes, quantifiers, groups). A pattern outside that subset can leave the audit without a valid value, which shows as `valid input sent nothing`.

@@ -22,15 +22,79 @@ export interface BuiltPage {
 
 const blankOut = (match: string) => match.replace(/[^\n]/g, ' ');
 
-export const stripComments = (html: string) =>
-  html.replace(/(<(script|style)\b[^>]*>[\s\S]*?<\/\2\s*>)|<!--[\s\S]*?-->/gi, (match, block) =>
-    block ? match : blankOut(match),
-  );
+const COMMENT_END = /--!?>/g;
+const closers = new Map<string, RegExp>();
+const closerOf = (name: string) => {
+  let closer = closers.get(name);
+  if (!closer) {
+    closer = new RegExp(`</${name}\\s*>`, 'gi');
+    closers.set(name, closer);
+  }
+  return closer;
+};
+
+// Index just past the `>` that ends the open tag starting before `from`, skipping quoted values;
+// -1 when none does.
+const tagEnd = (html: string, from: number) => {
+  for (let i = from; i < html.length; i++) {
+    const char = html[i];
+    if (char === '>') return i + 1;
+    if (char === '"' || char === "'") {
+      const close = html.indexOf(char, i + 1);
+      if (close < 0) return -1;
+      i = close;
+    }
+  }
+  return -1;
+};
+
+// One left-to-right pass, so unclosed openers cost no rescans: comments are blanked (an unclosed
+// one runs to the end), and the contents of the raw-text elements in `raw` are blanked when
+// `blankRaw`, or kept and shielded from comment stripping. An unclosed raw-text element runs to
+// the end of the document, as in the HTML tokenizer.
+const walk = (html: string, raw: string[], blankRaw: boolean) => {
+  const opener = new RegExp(`<!--|<(${raw.join('|')})\\b`, 'gi');
+  let out = '';
+  let pos = 0;
+  for (let match = opener.exec(html); match; match = opener.exec(html)) {
+    const name = match[1]?.toLowerCase();
+    if (!name) {
+      const start = match.index + 4;
+      // `<!-->` and `<!--->` close at once.
+      const quick = /^-?>/.exec(html.slice(start, start + 2));
+      COMMENT_END.lastIndex = start;
+      const close = quick ? null : COMMENT_END.exec(html);
+      const end = quick
+        ? start + quick[0].length
+        : close
+          ? close.index + close[0].length
+          : html.length;
+      out += html.slice(pos, match.index) + blankOut(html.slice(match.index, end));
+      pos = end;
+      opener.lastIndex = end;
+      continue;
+    }
+    const open = tagEnd(html, opener.lastIndex);
+    if (open < 0) break;
+    const closer = closerOf(name);
+    closer.lastIndex = open;
+    const close = closer.exec(html);
+    const bodyEnd = close ? close.index : html.length;
+    const body = html.slice(open, bodyEnd);
+    out += html.slice(pos, open) + (blankRaw ? blankOut(body) : body);
+    pos = bodyEnd;
+    opener.lastIndex = close ? close.index + close[0].length : html.length;
+  }
+  return out + html.slice(pos);
+};
+
+export const stripComments = (html: string) => walk(html, ['script', 'style'], false);
 
 export const stripNonMarkup = (html: string) =>
-  stripComments(html).replace(
-    /(<(script|style|template)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
-    (_, open: string, _name, body: string, close: string) => open + blankOut(body) + close,
+  walk(
+    html,
+    ['script', 'style', 'template', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes'],
+    true,
   );
 
 const TAG =
@@ -41,7 +105,8 @@ const parseAttrs = (source: string) => {
   const attrs: Record<string, string> = {};
   for (const [, name = '', double, single, bare] of source.matchAll(ATTR)) {
     const key = name.toLowerCase();
-    if (!Object.hasOwn(attrs, key)) attrs[key] = decodeEntities(double ?? single ?? bare ?? '');
+    if (!Object.hasOwn(attrs, key))
+      attrs[key] = decodeEntities(double ?? single ?? bare ?? '', true);
   }
   return attrs;
 };
@@ -57,7 +122,10 @@ let parseCacheBytes = 0;
 
 const scan = (stripped: string, wanted?: Set<string>) => {
   const found: Tag[] = [];
-  for (const match of stripped.matchAll(TAG)) {
+  // A tag needs a `>`: past the last one every `<` would scan to the end and fail, which is
+  // quadratic on a long unclosed tail.
+  const markup = stripped.slice(0, stripped.lastIndexOf('>') + 1);
+  for (const match of markup.matchAll(TAG)) {
     const name = (match[1] ?? '').toLowerCase();
     if (wanted && !wanted.has(name)) continue;
     found.push({ name, attrs: parseAttrs(match[2] ?? ''), index: match.index });
@@ -92,6 +160,17 @@ export const tags = (html: string, ...names: string[]): Tag[] => {
   return scan(stripNonMarkup(html), wanted);
 };
 
+const RCDATA = new Set(['title', 'textarea']);
+const elementPatterns = new Map<string, RegExp>();
+const elementPattern = (name: string) => {
+  let pattern = elementPatterns.get(name);
+  if (!pattern) {
+    pattern = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}\\s*>`, 'id');
+    elementPatterns.set(name, pattern);
+  }
+  return pattern;
+};
+
 export const textOf = (html: string, name: string, within?: string) => {
   let { stripped } = parse(html);
   let offset = 0;
@@ -104,12 +183,23 @@ export const textOf = (html: string, name: string, within?: string) => {
     stripped = stripped.slice(from, to);
     offset = from;
   }
-  const match = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}\\s*>`, 'id').exec(stripped);
+  const match = elementPattern(name).exec(stripped);
   const [start, end] = match?.indices?.[1] ?? [];
   if (start === undefined || end === undefined) return undefined;
-  return decodeEntities(html.slice(offset + start, offset + end).replace(/<[^>]*>/g, ''))
-    .replace(/\s+/g, ' ')
-    .trim();
+  const raw = html.slice(offset + start, offset + end);
+  // <title> and <textarea> hold RCDATA: `<` there is text, not a tag or comment.
+  const text = RCDATA.has(name.toLowerCase())
+    ? raw
+    : raw.replace(/<!--(?:-?>|[\s\S]*?(?:--!?>|$))/g, '').replace(/<[^>]*>/g, '');
+  // Strip and collapse ASCII whitespace only, so a U+00A0 from &nbsp; survives.
+  return decodeEntities(text)
+    .replace(/[\t\n\f\r ]+/g, ' ')
+    .replace(/^ | $/g, '');
+};
+
+export const headOf = (html: string) => {
+  const end = parse(html).stripped.search(/<\/head\s*>|<body\b/i);
+  return end < 0 ? html : html.slice(0, end);
 };
 
 export const meta = (html: string, key: string) => {
@@ -188,12 +278,15 @@ export const srcsetUrls = (srcset = '') => {
 };
 
 const ROBOTS_META = new Set(['robots', 'googlebot']);
+const NOINDEX_TOKENS = new Set(['noindex', 'none']);
 
 export const isNoindex = (html: string) =>
   tags(html, 'meta').some(
     ({ attrs }) =>
       ROBOTS_META.has((attrs.name ?? '').toLowerCase()) &&
-      /\b(noindex|none)\b/i.test(attrs.content ?? ''),
+      (attrs.content ?? '')
+        .split(',')
+        .some((token) => NOINDEX_TOKENS.has(token.trim().toLowerCase())),
   );
 
 export const isFile = (path: string) =>
@@ -209,6 +302,7 @@ export const localFile = (dist: string, pathname: string, exact = false) => {
 };
 
 const resolveLocalFile = (dist: string, pathname: string, exact: boolean) => {
+  if (/%2f/i.test(pathname)) return null;
   let decoded: string;
   try {
     decoded = decodeURIComponent(pathname);

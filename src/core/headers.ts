@@ -43,7 +43,7 @@ const MAX_REDIRECTS = 5;
 const request = async (url: string) => {
   const init = { redirect: 'manual', signal: AbortSignal.timeout(FETCH_TIMEOUT) } as const;
   let response = await fetch(url, { ...init, method: 'HEAD' });
-  if (response.status === 405) response = await fetch(url, init);
+  if (response.status >= 400) response = await fetch(url, init);
   await response.body?.cancel();
   return response;
 };

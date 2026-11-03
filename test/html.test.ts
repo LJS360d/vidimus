@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { decodeHtml } from '../src/core/charset.ts';
 import { createPageReader, isNoindex, localFile, meta, tags, textOf } from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
@@ -59,6 +60,14 @@ describe('html audit', () => {
     assert.match(result.findings[0]?.file ?? '', /dist\/index\.html$/);
     assert.ok((result.findings[0]?.line ?? 0) > 0);
     assert.match(result.summary, /^1 pages, \d+ distinct problem\(s\)$/);
+  });
+
+  it('checks ARIA rules from the a11y preset by default', async () => {
+    const result = await audit({
+      'dist/index.html': `<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <title>Page</title>\n  </head>\n  <body aria-hidden="true">\n    <p>hello</p>\n  </body>\n</html>\n`,
+    });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.findings.some(({ message }) => message.startsWith('aria-hidden-body:')));
   });
 
   it('warns when a rule is set to warn', async () => {
@@ -166,10 +175,20 @@ describe('html audit', () => {
     assert.equal(localFile(dist, '/'), null);
   });
 
+  it('does not read %2F as a path separator', () => {
+    const root = fixture({ 'dist/a/b.html': page('<p>nested</p>') });
+    const dist = join(root, 'dist');
+    assert.equal(localFile(dist, '/a/b.html'), join(dist, 'a', 'b.html'));
+    assert.equal(localFile(dist, '/a%2Fb.html'), null);
+    assert.equal(localFile(dist, '/a%2fb'), null);
+  });
+
   it('treats robots content none as noindex', () => {
     assert.equal(isNoindex('<meta name="robots" content="none">'), true);
     assert.equal(isNoindex('<meta name="googlebot" content="noindex, nofollow">'), true);
     assert.equal(isNoindex('<meta name="robots" content="nofollow">'), false);
+    assert.equal(isNoindex('<meta name="robots" content="index, max-image-preview:none">'), false);
+    assert.equal(isNoindex('<meta name="robots" content="max-snippet:50, none">'), true);
   });
 
   it('matches meta by name or property', () => {
@@ -205,6 +224,13 @@ describe('textOf within', () => {
     const pages = createPageReader(dist)();
     assert.match(pages[0]?.html ?? '', /<title>café<\/title>/);
     assert.match(pages[1]?.html ?? '', /<title>café<\/title>/);
+  });
+
+  it('treats a meta utf-16 label without BOM as UTF-8 (WHATWG 13.2.3.2)', () => {
+    const page = Buffer.from('<meta charset="utf-16"><title>café</title>', 'utf8');
+    const dist = join(fixture({ 'dist/a.html': page }), 'dist');
+    const pages = createPageReader(dist)();
+    assert.equal(pages[0]?.html, '<meta charset="utf-16"><title>café</title>');
   });
 });
 
@@ -279,5 +305,60 @@ describe('html audit cache', () => {
     const second = await run({ cwd, env: {}, audits: ['html'], reporters: [] });
     assert.deepEqual(second.results[0]?.findings, first.results[0]?.findings);
     assert.ok(first.results[0]?.findings.length);
+  });
+});
+
+describe('raw text elements', () => {
+  it('does not parse markup inside RCDATA and RAWTEXT elements per WHATWG 13.2.5', () => {
+    for (const name of ['textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes']) {
+      assert.deepEqual(tags(`<${name}><a href="x">y</a></${name}>`, 'a'), [], name);
+    }
+    assert.deepEqual(tags('<title><link rel=canonical href="/x"></title>', 'link'), []);
+    assert.equal(tags('<textarea>x</textarea><a href="y">z</a>', 'a')[0]?.attrs.href, 'y');
+  });
+});
+
+describe('comment termination', () => {
+  it('closes comments on <!--> and <!---> and --!> per WHATWG 13.2.5.43-45', () => {
+    assert.deepEqual(
+      tags('<!--> <img src=a> --><img src=b>', 'img').map(({ attrs }) => attrs.src),
+      ['a', 'b'],
+    );
+    assert.deepEqual(
+      tags('<!---> <img src=a> --><img src=b>', 'img').map(({ attrs }) => attrs.src),
+      ['a', 'b'],
+    );
+    assert.deepEqual(
+      tags('<!-- x --!> <img src=a> --><img src=b>', 'img').map(({ attrs }) => attrs.src),
+      ['a', 'b'],
+    );
+    assert.deepEqual(
+      tags('<!-- <img src=a> --><img src=b>', 'img').map(({ attrs }) => attrs.src),
+      ['b'],
+    );
+  });
+});
+
+describe('decodeHtml', () => {
+  it('reads only charset declarations from <meta> attributes', () => {
+    const bytes = (text: string) => Buffer.from(text, 'latin1');
+    const paragraph = (text: string) => /<p>(.*)<\/p>/.exec(decodeHtml(bytes(text)))?.[1];
+    assert.equal(
+      paragraph('<meta name="d" content="charset=koi8-r"><meta charset="utf-8"><p>\xc3\xa9</p>'),
+      'é',
+    );
+    assert.equal(
+      paragraph(
+        '<meta content="text/html; charset=windows-1252" http-equiv="Content-Type"><p>\xe9</p>',
+      ),
+      'é',
+    );
+    assert.equal(paragraph('<meta charset="bogus"><meta charset=iso-8859-1><p>\xe9</p>'), 'é');
+    assert.equal(paragraph('<!-- <meta charset=koi8-r> --><p>\xc3\xa9</p>'), 'é');
+  });
+
+  it('drops a UTF-8 BOM like the UTF-16 ones', () => {
+    const text = decodeHtml(Buffer.from([0xef, 0xbb, 0xbf, 0x3c, 0x70, 0x3e]));
+    assert.equal(text, '<p>');
   });
 });

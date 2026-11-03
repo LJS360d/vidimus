@@ -36,8 +36,16 @@ const hostings = (json: unknown) => [obj(json).hosting].flat().map(obj);
 const sourceRules = (value: unknown, ignored: string[]) =>
   list(value).flatMap((item) => hostRule(obj(item).source, keyValues(obj(item).headers), ignored));
 
+const conditional = (item: Record<string, unknown>) =>
+  list(item.has).length > 0 || list(item.missing).length > 0;
+
 const parseVercel: HostParser = (text, ignored) =>
-  sourceRules(obj(JSON.parse(text)).headers, ignored);
+  list(obj(JSON.parse(text)).headers).flatMap((item) => {
+    const entry = obj(item);
+    if (!conditional(entry)) return hostRule(entry.source, keyValues(entry.headers), ignored);
+    if (typeof entry.source === 'string') ignored.push(entry.source);
+    return [];
+  });
 
 const parseFirebase: HostParser = (text, ignored) =>
   hostings(JSON.parse(text)).flatMap(({ headers }) => sourceRules(headers, ignored));
@@ -52,6 +60,51 @@ const parseStaticWebApp: HostParser = (text, ignored) => {
   ];
 };
 
+const TOML_ESCAPES: Record<string, string> = {
+  b: '\b',
+  t: '\t',
+  n: '\n',
+  f: '\f',
+  r: '\r',
+  '"': '"',
+  '\\': '\\',
+};
+
+// TOML basic strings: \uXXXX, \UXXXXXXXX and the short escapes; a line-ending backslash in a
+// multi-line string drops the newline and the whitespace after it.
+const unescapeToml = (value: string) =>
+  value.replace(
+    /\\(?:u([\da-fA-F]{4})|U([\da-fA-F]{8})|([btnfr"\\])|[ \t]*\r?\n\s*)/g,
+    (match, u, U, short) =>
+      u || U
+        ? String.fromCodePoint(Number.parseInt(u ?? U, 16))
+        : short
+          ? (TOML_ESCAPES[short] ?? match)
+          : '',
+  );
+
+const TOML_KEY = /^("[^"]+"|[\w-]+)\s*=\s*/;
+
+// Reads the string value starting at `rest` (after `key =`), pulling more lines for a multi-line
+// string. Returns the value and how many extra lines it used.
+const tomlString = (rest: string, lines: string[], at: number) => {
+  for (const quote of ['"""', "'''"]) {
+    if (!rest.startsWith(quote)) continue;
+    let body = rest.slice(3);
+    let used = 0;
+    while (!body.includes(quote) && at + used + 1 < lines.length) {
+      used += 1;
+      body += `\n${lines[at + used]}`;
+    }
+    const raw = body.slice(0, body.indexOf(quote)).replace(/^\r?\n/, '');
+    return { value: quote === '"""' ? unescapeToml(raw) : raw, used };
+  }
+  const basic = /^"((?:[^"\\]|\\.)*)"/.exec(rest);
+  if (basic) return { value: unescapeToml(basic[1] ?? ''), used: 0 };
+  const literal = /^'([^']*)'/.exec(rest);
+  return literal ? { value: literal[1] ?? '', used: 0 } : undefined;
+};
+
 const parseNetlify: HostParser = (text, ignored) => {
   const rules: HeaderRule[] = [];
   let source: string | undefined;
@@ -62,8 +115,9 @@ const parseNetlify: HostParser = (text, ignored) => {
     source = undefined;
     pairs = [];
   };
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const line = (lines[index] ?? '').trim();
     if (!line || line.startsWith('#')) continue;
     if (line.startsWith('[')) {
       inValues = line === '[headers.values]';
@@ -73,11 +127,15 @@ const parseNetlify: HostParser = (text, ignored) => {
       } else if (!inValues) flush();
       continue;
     }
-    const entry = line.match(/^("[^"]+"|[\w-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/);
-    if (!entry?.[1] || source === undefined) continue;
-    const value = entry[2] ?? entry[3] ?? '';
-    if (inValues) pairs.push([entry[1].replace(/^"|"$/g, ''), value]);
-    else if (entry[1] === 'for') source = value;
+    const key = TOML_KEY.exec(line);
+    if (!key?.[1] || source === undefined) continue;
+    const parsed = tomlString(line.slice(key[0].length), lines, index);
+    if (!parsed) continue;
+    index += parsed.used;
+    // A multi-line header value is folded to one line, as a header cannot carry newlines.
+    const value = parsed.value.replace(/\s*\n\s*/g, ' ').trim();
+    if (inValues) pairs.push([key[1].replace(/^"|"$/g, ''), value]);
+    else if (key[1] === 'for') source = value;
   }
   flush();
   return rules;

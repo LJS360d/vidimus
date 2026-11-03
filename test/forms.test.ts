@@ -129,6 +129,8 @@ describe('forms cases', () => {
   it('reads what a field means from its autocomplete token, name and label', () => {
     const kind = (overrides: Partial<FieldInfo>) => kindOf(field(overrides));
     assert.equal(kind({ autocomplete: 'shipping tel' }), 'tel');
+    assert.equal(kind({ autocomplete: 'email webauthn' }), 'email');
+    assert.equal(kind({ autocomplete: 'Current-Password webauthn ' }), 'password');
     assert.equal(kind({ autocomplete: 'url' }), 'url');
     assert.equal(kind({ autocomplete: 'new-password' }), 'password');
     assert.equal(kind({ autocomplete: 'postal-code' }), 'postal');
@@ -139,6 +141,22 @@ describe('forms cases', () => {
     assert.equal(kind({ name: 'full_name' }), 'name');
     assert.equal(kind({ name: 'username' }), 'text');
     assert.equal(kind({ type: 'url' }), 'url');
+  });
+
+  it('matches kinds on whole words so product, file and hardware names are not personal data', () => {
+    const kind = (overrides: Partial<FieldInfo>) => kindOf(field(overrides));
+    assert.equal(kind({ name: 'microphone' }), 'text');
+    assert.equal(kind({ name: 'headphones' }), 'text');
+    assert.equal(kind({ name: 'unzip' }), 'text');
+    assert.equal(kind({ label: 'Product name' }), 'text');
+    assert.equal(kind({ name: 'company_name' }), 'text');
+    assert.equal(kind({ name: 'fileName' }), 'text');
+    assert.equal(kind({ name: 'user_name' }), 'text');
+    assert.equal(kind({ name: 'phoneNumber' }), 'tel');
+    assert.equal(kind({ name: 'cell_phone' }), 'tel');
+    assert.equal(kind({ name: 'zipCode' }), 'postal');
+    assert.equal(kind({ label: 'Postal code' }), 'postal');
+    assert.equal(kind({ name: 'lastname' }), 'name');
   });
 
   it('generates values for patterns it understands and declines the rest', () => {
@@ -618,7 +636,7 @@ document.getElementById('widgets').addEventListener('submit', (event) => {
       overrides: { port: await freePort(), forms: { settle: 100 } },
     });
     const found = JSON.stringify(results[0]?.findings);
-    assert.match(found, /note sent empty while required/, found);
+    assert.doesNotMatch(found, /note sent empty while required/, found);
     assert.match(found, /\\"note\\":\\"Hello from vidimus/, found);
     assert.match(found, /\\"tags\\":\[\\"a\\"\]/, found);
     assert.match(found, /\\"color\\":\[\\"red\\"\]/, found);
@@ -879,6 +897,70 @@ form.addEventListener('submit', (e) => {
     assert.equal(outcome('baseline'), 'sent');
     assert.equal(outcome('username=minlength-1 (2)'), 'blocked:script');
     assert.equal(outcome('age=max+1 "121"'), 'blocked:script');
+  });
+
+  it('infers fractional min and max for numbers instead of rounding to integers', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="qty" novalidate>
+  <label>Quantity <input type="number" name="qty" step="any"></label>
+  <button>Save</button>
+</form>
+<script>
+const form = document.getElementById('qty');
+const ok = (v) => Number(v) >= 0.5 && Number(v) <= 9.5;
+form.addEventListener('blur', (e) => {
+  if (e.target.name) {
+    e.target.classList.toggle('is-invalid', !ok(e.target.value));
+    e.target.setAttribute('aria-invalid', String(!ok(e.target.value)));
+  }
+}, true);
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (ok(form.elements.qty.value)) fetch('/api/save', { method: 'POST', body: new FormData(form) });
+});
+</script>`),
+    });
+    await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const qty = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/qty.json'), 'utf8')).fields.find(
+      (f: { key: string }) => f.key === 'qty',
+    );
+    assert.deepEqual(qty.inferred, ['required', 'min', 'max']);
+    assert.deepEqual([qty.min, qty.max], ['0.5', '9.5']);
+  });
+
+  it('does not read a visible aria-describedby hint as an error', { skip: noBrowser }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(`
+<form id="subscribe" action="/api/subscribe" method="post">
+  <label>Email <input type="email" name="email" aria-describedby="hint"></label>
+  <small id="hint">We never share your email.</small>
+  <button>Subscribe</button>
+</form>`),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['forms'],
+      reporters: [],
+      overrides: { port: await freePort(), forms: { settle: 100 } },
+    });
+    const subscribe = JSON.parse(readFileSync(join(cwd, '.vidimus/forms/subscribe.json'), 'utf8'));
+    const email = subscribe.fields.find((f: { key: string }) => f.key === 'email');
+    assert.ok(!(email.inferred ?? []).includes('required'), JSON.stringify(email.inferred));
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.ok(
+      !messages.some((m) => m.includes('shows an error without aria-invalid')),
+      messages.join('\n'),
+    );
   });
 
   it('reports every declared rule a form sends anyway', { skip: noBrowser }, async () => {

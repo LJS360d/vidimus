@@ -1,10 +1,32 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { a11y, issueFix } from '../src/audits/a11y.ts';
+import { a11y, issueFix, techniqueUrl } from '../src/audits/a11y.ts';
 import { defaults } from '../src/config/defaults.ts';
 import { fixture } from './helpers.ts';
 
 describe('a11y audit', () => {
+  it('links technique codes to the WCAG 2.2 Techniques index path (WCAG 2.2 Recommendation)', () => {
+    assert.equal(
+      techniqueUrl('WCAG2AA.Principle1.Guideline1_4.1_4_3.G18.Fail'),
+      'https://www.w3.org/WAI/WCAG22/Techniques/general/G18',
+    );
+    assert.equal(
+      techniqueUrl('WCAG2AA.Principle1.Guideline1_1.1_1_1.H37'),
+      'https://www.w3.org/WAI/WCAG22/Techniques/html/H37',
+    );
+    assert.equal(
+      techniqueUrl('WCAG2AA.Principle4.Guideline4_1.4_1_2.ARIA6'),
+      'https://www.w3.org/WAI/WCAG22/Techniques/aria/ARIA6',
+    );
+  });
+
+  it('documents that the audit checks WCAG 2.0 and 2.1 criteria but not WCAG 2.2', () => {
+    const doc = readFileSync(new URL('../docs/audits/a11y.md', import.meta.url), 'utf8');
+    assert.match(doc, /select the WCAG 2\.1 success criteria at that level/);
+    assert.match(doc, /WCAG 2\.2 success criteria are not checked/);
+  });
+
   it('ignores a failing page close after a clean audit', async () => {
     const cwd = fixture({});
     const page = {

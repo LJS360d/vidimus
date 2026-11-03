@@ -94,7 +94,7 @@ export const createReporters = (
       case 'junit':
         return junit(write, verbose);
       case 'sarif':
-        return sarif(write, verbose, cwd);
+        return sarif(write, verbose, env.GITHUB_WORKSPACE || cwd);
       case 'html':
         return html(write, verbose);
       default:

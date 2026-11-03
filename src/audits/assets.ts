@@ -18,7 +18,9 @@ const changePasswordRedirects = async (origin: string) => {
     signal: AbortSignal.timeout(CHANGE_PASSWORD_TIMEOUT),
   }).catch(() => undefined);
   await response?.body?.cancel();
-  return response && (response.status < 400 || response.type === 'opaqueredirect')
+  return response &&
+    (response.type === 'opaqueredirect' ||
+      (response.status >= 300 && response.status < 400 && response.headers.has('location')))
     ? ['/.well-known/change-password']
     : [];
 };
@@ -28,7 +30,7 @@ export const assets: Audit = {
   description:
     'favicon, web manifest, Open Graph image, 404 page, and ads.txt, change-password and app links when the site needs them',
   requires: 'dist',
-  async run({ config, renderedPages, dist, log }) {
+  async run({ config, renderedPages, dist, log, headersFor }) {
     const options = config.assets;
     const pages = (await renderedPages(config.exclude)).filter(
       (page) => !matchesAny(options.exclude, page.path),
@@ -59,13 +61,14 @@ export const assets: Audit = {
     const origin = config.origin.replace(/\/$/, '');
     if (origin && options.changePassword !== 'off')
       redirects.push(...(await changePasswordRedirects(origin)));
-    for (const { finding, where } of siteFileFindings(
+    for (const { finding, where } of await siteFileFindings(
       pages,
       dist,
       config.siteUrl,
       options,
       log,
       redirects,
+      headersFor,
     )) {
       if (!where.length) report(finding);
       for (const path of where) report(finding, path);

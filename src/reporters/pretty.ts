@@ -104,7 +104,8 @@ export const pretty = (
         counted.filter((result) => status.includes(result.status)).map(({ name }) => name);
       const failed = named(['failed', 'errored']);
       const warned = named(['warned']);
-      const line = `vidimus: ${counted.length - failed.length}/${counted.length} passed${
+      const passed = counted.filter(({ status }) => status === 'passed').length;
+      const line = `vidimus: ${passed}/${counted.length} passed${
         warned.length ? ` — warnings: ${warned.join(', ')}` : ''
       }${failed.length ? ` — failed: ${failed.join(', ')}` : ''}`;
       out();

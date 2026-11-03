@@ -31,13 +31,13 @@ Pages matched by the top-level `exclude` or `budget.exclude` are skipped.
 Only files in the build count; URLs on other origins are ignored, and absolute URLs on
 `siteUrl` are resolved to the build. Each file counts once per page, however often the page
 references it. SVG, JSON, XML, text and WebAssembly files are measured gzipped, as servers
-compress them (set `budget.compression` to `brotli` or `none` to change that); a `.br` or `.gz` file next to the asset in the build, such as `app.js.br`, is used instead and counts by its size on disk; other files (PNG, JPEG, WebP, AVIF, GIF, fonts, video, audio) are measured raw.
+compress them (set `budget.compression` to `brotli` or `none` to change that); a file next to the asset in the build with the codec's extension (`app.js.gz` for `gzip`, `app.js.br` for `brotli`, none for `none`) is used instead and counts by its size on disk; other files (PNG, JPEG, WebP, AVIF, GIF, fonts, video, audio) are measured raw.
 
 | Kind | Files | Measured |
 | --- | --- | --- |
 | `html` | the page itself | gzipped |
 | `css` | `<link rel="stylesheet">` | gzipped |
-| `js` | `<script src>` and `<link rel="modulepreload">` | gzipped |
+| `js` | `<script src>` (not `nomodule`) and `<link rel="modulepreload">` | gzipped |
 | images | one per `<img>`: its `src`, else its first `srcset` candidate | gzipped for SVG, raw bytes otherwise |
 | `page` | all of the above | sum of the sizes above |
 
@@ -60,7 +60,7 @@ type, while fonts, media and `fetch` requests (models, data) count toward `page`
   a `<source>` that has `type="image/avif"` or `type="image/webp"`, or `.avif` or `.webp` files
   in its `srcset`.
 - **Dimensions** (`budget.dimensions`): an `<img>` without both `width` and `height` warns with
-  `<img src="…"> has no width and height (layout shift)`. Images with a `data:` URL and images
+  `<img src="…"> has no width and height (layout shift)`. Both attributes must parse as numbers, as browsers read them for the aspect ratio (WHATWG rules for parsing dimension values: `100` and `100px` count), so values such as `100%` or `auto` do not. Images with a `data:` URL and images
   with `aspect-ratio` in their inline `style` are exempt. When vidimus can read the image's
   intrinsic size (PNG, JPEG, GIF, WebP, AVIF, and SVG with `width`/`height` or `viewBox`), the
   fix includes the exact attributes to add.
@@ -190,3 +190,82 @@ For JavaScript over budget, the three largest files in the finding are where to 
 heavy libraries (charts, editors, maps) dynamically on the pages that need them, and check for
 duplicates of the same dependency. For HTML over budget, look for inlined SVG sprites, large
 inline JSON (hydration state) and long lists that could be paginated.
+
+## Standards
+
+The audit follows these specifications. Each link points to the specification itself.
+
+### gzip (RFC 1952)
+
+[gzip (RFC 1952)](https://www.rfc-editor.org/rfc/rfc1952)
+
+- Text files are sized as a gzip member at zlib's default level when `budget.compression` is `gzip`.
+
+### Brotli (RFC 7932)
+
+[Brotli (RFC 7932)](https://www.rfc-editor.org/rfc/rfc7932)
+
+- Text files are sized as a brotli stream at quality 5 when `budget.compression` is `brotli`.
+
+### HTML embedded content
+
+[HTML embedded content](https://html.spec.whatwg.org/multipage/embedded-content.html)
+
+- `srcset` is split into candidate URLs at whitespace and commas, keeping parenthesised text together; `w` and `x` descriptors are dropped, not used to pick a candidate.
+- Every `srcset` candidate of an `<img>`, and every `<source>` inside a `<picture>`, is checked against `budget.image`.
+- `width` and `height` count only when both start with a number (leading whitespace skipped, trailing text such as `px` ignored) that is not a percentage, so `100%` and `auto` fail the dimensions check.
+
+### PNG (W3C PNG 3rd edition)
+
+[PNG (W3C PNG 3rd edition)](https://www.w3.org/TR/png-3/)
+
+- Only the first four signature bytes are checked. The chunk type at byte 12 must be `IHDR`, and width and height are its big-endian `uint32` values at bytes 16 and 20.
+
+### GIF89a
+
+[GIF89a](https://www.w3.org/Graphics/GIF/spec-gif89a.txt)
+
+- Files starting with `GIF8` take width and height from the logical screen descriptor, little-endian `uint16` at bytes 6 and 8.
+
+### JPEG (ITU-T T.81)
+
+[JPEG (ITU-T T.81)](https://www.w3.org/Graphics/JPEG/itu-t81.pdf)
+
+- The first start-of-frame marker from SOF0 to SOF15, excluding DHT (C4), JPG (C8) and DAC (CC), gives the image size: height at bytes 5 and 6 and width at bytes 7 and 8 after the `0xFF` marker byte.
+- While scanning, `0xFF` fill bytes are skipped, and the markers that carry no length (SOI, TEM and RSTn) are stepped over.
+
+### Exif orientation (CIPA DC-008)
+
+[Exif orientation (CIPA DC-008)](https://www.cipa.jp/e/std/std-sec.html)
+
+- In a JPEG `APP1` block that starts with `Exif\0\0`, orientation tag `0x0112` with a value from 5 to 8 swaps width and height.
+
+### WebP container (RIFF)
+
+[WebP container (RIFF)](https://developers.google.com/speed/webp/docs/riff_container)
+
+- `VP8 ` reads 14-bit width and height at bytes 26 and 28; `VP8L` requires signature `0x2F` at byte 20 and reads 14-bit width and height; `VP8X` reads a 24-bit canvas size plus one.
+
+### AVIF (AV1 Image File Format)
+
+[AVIF (AV1 Image File Format)](https://aomediacodec.github.io/av1-avif/)
+
+- A file is read as AVIF only when the `ftyp` major brand or a compatible brand is `avif` or `avis`.
+- Size comes from the `ispe` property of the primary item, found through `pitm`, `iprp` and `ipma`. If the primary item has no `ispe`, the file's only `ispe` is used; with several, no size is read.
+- An `irot` of 90 or 270 degrees swaps width and height.
+
+### SVG 2
+
+[SVG 2](https://www.w3.org/TR/SVG2/)
+
+- Width and height are read from the first `<svg>` tag in the first 4 KB. Values in unitless numbers or `px` count; other units fall back to `viewBox`.
+- With a four-number `viewBox`, a lone `width` or `height` gives the other side from the viewBox aspect ratio.
+
+### Not checked
+
+- Browser candidate choice: the page total counts `src`, or else the first `srcset` candidate, not the candidate the browser picks for the device pixel ratio and viewport. The `sizes` attribute is not read.
+- Declared `width` and `height` are checked for form only, not against the image's intrinsic size.
+- Formats outside the list in Dimensions, such as HEIC and JPEG XL, get no suggested attributes.
+- EXIF orientation is read from JPEG only. PNG `eXIf` and WebP `EXIF` chunks are ignored.
+- AVIF `imir` and `clap` are not applied, and files without an `avif` or `avis` brand are not read as AVIF.
+- Compressed sizes are computed locally at the settings above, not taken from the bytes a given server or CDN sends.

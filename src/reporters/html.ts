@@ -76,6 +76,7 @@ export const toHtml = (report: RunReport, verbose = false) => {
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vidimus ${date}</title>
 <style>

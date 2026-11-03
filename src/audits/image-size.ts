@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 
-type ImageType = 'png' | 'gif' | 'jpeg' | 'webp' | 'avif' | 'svg';
+type ImageType = 'png' | 'gif' | 'jpeg' | 'webp' | 'avif' | 'ico' | 'svg';
 
 export interface ImageSize {
   width: number;
@@ -134,6 +134,8 @@ const primaryIspe = (buffer: Buffer) => {
   const wideFlags = (byte(buffer, ipma.body + 3) & 1) === 1;
   const count = buffer.readUInt32BE(ipma.body + 4);
   const properties = boxes(buffer, ipco.body, ipco.end);
+  let ispe: number | undefined;
+  let quarterTurn = false;
   let at = ipma.body + 8;
   for (let entry = 0; entry < count; entry++) {
     const idSize = version >= 1 ? 4 : 2;
@@ -147,25 +149,49 @@ const primaryIspe = (buffer: Buffer) => {
       if (id !== primary) continue;
       const slot = wideFlags ? buffer.readUInt16BE(at) & 0x7fff : byte(buffer, at) & 0x7f;
       const property = properties[slot - 1];
-      if (property?.type === 'ispe' && property.body + 12 <= property.end) return property.body;
+      if (property?.type === 'ispe' && property.body + 12 <= property.end) {
+        ispe ??= property.body;
+      }
+      if (property?.type === 'irot' && property.body < property.end) {
+        quarterTurn ||= [1, 3].includes(byte(buffer, property.body) & 3);
+      }
     }
   }
-  return undefined;
+  return ispe === undefined ? undefined : { at: ispe, quarterTurn };
 };
 
-const avif = (buffer: Buffer) => {
-  let at: number | undefined;
+const avif = (buffer: Buffer, partial: boolean) => {
+  let primary: { at: number; quarterTurn: boolean } | undefined;
   try {
-    at = primaryIspe(buffer);
+    primary = primaryIspe(buffer);
   } catch {
-    at = undefined;
+    primary = undefined;
   }
-  if (at === undefined) {
+  if (primary === undefined) {
+    // A lone 'ispe' only proves there is no other one when the whole file is in view.
+    if (partial) return undefined;
     const first = buffer.indexOf('ispe', 0, 'latin1');
-    if (first < 0 || first + 16 > buffer.length) return undefined;
-    at = first + 4;
+    if (first < 0 || buffer.indexOf('ispe', first + 1, 'latin1') >= 0) return undefined;
+    if (first + 16 > buffer.length) return undefined;
+    primary = { at: first + 4, quarterTurn: false };
   }
-  return sized(buffer.readUInt32BE(at + 4), buffer.readUInt32BE(at + 8), 'avif');
+  const width = buffer.readUInt32BE(primary.at + 4);
+  const height = buffer.readUInt32BE(primary.at + 8);
+  return primary.quarterTurn ? sized(height, width, 'avif') : sized(width, height, 'avif');
+};
+
+const ico = (buffer: Buffer) => {
+  if (buffer.length < 6) return undefined;
+  const count = buffer.readUInt16LE(4);
+  let largest: ImageSize | undefined;
+  for (let at = 6; at + 16 <= buffer.length && at < 6 + count * 16; at += 16) {
+    const width = byte(buffer, at) || 256;
+    const height = byte(buffer, at + 1) || 256;
+    if (!largest || width * height > largest.width * largest.height) {
+      largest = { width, height, type: 'ico' };
+    }
+  }
+  return largest;
 };
 
 const svgLength = (value: string | undefined) => {
@@ -191,25 +217,45 @@ const svg = (buffer: Buffer) => {
     .map(Number);
   if (box?.length !== 4) return undefined;
   const [, , boxWidth = 0, boxHeight = 0] = box;
+  if (boxWidth <= 0 || boxHeight <= 0) return undefined;
+  // Round the derived side so it can equal a declared integer size (`sizes`, og:image:height).
+  if (width) return sized(width, Math.round((width * boxHeight) / boxWidth), 'svg');
+  if (height) return sized(Math.round((height * boxWidth) / boxHeight), height, 'svg');
   return sized(boxWidth, boxHeight, 'svg');
 };
 
+// Headers sit at the start: read 64 KiB first and the whole file only when that is not enough
+// (a JPEG with large metadata before its SOF, an AVIF whose meta box is further in).
+const HEAD_BYTES = 64 * 1024;
+
 export const imageSizeOf = (file: string) => {
   try {
-    return imageSize(readFileSync(file));
+    const fd = openSync(file, 'r');
+    let head: Buffer;
+    let size: number;
+    try {
+      size = fstatSync(fd).size;
+      head = Buffer.alloc(Math.min(size, HEAD_BYTES));
+      readSync(fd, head, 0, head.length, 0);
+    } finally {
+      closeSync(fd);
+    }
+    if (size <= HEAD_BYTES) return imageSize(head);
+    return imageSize(head, true) ?? imageSize(readFileSync(file));
   } catch {
     return undefined;
   }
 };
 
-export const imageSize = (buffer: Buffer): ImageSize | undefined => {
+export const imageSize = (buffer: Buffer, partial = false): ImageSize | undefined => {
   if (buffer.length < 4) return undefined;
   if (buffer.readUInt32BE(0) === 0x89504e47) return png(buffer);
+  if (buffer.readUInt32LE(0) === 0x00010000) return ico(buffer);
   if (ascii(buffer, 0, 4) === 'GIF8') return gif(buffer);
   if (buffer[0] === 0xff && buffer[1] === 0xd8) return jpeg(buffer);
   if (ascii(buffer, 0, 4) === 'RIFF' && ascii(buffer, 8, 12) === 'WEBP') return webp(buffer);
   if (buffer.length >= 16 && ascii(buffer, 4, 8) === 'ftyp' && avifBrand(buffer)) {
-    return avif(buffer);
+    return avif(buffer, partial);
   }
   return svg(buffer);
 };

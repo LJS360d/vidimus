@@ -14,6 +14,8 @@ const codecs = {
   none: undefined,
 };
 
+const siblings = { gzip: '.gz', brotli: '.br', none: undefined };
+
 const fontSources = (css: string) =>
   [...css.matchAll(/@font-face\s*{[^}]*}/gi)].flatMap((face) => {
     const sources = [
@@ -25,10 +27,10 @@ const fontSources = (css: string) =>
 
 export const createMeasures = (compression: VidimusConfig['budget']['compression']) => {
   const codec = codecs[compression];
+  const sibling = siblings[compression];
   const raw = memo((file) => statSync(file).size);
   const gzipped = memo((file) => {
-    const sibling = ['.br', '.gz'].find((ext) => existsSync(file + ext));
-    if (sibling) return raw(file + sibling);
+    if (sibling && existsSync(file + sibling)) return raw(file + sibling);
     return codec ? codec(readFileSync(file)).length : raw(file);
   });
   return {

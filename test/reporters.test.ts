@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 import { subtractBaseline } from '../src/core/findings.ts';
+import type { AuditStatus } from '../src/core/types.ts';
 import { createReporters, loadConfig, type RunReport, runAudits } from '../src/index.ts';
 import { annotation, github } from '../src/reporters/github.ts';
 import { toHtml } from '../src/reporters/html.ts';
@@ -97,6 +98,14 @@ describe('html reporter', () => {
     assert.match(out, /do the fix/);
     for (const { name } of report.results) assert.ok(out.includes(name));
   });
+
+  it('ships a CSP meta that blocks scripts and external resources', () => {
+    const out = toHtml(report);
+    assert.match(
+      out,
+      /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">/,
+    );
+  });
 });
 
 describe('sarif reporter', () => {
@@ -132,6 +141,29 @@ describe('sarif reporter', () => {
     assert.equal(results[1]?.level, 'warning');
     assert.equal(results[1]?.locations, undefined);
   });
+
+  it('gives every rule the short, full and help text GitHub requires', () => {
+    const log = toSarif({
+      ...report,
+      results: [
+        {
+          name: 'links',
+          status: 'passed',
+          summary: 'all good',
+          findings: [],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    const [rule] = log.runs[0]?.tool.driver.rules ?? [];
+    const text = 'no broken internal links, assets or external targets';
+    assert.equal(rule?.id, 'links');
+    assert.equal(rule?.shortDescription.text, text);
+    assert.equal(rule?.fullDescription.text, text);
+    assert.equal(rule?.help.text, text);
+  });
 });
 
 describe('junit reporter', () => {
@@ -143,7 +175,7 @@ describe('junit reporter', () => {
     assert.match(xml, /<skipped message="not configured"\/>/);
   });
 
-  it('counts failure elements as rendered', () => {
+  it('counts errored audit findings as errors, not failures', () => {
     const xml = toJUnit({
       ...report,
       results: [
@@ -158,10 +190,10 @@ describe('junit reporter', () => {
         },
       ],
     });
-    const rendered = xml.match(/<failure\b/g)?.length ?? 0;
-    assert.equal(rendered, 1);
-    assert.match(xml, /<testsuites [^>]*failures="1"/);
-    assert.match(xml, /<testsuite name="a11y" [^>]*failures="1"/);
+    assert.equal(xml.match(/<failure\b/g)?.length ?? 0, 0);
+    assert.equal(xml.match(/<error\b/g)?.length ?? 0, 1);
+    assert.match(xml, /<testsuites [^>]*tests="1" failures="0" errors="1"/);
+    assert.match(xml, /<testsuite name="a11y" [^>]*failures="0" errors="1"/);
   });
 });
 
@@ -204,6 +236,24 @@ describe('junit reporter edge cases', () => {
     });
     assert.match(xml, /rocket 🚀 bell "/);
   });
+
+  it('keeps newlines in attribute values as character references (XML §3.3.3)', () => {
+    const xml = toJUnit({
+      ...report,
+      results: [
+        {
+          name: 'seo',
+          status: 'failed',
+          summary: 'x',
+          findings: [{ message: 'a\nb\tc\rd' }],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    assert.match(xml, /message="a&#10;b&#9;c&#13;d"/);
+  });
 });
 
 describe('github reporter', () => {
@@ -216,6 +266,10 @@ describe('github reporter', () => {
     assert.equal(
       annotation('t', 'm', join('/repo', 'site', 'dist', 'a.html'), 'error', '/repo'),
       '::error file=site/dist/a.html,title=t::m\n',
+    );
+    assert.equal(
+      annotation('t', 'm', join('dist', 'a.html'), 'error', '/elsewhere/repo'),
+      '::error file=dist/a.html,title=t::m\n',
     );
   });
 });
@@ -268,6 +322,44 @@ describe('pretty reporter', () => {
     assert.match(output, /→ shorten the <title>/);
     assert.match(output, /2 ignored or accepted/);
     assert.match(output, /failed: links, a11y/);
+  });
+});
+
+describe('pretty footer', () => {
+  it('counts only passed audits as passed, not warned ones', async () => {
+    const { stream, text } = sink();
+    const reporter = pretty(stream);
+    const results: RunReport['results'] = [
+      {
+        name: 'csp',
+        status: 'passed',
+        summary: 'ok',
+        findings: [],
+        suppressed: 0,
+        log: [],
+        durationMs: 1,
+      },
+      {
+        name: 'seo',
+        status: 'warned',
+        summary: 'long',
+        findings: [],
+        suppressed: 0,
+        log: [],
+        durationMs: 1,
+      },
+      {
+        name: 'links',
+        status: 'failed',
+        summary: 'bad',
+        findings: [],
+        suppressed: 0,
+        log: [],
+        durationMs: 1,
+      },
+    ];
+    await reporter.onEnd?.({ ...report, results });
+    assert.match(text(), /vidimus: 1\/3 passed — warnings: seo — failed: links/);
   });
 });
 
@@ -330,6 +422,40 @@ describe('github reporter output', () => {
       readFileSync(summary, 'utf8'),
       /\| seo \| errored \| Error: bad input \\\| x<br>at line 2<br>at line 3 \|\n/,
     );
+  });
+
+  it('escapes pipes in step summary names and statuses and caps the step at 1 MiB', () => {
+    const { stream } = sink();
+    const summary = join(fixture({}), 'summary.md');
+    const reporter = github(stream, { GITHUB_STEP_SUMMARY: summary });
+    reporter.onEnd?.({
+      ...report,
+      results: [
+        {
+          name: 'a|b',
+          status: 'failed|x' as AuditStatus,
+          summary: 'ok',
+          findings: [],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+        {
+          name: 'big',
+          status: 'passed',
+          summary: 'z'.repeat(2 * 1024 * 1024),
+          findings: [],
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    const written = readFileSync(summary, 'utf8');
+    assert.match(written, /\| a\\\|b \| failed\\\|x \| ok \|\n/);
+    assert.ok(Buffer.byteLength(written) <= 1024 * 1024);
+    assert.match(written, /truncated to fit the 1 MiB step limit/);
+    assert.match(written, /\|\n\n_Summary truncated/, 'cuts at a whole row');
   });
 
   it('writes warnings with file, details, pages and fix, and no summary outside Actions', () => {
@@ -429,6 +555,18 @@ describe('createReporters', () => {
     assert.match(readFileSync(join(cwd, 'out/r.html'), 'utf8'), /<!doctype html>/);
     assert.match(readFileSync(join(cwd, 'out/r.sarif'), 'utf8'), /"version": "2.1.0"/);
   });
+
+  it('roots sarif locations at GITHUB_WORKSPACE, like github annotations', async () => {
+    const cwd = fixture({});
+    const [reporter] = createReporters(['sarif:out.sarif'], {
+      cwd,
+      env: { GITHUB_WORKSPACE: '/repo' },
+    });
+    await reporter?.onEnd?.(report);
+    const run = JSON.parse(readFileSync(join(cwd, 'out.sarif'), 'utf8')).runs[0];
+    assert.equal(run.originalUriBaseIds['%SRCROOT%'].uri, 'file:///repo/');
+    assert.equal(run.invocations[0].workingDirectory.uri, 'file:///repo/');
+  });
 });
 
 describe('verbose reports', () => {
@@ -490,7 +628,7 @@ describe('config redaction', () => {
             localStorage: { token: 'secret' },
           },
         },
-        server: { command: 'TOKEN=abc123 npm start' },
+        server: { command: 'TOKEN=abc123 npm start -- --api-token xyz789 --port 8080' },
       },
     });
     await runAudits(
@@ -506,10 +644,57 @@ describe('config redaction', () => {
       ],
     );
     const text = JSON.stringify(seen?.detail?.config);
-    assert.doesNotMatch(text, /secret|abc123/);
+    assert.doesNotMatch(text, /secret|abc123|xyz789/);
+    assert.match(text, /--api-token <redacted> --port 8080/);
     assert.match(text, /"sid"/);
     assert.match(text, /"token":"<redacted>"/);
     assert.match(text, /TOKEN=<redacted> npm start/);
+  });
+});
+
+describe('sarif schema', () => {
+  it('points $schema at the OASIS SARIF 2.1.0 schema per the OASIS spec', () => {
+    const log = toSarif(report);
+    assert.equal(
+      log.$schema,
+      'https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json',
+    );
+  });
+});
+
+describe('sarif partialFingerprints', () => {
+  it('gives every result a versioned primaryLocationLineHash per SARIF 3.5.4.2', () => {
+    const findings = [
+      { message: 'same', file: 'dist/a.html' },
+      { message: 'same', file: 'dist/a.html' },
+      { message: 'other', file: 'dist/a.html' },
+    ];
+    const log = toSarif({
+      ...report,
+      results: [
+        {
+          name: 'links',
+          status: 'failed',
+          summary: 'x',
+          findings,
+          suppressed: 0,
+          log: [],
+          durationMs: 1,
+        },
+      ],
+    });
+    const hashes = (log.runs[0]?.results ?? []).map(
+      (r) => r.partialFingerprints.primaryLocationLineHash,
+    );
+    assert.equal(hashes.length, 3);
+    for (const hash of hashes) assert.match(hash, /^[0-9a-f]{64}:\d$/);
+    // Identical findings share the hash and differ in the occurrence count.
+    assert.equal(hashes[0]?.replace(/:\d$/, ''), hashes[1]?.replace(/:\d$/, ''));
+    assert.deepEqual(
+      hashes.map((hash) => hash.slice(-2)),
+      [':1', ':2', ':1'],
+    );
+    assert.notEqual(hashes[0], hashes[2]);
   });
 });
 
@@ -527,6 +712,8 @@ describe('sarif locations', () => {
             findings: [
               { message: 'a', file: '/repo/src/a.astro' },
               { message: 'b', where: ['/blog/'] },
+              { message: 'c', file: '/elsewhere/x.html' },
+              { message: 'd', where: ['/../../etc/x'] },
             ],
             suppressed: 0,
             log: [],
@@ -548,8 +735,58 @@ describe('sarif locations', () => {
     );
     const run = log.runs[0];
     const uris = run?.results.map((r) => r.locations?.[0]?.physicalLocation.artifactLocation.uri);
-    assert.deepEqual(uris, ['src/a.astro', 'dist/blog/index.html']);
+    assert.deepEqual(uris, ['src/a.astro', 'dist/blog/index.html', undefined, undefined]);
     assert.equal(run?.originalUriBaseIds['%SRCROOT%'].uri, 'file:///repo/');
     assert.equal(run?.invocations[0]?.toolExecutionNotifications[0]?.message.text, 'links: boom');
+  });
+
+  it('percent-encodes each path segment of artifactLocation.uri per RFC 3986', () => {
+    const log = toSarif(
+      {
+        ...report,
+        results: [
+          {
+            name: 'links',
+            status: 'failed',
+            summary: 'x',
+            findings: [{ message: 'a', file: 'dist/my page/a#b?.html' }],
+            suppressed: 0,
+            log: [],
+            durationMs: 1,
+          },
+        ],
+      },
+      false,
+      '/repo',
+    );
+    const uri = log.runs[0]?.results[0]?.locations?.[0]?.physicalLocation.artifactLocation.uri;
+    assert.equal(uri, 'dist/my%20page/a%23b%3F.html');
+  });
+
+  it('places a site-wide finding without file or where on the dist index.html', () => {
+    const log = toSarif(
+      {
+        ...report,
+        distDir: '/repo/dist',
+        results: [
+          {
+            name: 'robots',
+            status: 'failed',
+            summary: 'x',
+            findings: [{ message: 'no robots.txt' }],
+            suppressed: 0,
+            log: [],
+            durationMs: 1,
+          },
+        ],
+      },
+      false,
+      '/repo',
+    );
+    assert.deepEqual(log.runs[0]?.results[0]?.locations, [
+      {
+        physicalLocation: { artifactLocation: { uri: 'dist/index.html', uriBaseId: '%SRCROOT%' } },
+      },
+    ]);
   });
 });

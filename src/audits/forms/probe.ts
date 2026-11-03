@@ -372,9 +372,7 @@ export const probe = (skip: string[]) => {
       label: labelOf(el),
       autocomplete: el.getAttribute('autocomplete') ?? '',
       usable: (els as HTMLInputElement[]).some(usable),
-      required:
-        (els as HTMLInputElement[]).some((e) => e.required) ||
-        el.getAttribute('aria-required') === 'true',
+      required: (els as HTMLInputElement[]).some((e) => e.required),
       minLength: number('minlength'),
       maxLength: number('maxlength'),
       min: attr('min'),
@@ -537,16 +535,14 @@ export const probe = (skip: string[]) => {
           : Object.keys(Object.getPrototypeOf(el.validity)).filter(
               (flag) => flag !== 'valid' && el.validity[flag as keyof ValidityState],
             );
-        const ids =
-          `${el.getAttribute('aria-describedby') ?? ''} ${el.getAttribute('aria-errormessage') ?? ''}`
+        const texts = (attr: string) =>
+          (el.getAttribute(attr) ?? '')
             .split(/\s+/)
+            .filter(Boolean)
+            .map((id) => visibleText(document.getElementById(id)))
             .filter(Boolean);
-        const messages = [
-          ...new Set([
-            ...ids.map((id) => visibleText(document.getElementById(id))).filter(Boolean),
-            ...(owners.get(key) ?? []),
-          ]),
-        ];
+        const errors = [...new Set([...texts('aria-errormessage'), ...(owners.get(key) ?? [])])];
+        const messages = [...new Set([...texts('aria-describedby'), ...errors])];
         let ui = false;
         for (
           let node: Element | null = el, depth = 0;
@@ -570,7 +566,7 @@ export const probe = (skip: string[]) => {
               : 'n/a',
           flags,
           framework: frameworkState(el),
-          ui: ui || ariaInvalid || messages.length ? 'invalid' : 'valid',
+          ui: ui || ariaInvalid || errors.length ? 'invalid' : 'valid',
           ariaInvalid,
           messages,
         };

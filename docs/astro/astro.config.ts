@@ -22,7 +22,15 @@ export default defineConfig({
           tag: 'link',
           attrs: { rel: 'apple-touch-icon', href: `${base}${path}apple-touch-icon.png` },
         },
+        { tag: 'meta', attrs: { property: 'og:type', content: 'website' } },
         { tag: 'meta', attrs: { property: 'og:image', content: `${site}/og.png` } },
+        {
+          tag: 'meta',
+          attrs: {
+            property: 'og:image:alt',
+            content: 'vidimus: pre-publication checks for static websites',
+          },
+        },
       ],
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
       customCss: ['./src/styles/custom.css'],

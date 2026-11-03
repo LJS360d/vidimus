@@ -121,7 +121,8 @@ export const seo: Audit = {
 
       emitAll(jsonLdFindings(html, path));
 
-      const canonical = canonicalOf(page, site);
+      const link = headers.get(path)?.link;
+      const canonical = canonicalOf(page, site, link);
       if (canonical.file && canonical.file !== page.file) {
         canonicalized.add(page);
         pointers.push({ page, kind: 'canonical', file: canonical.file, href: canonical.href });
@@ -131,7 +132,7 @@ export const seo: Audit = {
       }
       if (options.canonical) emitAll(canonicalFindings(path, site, canonical));
 
-      const hreflang = hreflangOf(page, site);
+      const hreflang = hreflangOf(page, site, link);
       emitAll(hreflang.findings);
       pointers.push(...hreflang.pointers);
       alternates.set(page.file, hreflang.targets);

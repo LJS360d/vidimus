@@ -1,6 +1,6 @@
 ---
 title: Serving the build
-description: What the built-in static server does and does not do, and how to serve the build with your host's own tool (wrangler, firebase, netlify, vercel, nginx, Apache, Caddy) through server.command.
+description: "What the built-in static server does and does not do, and how to serve the build with your host's own tool through server.command."
 ---
 
 # Serving the build
@@ -25,9 +25,10 @@ It is a plain file server:
 
 - maps `/about/` to `about/index.html`, and `/about` to `about`, `about/index.html` or
   `about.html`, whichever exists; `/about` redirects to `/about/` when it resolves to
-  `about/index.html`
+  `about/index.html`, with `cache-control: no-cache` so browsers revalidate it after the directory changes
 - answers anything else with `404 Not found`, or with `server.fallback`
-- sets `content-type` from the file extension, gzips text responses (`server.gzip`)
+- answers methods other than `GET` and `HEAD` with `405 Method Not Allowed` and `Allow: GET, HEAD`
+- sets `content-type` from the file extension, gzips text responses (`server.gzip`) and sends `Vary: Accept-Encoding` on them, merged with any `vary` from `server.headers`
 - sends the headers of the `server.headers` rules that match the request path
 
 The details, `server.fallback` for single-page apps and base paths are in
@@ -197,3 +198,79 @@ site with `--origin`; see [CI](./ci).
 For a host without a local tool (S3 and CloudFront, Render, a CDN in front of object storage),
 deploy to a preview or staging URL and audit it with `--origin`. The page list still comes from
 the build, so audit the same build you deployed.
+
+## Standards
+
+The built-in server follows these standards. Each case names its clause.
+
+### HTTP Semantics
+
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)
+
+- RFC 9110 §9.3.2: `HEAD` gets the same status and headers as `GET`, with no body.
+- RFC 9110 §12.5.3: gzip is sent only when `Accept-Encoding` gives `gzip` or `x-gzip` a q-value above 0, or gives `*` one when no gzip entry is listed; `gzip;q=0` is refused.
+- RFC 9110 §12.5.5: compressible responses carry `Vary: accept-encoding`, merged with a configured `vary`.
+- RFC 9110 §10.2.2 and §15.4.2: the directory redirect is a `301` with an absolute-path `Location`, and keeps the query string.
+- RFC 9110 §15.5.5: a path with no file and no fallback gets `404`.
+- RFC 9110 §15.6.1: a failure before any status is sent (for example a file that cannot be opened) gets `500`; a read error after `200` has started aborts the connection instead of ending the body normally.
+
+### HTTP Caching
+
+[RFC 9111](https://www.rfc-editor.org/rfc/rfc9111)
+
+- RFC 9111 §4.2.2: the directory `301` carries `cache-control: no-cache`, because a 301 is heuristically cacheable.
+
+### HTTP/1.1 Message Syntax
+
+[RFC 9112](https://www.rfc-editor.org/rfc/rfc9112)
+
+- RFC 9112 §3.2.1: an origin-form target starting with `//` is a path, so `GET //contact.html` serves `/contact.html`, not host `contact.html`.
+
+### URI
+
+[RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)
+
+- RFC 3986 §2.2: `%2F` is data, not a separator, so `/a%2Fb.html` gets `404` and never reads `dist/a/b.html`.
+- RFC 3986 §2.1: a malformed escape or a NUL byte in the path gets `404`; after decoding, a path that resolves outside `distDir` gets `404`.
+
+### URL Standard
+
+[URL Standard](https://url.spec.whatwg.org/)
+
+- WHATWG URL: request targets are parsed with `new URL`, so dot segments are resolved before lookup (`/a/../about/` is looked up as `/about/`).
+
+### HTML Standard
+
+[HTML Standard](https://html.spec.whatwg.org/multipage/)
+
+- WHATWG HTML §13.2.3.2: a byte order mark sets the charset (utf-8, utf-16le or utf-16be); otherwise the first `<meta charset>` (or `http-equiv` content type) sets it, and that charset goes into the served `Content-Type`.
+- WHATWG HTML §13.2.3.2: a `<meta charset="utf-16">` without a byte order mark is read as utf-8.
+
+### Encoding Standard
+
+[Encoding Standard](https://encoding.spec.whatwg.org/)
+
+- WHATWG Encoding: charset labels resolve through the WHATWG label table (`TextDecoder`) and are served by their encoding name (`latin1` is served as `windows-1252`); a label the table does not know is skipped, and with none the file is served as `utf-8`.
+
+### MIME Sniffing
+
+[MIME Sniffing](https://mimesniff.spec.whatwg.org/)
+
+- WHATWG MIME Sniffing: an extension missing from the built-in table is sent as `application/octet-stream`, which browsers do not render as a document.
+
+### IANA Media Types
+
+[IANA media types](https://www.iana.org/assignments/media-types/)
+
+- Each table entry uses a registered essence, for example `image/vnd.microsoft.icon` for `.ico`, `audio/wave` for `.wav`, `text/csv` for `.csv`, `text/calendar` for `.ics`, and `text/markdown` (RFC 7763) for `.md`.
+- RFC 9239: `.js` and `.mjs` are `text/javascript`.
+- RFC 8259 §11: `.json` and `.map` are `application/json`, with no charset parameter.
+
+**Not checked**
+
+- RFC 9110 §14.2 and §13: `Range` and conditional requests (`ETag`, `If-None-Match`) are ignored, and every hit is a `200` with no validators.
+- Fetch Standard: no `Access-Control-Allow-Origin` is sent, so a font or module from another origin fails in a real browser under the built-in server.
+- `X-Content-Type-Options` is not set by the built-in server; header rules are checked by the [security](./audits/security) audit.
+- `/about/index` answers `200` as well as `/about`, with the same content and no canonical hint.
+- `.xhtml` is served as `application/xhtml+xml` without charset detection; `.htm` is detected like `.html`.
+- `.exr` is sent as `image/x-exr`, because IANA has no registered name for it.

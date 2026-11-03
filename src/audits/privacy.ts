@@ -1,6 +1,6 @@
 import type { Audit } from '../core/types.ts';
 import { inParallel, onePagePerTemplate, pathOf } from '../core/util.ts';
-import { newCollected, visitPage } from './privacy/collect.ts';
+import { newCollected, visitGpc, visitPage } from './privacy/collect.ts';
 import { privacyFindings, privacySummary } from './privacy/findings.ts';
 import { firstPartyHostsOf } from './privacy/hosts.ts';
 
@@ -19,9 +19,11 @@ export const privacy: Audit = {
     const collected = newCollected();
     const browser = await launchBrowser();
     try {
-      await inParallel(concurrency, urls, (url) =>
-        visitPage(browser, config, firstParty, collected, url, pathOf(url, origin)),
-      );
+      await inParallel(concurrency, urls, async (url) => {
+        const path = pathOf(url, origin);
+        await visitPage(browser, config, firstParty, collected, url, path);
+        if (config.privacy.gpc) await visitGpc(browser, config, firstParty, collected, url, path);
+      });
     } finally {
       await browser.close();
     }

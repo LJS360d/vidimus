@@ -27,12 +27,13 @@ It is part of the default set.
 
 linkinator starts from every built page of the default locale (every locale with `--all-locales`), follows the links it finds on pages of the audited origin, and checks each target it encounters: `<a href>`, `<img src>`, `srcset`, `<link href>`, `<script src>` and the other URL attributes linkinator understands. Links to pages that are not in the start list, such as translated pages, are still followed when a checked page links to them.
 
-A target counts as broken when linkinator reports it `BROKEN`: an HTTP error status, or no response at all (a DNS failure, a refused connection, a timeout).
+A target counts as broken when linkinator reports it `BROKEN`: an HTTP error status, no response at all (a DNS failure, a refused connection, a timeout), or, with `links.checkFragments`, a `#fragment` that matches no id on the target page. A fragment failure carries the page's own status, usually `200`.
 
 - **Internal links** are requested from the local server, so they are checked against the files in the build.
 - **Absolute links to your own site** (`https://example.org/about/`) are rewritten onto the audit origin when `siteUrl` is set, so they are checked against the build too, not against the version currently in production. Without `siteUrl` they are checked as external links.
 - **External links** are requested from the internet when `links.checkExternal` is `true` (the default). Their pages are not crawled further. With `checkExternal: false`, every URL outside the audit origin and `siteUrl` is skipped.
 - **Skipped links**: any URL matching a pattern in `links.skip`. `mailto:` and `tel:` are skipped by default.
+- **Malformed fragments**: a link whose `#fragment` is not valid percent-encoding (such as `#%E0%A4%A`) is checked without its fragment, because linkinator cannot parse it: the link is reported only when the page itself fails (`404 /missing/#%E0%A4%A`). Browsers accept such links and ignore the fragment.
 
 Each broken target is one finding, however many pages link to it. The message is the status code (or `ERR` when there was no response) and the URL; `on:` lists the pages that link to it, or `(root)` when a start page itself failed.
 
@@ -75,7 +76,7 @@ Internal targets are shown on the audit origin (`http://127.0.0.1:4322/…`), si
 | `links.timeout` | `20000` | ms per request |
 | `links.retry` | `true` | retry `429` responses (after their `retry-after`), `5xx` responses and failed requests |
 | `links.concurrency` | `25` | requests in flight at the same time |
-| `links.checkFragments` | `false` | verify that `#fragment` links match an id on the target page |
+| `links.checkFragments` | `false` | verify that `#fragment` links match an id or `<a name>` on the target page; known gap: an `<a id>` whose `href="#x"` also counts as a target for `#x`, so such fragments pass |
 | `links.checkCss` | `false` | also check URLs referenced from CSS |
 | `links.warnRedirects` | `false` | report links that redirect, as warnings that name the final URL |
 | `links.notFound.selector` | `''` | with rendering: a CSS selector of the app's not-found view |
@@ -139,3 +140,45 @@ export default defineConfig({
 - Sites such as LinkedIn, Instagram and some news sites refuse automated requests. Add them to `links.skip` rather than removing the links.
 - If every internal link fails, check `siteUrl` and the base path: a site built for `https://example.org/docs/` is served under `/docs/` on the audit origin. See [Troubleshooting](../troubleshooting).
 - External checks depend on the network of the machine running vidimus. In [CI](../ci), a scheduled run with `checkExternal: true` and pull request runs with it off is a common split.
+
+## Standards
+
+### HTTP Semantics (RFC 9110)
+
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)
+
+- A `4xx` or `5xx` response, or a request that gets no response, is reported as broken (§15.5 client errors, §15.6 server errors).
+- A `3xx` redirect is followed; it is reported as a warning naming the final URL only with `links.warnRedirects` (§15.4).
+- A `429` response is retried when `links.retry` is on, after the delay in its `Retry-After` header when one is sent (§10.2.3).
+
+### URI (RFC 3986)
+
+[RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)
+
+- A `%2F` in a path is data, not a separator (§2.2, §6.2.2.2): `/a%2Fb.html` does not match `dist/a/b.html` on the built-in server or in the not-found check.
+
+### URL Standard (WHATWG)
+
+[URL Standard](https://url.spec.whatwg.org/)
+
+- A link is internal when its origin (scheme, host and port) equals the audit origin. The not-found check looks only at internal links.
+
+### HTML Standard (WHATWG)
+
+[HTML Standard](https://html.spec.whatwg.org/multipage/)
+
+- `<base>`: the first `<base>` with an `href` sets the base URL. On pages served by the built-in server, an earlier `<base>` without `href` is removed before linkinator reads the page, so it does not hide the real base.
+- Fragments, with `links.checkFragments`: a `#fragment` matches an element `id` (case-sensitive) or an `<a name>`. `#top` is always valid, in any case.
+
+### mailto and tel (RFC 6068, RFC 3966)
+
+[RFC 6068](https://www.rfc-editor.org/rfc/rfc6068), [RFC 3966](https://www.rfc-editor.org/rfc/rfc3966)
+
+- Links with a scheme other than `http:` or `https:` are never requested, so `mailto:` and `tel:` targets are not fetched.
+
+### Not checked
+
+- Targets are checked by HTTP status only. A page that answers `200` with an error body passes.
+- The `<base>` fix applies only to pages the built-in server serves. With `--origin` or `server.command`, an href-less `<base>` placed before a `<base href>` still hides the real base from linkinator.
+- With `links.checkFragments`, a permalink anchor (`<a id="x" href="#y">`) counts as a target for `#y`, so such fragments pass.
+- The syntax of `mailto:` and `tel:` links is not validated (RFC 6068, RFC 3966); they are only skipped.

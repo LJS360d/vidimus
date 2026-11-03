@@ -246,7 +246,10 @@ export interface VidimusConfig {
     timeout: number;
     checkExternal: boolean;
     retry: boolean;
-    /** Verify that `#fragment` links match an id on the target page. */
+    /**
+     * Verify that `#fragment` links match an id or `<a name>` on the target page. Known gap: an
+     * `<a id>` with an `href="#x"` also counts as a target for `#x`, so such fragments pass.
+     */
     checkFragments: boolean;
     /** Also check URLs referenced from CSS (`url(...)`). */
     checkCss: boolean;
@@ -285,6 +288,8 @@ export interface VidimusConfig {
     sample: Pattern[];
     allLocales: boolean;
     cookies: boolean;
+    /** Load each page again with Global Privacy Control set and report third-party requests that still fire. */
+    gpc: boolean;
     wait: number;
     /** CSS selector of the consent banner's reject button. When set, the audit clicks it and reports cookies, storage and third-party requests that remain after rejection. Empty disables the check. */
     rejectSelector: string;
@@ -304,7 +309,7 @@ export interface VidimusConfig {
     rules: Record<string, unknown>;
   };
   budget: {
-    /** How text files (HTML, CSS, JS, SVG, JSON) are compressed before measuring. A `.br` or `.gz` file next to an asset in the build is used instead, by its size on disk. */
+    /** How text files (HTML, CSS, JS, SVG, JSON) are compressed before measuring. A `.gz` (gzip) or `.br` (brotli) file of the same name next to an asset in the build is used instead, by its size on disk. */
     compression: 'gzip' | 'brotli' | 'none';
     exclude: Pattern[];
     html: number;

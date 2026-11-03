@@ -1,7 +1,7 @@
-import { extname } from 'node:path';
 import { localFile } from '../core/html.ts';
 import type { RenderedPage } from '../core/render.ts';
-import { RENDERED_HEADER } from '../core/server.ts';
+import { isPagePath } from '../core/routes.ts';
+import { LINKS_HEADER, RENDERED_HEADER } from '../core/server.ts';
 import type { Audit, Finding } from '../core/types.ts';
 import { escapeRegExp, pathOf } from '../core/util.ts';
 
@@ -25,6 +25,17 @@ export const brokenLinkFix = (status: number | undefined, url = '') => {
   return 'Check the target is up, raise links.timeout or enable links.retry, or add a pattern to links.skip if it is flaky.';
 };
 
+const malformedFragment = (link: string) => {
+  const hash = link.indexOf('#');
+  if (hash < 0) return false;
+  try {
+    decodeURIComponent(link.slice(hash + 1));
+    return false;
+  } catch {
+    return true;
+  }
+};
+
 const parentPath = (parent: string | undefined, origin: string) =>
   parent ? pathOf(parent, origin) : '(root)';
 
@@ -38,7 +49,7 @@ const routeLinks = (pages: RenderedPage[], origin: string, dist: string) => {
       if (url.origin !== audited) continue;
       const path = pathOf(href, origin);
       const hashRoute = url.hash.startsWith('#/');
-      if (!hashRoute && (extname(path) || localFile(dist, path))) continue;
+      if (!hashRoute && (!isPagePath(path) || localFile(dist, path))) continue;
       const key = `${url.origin}${url.pathname}${url.search}${hashRoute ? url.hash : ''}`;
       const target = targets.get(key) ?? {
         display: `${path}${url.search}${hashRoute ? url.hash : ''}`,
@@ -72,6 +83,7 @@ export const links: Audit = {
     const broken: LinkResult[] = [];
     const redirected = new Map<string, string>();
     const parents = new Map<string, Set<string>>();
+    const suspect: LinkResult[] = [];
     let scanned = 0;
 
     checker.on('redirect', ({ url, targetUrl }: { url: string; targetUrl?: string }) => {
@@ -82,7 +94,11 @@ export const links: Audit = {
       const set = parents.get(result.url) ?? new Set();
       set.add(parentPath(result.parent, origin));
       parents.set(result.url, set);
-      if (result.state === 'BROKEN') broken.push(result);
+      if (result.state !== 'BROKEN') return;
+      // linkinator gives up on a malformed %-fragment before fetching; browsers ignore the
+      // fragment, so only the page itself is re-checked below.
+      if (malformedFragment(result.url)) suspect.push(result);
+      else broken.push(result);
     });
 
     await checker.check({
@@ -95,7 +111,7 @@ export const links: Audit = {
       checkCss: config.links.checkCss,
       checkFragments: config.links.checkFragments,
       redirects: config.links.warnRedirects ? 'warn' : 'allow',
-      ...(snapshots && { headers: { [RENDERED_HEADER]: '1' } }),
+      headers: { [LINKS_HEADER]: '1', ...(snapshots && { [RENDERED_HEADER]: '1' }) },
       urlRewriteExpressions: site
         ? [{ pattern: new RegExp(`^${escapeRegExp(site)}(?=[/?#]|$)`), replacement: origin }]
         : [],
@@ -104,10 +120,36 @@ export const links: Audit = {
         ...(config.links.checkExternal
           ? []
           : [
-              `^(?!${[escapeRegExp(origin), site && `${escapeRegExp(site)}(?=[/?#]|$)`].filter(Boolean).join('|')})`,
+              `^(?!${[`${escapeRegExp(origin)}(?=[/?#]|$)`, site && `${escapeRegExp(site)}(?=[/?#]|$)`].filter(Boolean).join('|')})`,
             ]),
       ],
     });
+
+    const pageStatus = new Map<string, Promise<number>>();
+    const statusOf = (url: string) => {
+      let status = pageStatus.get(url);
+      if (!status) {
+        status = fetch(url, {
+          headers: { [LINKS_HEADER]: '1' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(config.links.timeout),
+        })
+          .then((response) => {
+            void response.body?.cancel();
+            return response.status;
+          })
+          .catch(() => 0);
+        pageStatus.set(url, status);
+      }
+      return status;
+    };
+    for (const result of suspect) {
+      // linkinator leaves the unparseable URL as written, so resolve it against its page.
+      const page = result.url.slice(0, result.url.indexOf('#'));
+      const base = result.parent ?? `${origin}/`;
+      const status = URL.canParse(page, base) ? await statusOf(new URL(page, base).href) : 0;
+      if (status === 0 || status >= 400) broken.push({ ...result, status });
+    }
 
     const byTarget = new Map<string, { status: number | undefined; sources: Set<string> }>();
     for (const result of broken) {

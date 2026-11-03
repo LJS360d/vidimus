@@ -62,6 +62,26 @@ describe('site files detected from the pages', () => {
     assert.deepEqual(result.findings[0]?.where, ['/blog/']);
   });
 
+  it('warns when _headers serves ads.txt as a type other than text/plain', async () => {
+    const result = await audit({
+      'dist/index.html': page('', ADSENSE),
+      'dist/ads.txt': 'google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n',
+      'dist/_headers': '/ads.txt\n  Content-Type: text/html; charset=utf-8\n',
+    });
+    assert.deepEqual(result.messages, [
+      'warn: ads.txt is served as text/html; charset=utf-8, not text/plain',
+    ]);
+  });
+
+  it('accepts ads.txt served as text/plain', async () => {
+    const result = await audit({
+      'dist/index.html': page('', ADSENSE),
+      'dist/ads.txt': 'google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n',
+      'dist/_headers': '/ads.txt\n  Content-Type: text/plain; charset=utf-8\n',
+    });
+    assert.deepEqual(result.messages, []);
+  });
+
   it('ignores advertiser pixels', async () => {
     const pixel = '<script src="https://www.googleadservices.com/pagead/conversion.js"></script>';
     const result = await audit({ 'dist/index.html': page('', pixel) });
@@ -175,6 +195,37 @@ describe('site files detected from the pages', () => {
     assert.deepEqual(invalid.messages, [
       'error: apple-app-site-association is not valid',
       'error: assetlinks.json is not valid',
+    ]);
+  });
+
+  it('warns when the apple-app-site-association file is only at the site root', async () => {
+    const head = '<meta name="apple-itunes-app" content="app-id=1">';
+    const result = await audit({
+      'dist/index.html': page('', head),
+      'dist/apple-app-site-association': JSON.stringify({ applinks: { details: [] } }),
+    });
+    assert.deepEqual(result.messages, [
+      'warn: apple-app-site-association is at /apple-app-site-association, not /.well-known/apple-app-site-association',
+    ]);
+  });
+
+  it('warns when _headers serves the app association files as a type other than JSON', async () => {
+    const head =
+      '<meta name="apple-itunes-app" content="app-id=1"><meta name="google-play-app" content="app-id=x">';
+    const result = await audit({
+      'dist/index.html': page('', head),
+      'dist/_headers':
+        '/.well-known/apple-app-site-association\n  Content-Type: text/plain\n/.well-known/assetlinks.json\n  Content-Type: application/json; charset=utf-8\n',
+      'dist/.well-known/apple-app-site-association': JSON.stringify({ applinks: { details: [] } }),
+      'dist/.well-known/assetlinks.json': JSON.stringify([
+        {
+          relation: ['delegate_permission/common.handle_all_urls'],
+          target: { namespace: 'android_app' },
+        },
+      ]),
+    });
+    assert.deepEqual(result.messages, [
+      'warn: apple-app-site-association is served as text/plain, not application/json',
     ]);
   });
 

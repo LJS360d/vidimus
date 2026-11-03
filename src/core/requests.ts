@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, posix } from 'node:path';
 import { linksWithRel, localFile, srcsetUrls, stripComments, tags } from './html.ts';
-import { stripBase } from './util.ts';
+import { basePathOf, stripBase } from './util.ts';
+
+const ORIGIN = 'http://vidimus.invalid';
 
 export interface Request {
   kind: string;
@@ -10,6 +12,7 @@ export interface Request {
   certain: boolean;
   from: string;
   source: string;
+  tag?: { nonce?: string; integrity?: string };
 }
 
 interface Ref {
@@ -18,11 +21,12 @@ interface Ref {
   via: string;
   certain?: boolean;
   follow?: 'js' | 'css';
+  tag?: { nonce?: string; integrity?: string };
 }
 
 const INLINE = /<(script|style)\b(?![^>]*\ssrc\s*=)([^>]*)>([\s\S]*?)<\/\1\s*>/dgi;
-const NONCE = /\bnonce\s*=\s*["']?([^"'\s>]+)/i;
-const SCRIPT_TYPE = /\btype\s*=\s*["']?([^"'\s>]*)/i;
+const NONCE = /(?:^|\s)nonce\s*=\s*["']?([^"'\s>]+)/i;
+const SCRIPT_TYPE = /(?:^|\s)type\s*=\s*["']?([^"'\s>]*)/i;
 const EXECUTABLE =
   /^(|module|importmap|speculationrules|(text|application)\/(x-)?(java|ecma|j)script(1\.\d)?)$/i;
 
@@ -121,11 +125,27 @@ const cssRequests = (css: string): Ref[] => {
   return refs;
 };
 
+const documentBase = (html: string, page: URL) => {
+  const href = tags(html, 'base').find(({ attrs }) => attrs.href !== undefined)?.attrs.href;
+  if (href === undefined) return page;
+  try {
+    return new URL(href.trim(), page);
+  } catch {
+    return page;
+  }
+};
+
 const htmlRequests = (html: string): Ref[] => {
   const refs: Ref[] = [];
-  const add = (ref: string | undefined, kind: string, via: string, follow?: 'js' | 'css') => {
+  const add = (
+    ref: string | undefined,
+    kind: string,
+    via: string,
+    follow?: 'js' | 'css',
+    tag?: { nonce?: string; integrity?: string },
+  ) => {
     if (ref?.trim() && !SKIPPED.test(ref.trim()))
-      refs.push({ kind, ref: ref.trim(), via, certain: true, follow });
+      refs.push({ kind, ref: ref.trim(), via, certain: true, follow, tag });
   };
   for (const tag of tags(html)) {
     const { name, attrs } = tag;
@@ -136,7 +156,10 @@ const htmlRequests = (html: string): Ref[] => {
       add(attrs.src, 'media', '<source>');
       for (const url of srcsetUrls(attrs.srcset)) add(url, 'img', '<source srcset>');
     } else if (name === 'script') {
-      add(attrs.src, 'script', '<script>', 'js');
+      add(attrs.src, 'script', '<script>', 'js', {
+        nonce: attrs.nonce,
+        integrity: attrs.integrity,
+      });
     } else if (name === 'audio' || name === 'video' || name === 'track') {
       add(attrs.src, 'media', `<${name}>`);
       if (name === 'video') add(attrs.poster, 'img', '<video poster>');
@@ -146,6 +169,10 @@ const htmlRequests = (html: string): Ref[] => {
       add(attrs.src, 'object', '<embed>');
     } else if (name === 'form') {
       add(attrs.action, 'form', '<form action>');
+    } else if (name === 'input' && (attrs.type ?? '').toLowerCase() === 'image') {
+      add(attrs.src, 'img', '<input type=image>');
+    } else if (name === 'image') {
+      add(attrs.href, 'img', '<image>');
     }
     if (attrs.style) refs.push(...cssRequests(attrs.style).filter(({ follow }) => !follow));
   }
@@ -155,6 +182,7 @@ const htmlRequests = (html: string): Ref[] => {
     ['apple-touch-icon', 'img'],
     ['manifest', 'manifest'],
     ['modulepreload', 'script'],
+    ['prefetch', 'prefetch'],
   ] as const) {
     for (const { attrs } of linksWithRel(html, rel))
       add(
@@ -162,6 +190,7 @@ const htmlRequests = (html: string): Ref[] => {
         kind,
         `<link rel="${rel}">`,
         rel === 'stylesheet' ? 'css' : rel === 'modulepreload' ? 'js' : undefined,
+        rel === 'stylesheet' || rel === 'modulepreload' ? { nonce: attrs.nonce } : undefined,
       );
   }
   const preloads: Record<string, string> = {
@@ -201,10 +230,17 @@ export const createRequestScanner = (dist: string, siteUrl: string) => {
     const file = localFile(dist, path);
     return file && !file.endsWith('.html') ? file : null;
   };
-  const locate = (ref: string, from: string) => {
+  const anchor = (from: string) => new URL(`${basePathOf(siteUrl)}${from}`, ORIGIN);
+  const locate = (ref: string, base: URL) => {
     if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(ref)) return null;
-    const target = ref.replace(/[?#].*$/, '');
-    const path = target.startsWith('/') ? sitePath(target) : posix.join(dirname(from), target);
+    let url: URL;
+    try {
+      url = new URL(ref, base);
+    } catch {
+      return null;
+    }
+    if (url.origin !== ORIGIN) return null;
+    const path = sitePath(url.pathname);
     const file = exists(path);
     return file ? { file, path } : null;
   };
@@ -230,7 +266,7 @@ export const createRequestScanner = (dist: string, siteUrl: string) => {
       }
     } else {
       for (const ref of refs.filter(({ follow }) => follow)) {
-        const found = locate(ref.ref, path);
+        const found = locate(ref.ref, anchor(path));
         if (found) follows.push(found);
       }
     }
@@ -251,9 +287,11 @@ export const createRequestScanner = (dist: string, siteUrl: string) => {
         certain: ref.certain ?? false,
         from,
         source,
+        tag: ref.tag,
       });
+    const document = documentBase(html, anchor(pagePath));
     const enqueue = (ref: Ref) => {
-      const found = ref.follow && locate(ref.ref, pagePath);
+      const found = ref.follow && locate(ref.ref, document);
       if (found && ref.follow) queue.push({ ...found, lang: ref.follow });
     };
 
@@ -268,7 +306,9 @@ export const createRequestScanner = (dist: string, siteUrl: string) => {
         enqueue(ref);
       }
     }
-    for (let i = 0; i < queue.length && visited.size < 1000; i += 1) {
+    // `visited` bounds the walk by the files in the build, and scans are cached across pages, so
+    // no cap: a cap silently dropped every request past the 1000th file.
+    for (let i = 0; i < queue.length; i += 1) {
       const item = queue[i];
       if (!item || visited.has(item.file)) continue;
       visited.add(item.file);

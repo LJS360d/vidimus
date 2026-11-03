@@ -90,7 +90,7 @@ The embedded config redacts secrets: `browser.state` cookie, `localStorage` and 
 | --- | --- |
 | `json` | a `detail` object |
 | `html` | a Run section, and collapsible logs and hidden findings |
-| `junit` | a `<system-out>` per audit |
+| `junit` | a `<system-out>` for each audit with log lines or hidden findings |
 | `sarif` | run timing in `invocations`, per-rule `properties`, hidden findings with `suppressions` |
 
 `pretty` and `github` ignore `verbose`.
@@ -124,7 +124,7 @@ Colours come from Node's `styleText`, which drops them when the stream is not a 
 
 ## `sarif`
 
-A SARIF 2.1.0 log for GitHub code scanning. Each audit is a rule, each finding a result:
+A SARIF 2.1.0 log for GitHub code scanning. Each audit is a rule, carrying its description as the rule's short, full and help text, and each finding a result:
 errors are `error`, warnings `warning`. The message holds the finding, its details, pages and
 fix. A finding with a `file` gets a location, with `region.startLine` when it has a `line`.
 
@@ -137,7 +137,7 @@ Upload it with `github/codeql-action/upload-sarif`.
 ## `html`
 
 A single self-contained HTML page for sharing as a CI artifact: no scripts, no external assets,
-light and dark themes. It lists the audits (failed and errored first) with status, summary and
+a Content-Security-Policy meta that forbids anything but inline styles, light and dark themes. It lists the audits (failed and errored first) with status, summary and
 duration, and each finding in a collapsible block with its details, pages and fix. All text is
 escaped.
 
@@ -182,7 +182,7 @@ The whole run report, written once at the end, pretty-printed:
 | `totals` | `errors`, `warnings`, `suppressed` counts and `audits` with the number of `passed`, `warned`, `failed`, `errored` and `skipped` audits |
 | `staleBaseline` | baseline entries that no longer occur |
 | `ok` | `false` when any audit failed or errored; the exit code is `1` then |
-| `origin` | the audit origin, `''` when no selected audit needed a server |
+| `origin` | the audit origin without any `user:password` credentials, `''` when no selected audit needed a server |
 | `startedAt` | ISO 8601 timestamp |
 | `distDir` | absolute path of the served build output, `''` when no selected audit needed it |
 | `durationMs` | duration of the whole run |
@@ -224,7 +224,7 @@ annotation on the run and, when it has a file, on that file:
 
 At the end it appends a table (audit, status, summary) under a `### vidimus` heading to the
 file named by `GITHUB_STEP_SUMMARY`, which GitHub shows on the run's summary page. Without that
-variable the table is skipped.
+variable the table is skipped. Pipes in the cells are escaped, and the text is cut short when it would exceed the 1 MiB that GitHub allows per step summary.
 
 ## `junit`
 
@@ -235,7 +235,8 @@ JUnit XML, for CI systems that show test reports. The mapping:
 | `<testsuites name="vidimus">` | the run, with totals and duration in seconds |
 | `<testsuite name="…">` | one audit |
 | `<testcase classname="vidimus.<audit>" name="<message>">` | one finding, with `file` when the finding has one |
-| `<failure message="…">` | an error-level finding; the body has details, `on:` pages and `fix:` |
+| `<failure message="…">` | an error-level finding of a failed audit; the body has details, `on:` pages and `fix:` |
+| `<error message="…">` | an error-level finding of an errored audit; the body has details, `on:` pages and `fix:` |
 | `<system-out>warning: …</system-out>` | a warning; it does not count as a failure |
 
 An audit without findings has a single test case named after its summary: empty when it passed
@@ -290,8 +291,127 @@ reporters.
 
 ### SARIF locations
 
-`sarif` writes every location as a path relative to the working directory with `uriBaseId: '%SRCROOT%'`
-(declared in `originalUriBaseIds`), which is what GitHub code scanning expects. A finding without
+`sarif` writes every location as a path relative to the repository root with `uriBaseId: '%SRCROOT%'`
+(declared in `originalUriBaseIds`, and repeated as `invocations[0].workingDirectory`). The root is `$GITHUB_WORKSPACE`
+when set, otherwise the working directory, the same root `github` annotations use, which is what GitHub code scanning expects. Each path segment is
+percent-encoded as an RFC 3986 URI reference, so `dist/my page/a#b.html` is written as
+`dist/my%20page/a%23b.html`. A finding without
 a `file` is placed on the built HTML file of its first page in `where` (`/blog/` becomes
-`dist/blog/index.html`), so every result has a location. Errored audits are listed as
+`dist/blog/index.html`). A site-wide finding with no `where` is placed on the built `index.html` at the root of the served
+directory, since GitHub code scanning shows no result without a location. Only a run with no served directory leaves such a result without one. Errored audits are listed as
 `toolExecutionNotifications` in `invocations`, also when not verbose.
+
+## Standards
+
+Each reporter's output follows the standards below. The bullets name what the code checks or
+writes; the clause is given where it is known.
+
+### OASIS SARIF 2.1.0
+
+Spec: [OASIS SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+
+- §3.1: the log is written as UTF-8 JSON.
+- `$schema` points at the OASIS 2.1.0 schema, `version` is `"2.1.0"`, and each run has `tool.driver.name`.
+- §3.4.3 and §3.10.1: `artifactLocation.uri` is an RFC 3986 reference (see RFC 3986 below).
+- `ruleId` always equals a `rules[].id`, and `level` is `error` or `warning` only.
+- `region.startLine` is written only when a finding has both a file and a line, so it is never 0.
+- `invocations[].executionSuccessful` is always set, from the run's `ok`.
+- Hidden findings in verbose output carry `suppressions` with `kind: "external"` and a justification.
+- `originalUriBaseIds` and `invocations[].workingDirectory.uri` are file URIs with a trailing slash.
+
+### GitHub code scanning SARIF
+
+Spec: [GitHub code scanning SARIF](https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning)
+
+- Every rule has non-empty `shortDescription`, `fullDescription` and `help` text, taken from the audit description, then the run summary, then the audit name.
+- Every result has `partialFingerprints.primaryLocationLineHash`: a SHA-256 of the audit, URI and message, then `:n`, where n counts results with the same hash, so identical findings stay distinct alerts (§3.27.17: a fingerprint identifies one result).
+- A file outside the repository root (a `../` path) gets no `locations`, since it cannot be shown relative to `%SRCROOT%`.
+- Relative URIs are rooted at `GITHUB_WORKSPACE`, or the working directory when it is unset, with `uriBaseId` `%SRCROOT%`.
+
+### JUnit XML (Ant de facto schema)
+
+Spec: [JUnit XML (Ant de facto schema)](https://github.com/windyroad/JUnit-Schema) (de facto; JUnit has no formal spec)
+
+- `tests`, `failures`, `errors` and `skipped` on each `testsuite` and on `testsuites` equal the matching child counts; an errored audit's findings count as `errors`, not `failures`.
+- `time` is decimal seconds with three decimals, on both `testsuites` and `testsuite`.
+- A warning is a `<system-out>` line and does not count as a failure.
+
+### XML 1.0 (Fifth Edition)
+
+Spec: [XML 1.0 (Fifth Edition)](https://www.w3.org/TR/xml/#charsets)
+
+- Attribute and text values escape `& < > " '`, and characters outside the `Char` production (most C0 controls, U+FFFE, U+FFFF, lone surrogates) are removed.
+- No CDATA sections are written, so a `]]>` in a message cannot end one early.
+
+### GitHub workflow commands
+
+Spec: [GitHub workflow commands](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands)
+
+- Annotations are `::error` or `::warning` with `title`, and `file` and `line` when the finding has them.
+- Message text escapes `%`, CR and LF; property values also escape `:` and `,`.
+- `file` uses forward slashes and is relative to `GITHUB_WORKSPACE`, or the working directory when it is unset.
+
+### GitHub job summary
+
+Spec: [GitHub job summary](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-job-summary)
+
+- Table cells escape `|` and turn line breaks into `<br>`.
+- The summary is kept under the 1 MiB per-step limit, as described in [GitHub](#github) above.
+
+### JSON Schema draft-07
+
+Spec: [JSON Schema draft-07](https://json-schema.org/draft-07/schema)
+
+- `report.schema.json` declares draft-07 and fixes `schemaVersion` to the constant `1`.
+
+### RFC 3339 and ISO 8601
+
+Spec: [RFC 3339 and ISO 8601](https://www.rfc-editor.org/rfc/rfc3339)
+
+- `startedAt` is the `toISOString()` form of the run start, and the SARIF `startTimeUtc` repeats it.
+
+### RFC 3986
+
+Spec: [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986)
+
+- §2.4: each path segment of a SARIF `uri` is percent-encoded, with `/` kept as the separator.
+- §4.2: SARIF `uri` values are relative references, resolved against `uriBaseId`.
+
+### WHATWG HTML
+
+Spec: [WHATWG HTML](https://html.spec.whatwg.org/)
+
+- The HTML report has a doctype, `<meta charset>` as the first element in `head`, and `details` and `summary` nested validly.
+- Report text is escaped for `& < > " '`, and the page has no script.
+
+### CSP Level 3
+
+Spec: [CSP Level 3](https://www.w3.org/TR/CSP3/)
+
+- The HTML report sends `default-src 'none'; style-src 'unsafe-inline'`, so no script or external resource can load.
+
+### ECMA-48
+
+Spec: [ECMA-48](https://ecma-international.org/publications-and-standards/standards/ecma-48/)
+
+- The pretty reporter's line redraw (`\r` then `ESC [ 2 K`) is written only on a live terminal when `CI` is unset.
+
+### NO_COLOR
+
+Spec: [NO_COLOR](https://no-color.org/)
+
+- Colour is dropped when `NO_COLOR` is set, through `styleText` on the target stream.
+
+### FORCE_COLOR and isTTY
+
+Spec: [FORCE_COLOR and isTTY](https://nodejs.org/api/util.html#utilstyletextformat-text-options)
+
+- The colour decision is made per stream by `styleText`, so output piped to a file has no colour.
+
+## Not checked
+
+- Output is not validated against `report.schema.json` or any SARIF or JUnit schema at run time.
+- The JUnit output is not checked against an XSD.
+- GitHub's SARIF upload limits (10 MB gzipped, 25,000 results) are not checked.
+- The HTML report always says `lang="en"`, since there is no locale config to read a language from.
+- Object-form options are not type-checked: `verbose` is used by truthiness, and only an unknown `type` is rejected.

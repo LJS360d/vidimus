@@ -56,6 +56,28 @@ export default defineConfig({
       message: '^element-permitted-content: <div> element is not permitted as content under <pre>$',
       where: '^/mdbook/',
     },
+    // html-validate:a11y on the themes' own markup: VitePress' outline title is a
+    // role="heading" div, and VitePress, Starlight and mdBook ship icon-only <button>s without a
+    // type and unnamed duplicate landmarks.
+    {
+      audit: 'html',
+      message: '^prefer-native-element: Prefer to use the native <hN> element$',
+      where: '^/(?!astro/|mdbook/|eleventy/|hugo/|zola/|react/|angular/)',
+    },
+    {
+      audit: 'html',
+      message:
+        '^(no-implicit-button-type: <button> is missing recommended "type" attribute|text-content: <button> must have accessible text|unique-landmark: .*)$',
+      where: '^/(?!eleventy/|hugo/|zola/|react/|angular/)',
+    },
+    // mdBook wraps every heading in a link, so a heading that cites a standard nests <a> in
+    // <a>; its search <form> has no submit button.
+    {
+      audit: 'html',
+      message:
+        '^(element-permitted-content: <a> element is not permitted as a descendant of <a>|wcag/h32: <form> element must have a submit button)$',
+      where: '^/mdbook/',
+    },
     // A docs site is not meant to be installed.
     { audit: 'assets', message: '^no <link rel="manifest"> on any page$' },
     // The showcase embeds an OpenStreetMap iframe without a facade on purpose, to show the finding.
@@ -81,7 +103,13 @@ export default defineConfig({
   // Not in `audits`: main records the baseline on every deploy, pull requests compare with it.
   shots: { exclude: ['^(?!.*showcase)'], viewports: [375, 1280], motion: false },
   links: {
-    skip: ['^mailto:', '^tel:', '^https://github\\.com/LJS360d/vidimus/edit/'],
+    // gnu.org answers automated clients with 403 or not at all.
+    skip: [
+      '^mailto:',
+      '^tel:',
+      '^https://github\\.com/LJS360d/vidimus/edit/',
+      '^https://www\\.gnu\\.org/',
+    ],
     notFound: { selector: '.not-found' },
   },
   lighthouse: {

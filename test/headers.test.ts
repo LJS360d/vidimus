@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { createHeaderSource, redirectMatches, redirectSources } from '../src/core/headers.ts';
 
 const project = (files: Record<string, string>) => {
@@ -28,6 +30,24 @@ describe('host config headers', () => {
     assert.deepEqual(source.sources, ['vercel.json', 'firebase.json']);
   });
 
+  it('does not apply vercel header rules gated by has or missing', async () => {
+    const { root, dist } = project({
+      'vercel.json': JSON.stringify({
+        headers: [
+          { source: '/(.*)', headers: [{ key: 'X-Always', value: '1' }] },
+          {
+            source: '/:path*',
+            has: [{ type: 'query', key: 'authorized' }],
+            headers: [{ key: 'X-Authorized', value: 'true' }],
+          },
+        ],
+      }),
+    });
+    const source = createHeaderSource(root, dist, '_headers', '');
+    assert.deepEqual(await source.for('/page'), { 'x-always': '1' });
+    assert.deepEqual(source.notes, ['ignored 1 unsupported patterns in vercel.json: /:path*']);
+  });
+
   it('collects and matches redirect sources', () => {
     const { root, dist } = project({
       'vercel.json': JSON.stringify({ redirects: [{ source: '/old/:slug', destination: '/new' }] }),
@@ -38,5 +58,31 @@ describe('host config headers', () => {
     assert.ok(redirectMatches(sources, '/old/page'));
     assert.ok(redirectMatches(sources, '/legacy/a/b'));
     assert.ok(!redirectMatches(sources, '/other'));
+  });
+});
+
+describe('live header fetch', () => {
+  let server: Server;
+  let origin = '';
+
+  before(async () => {
+    server = createServer((req, res) => {
+      if (req.method === 'HEAD') {
+        res.writeHead(403).end();
+        return;
+      }
+      res.writeHead(200, { 'x-frame-options': 'DENY' }).end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => new Promise((resolve) => server.close(resolve)));
+
+  it('retries with GET when HEAD is refused with a non-405 status', async () => {
+    const { root, dist } = project({});
+    const source = createHeaderSource(root, dist, '_headers', origin);
+    const headers = await source.for('/');
+    assert.equal(headers?.['x-frame-options'], 'DENY');
   });
 });

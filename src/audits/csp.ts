@@ -15,21 +15,41 @@ import { basePathOf, displayPath, matchesAny, regex } from '../core/util.ts';
 import { fetchHeaders, groupFindings, hasKeyword, hasNonceOrHash } from './util.ts';
 
 const HASH_SOURCE = /^'(sha(?:256|384|512))-([A-Za-z0-9+/=_-]+)'$/i;
-const SELF = 'http://vidimus.invalid';
-const SELF_SOCKET = 'ws://vidimus.invalid';
+// Same-site targets are matched as the production origin, so 'self' and a host-source naming
+// the site's own host both allow them.
+const internalOrigins = (site: URL) => ({
+  page: site.origin,
+  socket: `${site.protocol === 'https:' ? 'wss' : 'ws'}://${site.host}`,
+});
 const NAMESPACES =
   /^https?:\/\/(?:www\.w3\.org|schema\.org|json-schema\.org|purl\.org|ogp\.me)(?:[/?#]|$)/i;
 
 const hashOf = (algorithm: string, body: string) =>
   createHash(algorithm).update(body).digest('base64');
 
-const unsafeInline = (sources: string[]) => hasKeyword(sources, "'unsafe-inline'");
+const canonicalBase64 = (value: string) =>
+  value.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+
+// CSP3 §6.7.3.3: a nonce, a hash or 'strict-dynamic' makes browsers ignore 'unsafe-inline'.
+const unsafeInline = (sources: string[]) =>
+  hasKeyword(sources, "'unsafe-inline'") &&
+  !hasKeyword(sources, "'strict-dynamic'") &&
+  !hasNonceOrHash(sources);
 
 const blockAllowed = (sources: string[], body: string) => {
   if (!sources.some((source) => /^'(sha\d+-|nonce-)/i.test(source))) return unsafeInline(sources);
+  const digests = new Map<string, string>();
+  const digest = (algorithm: string) => {
+    let value = digests.get(algorithm);
+    if (value === undefined) {
+      value = canonicalBase64(hashOf(algorithm, body));
+      digests.set(algorithm, value);
+    }
+    return value;
+  };
   return sources.some((source) => {
-    const [, algorithm, value] = HASH_SOURCE.exec(source) ?? [];
-    return algorithm && value === hashOf(algorithm.toLowerCase(), body);
+    const [, algorithm, value = ''] = HASH_SOURCE.exec(source) ?? [];
+    return algorithm && canonicalBase64(value) === digest(algorithm.toLowerCase());
   });
 };
 
@@ -37,6 +57,133 @@ const attrAllowed = (sources: string[], value: string) =>
   hasKeyword(sources, "'unsafe-hashes'")
     ? blockAllowed(sources, value)
     : !hasNonceOrHash(sources) && unsafeInline(sources);
+
+// Event handler content attributes (HTML GlobalEventHandlers and WindowEventHandlers, plus the
+// Pointer, Touch, CSS Animations/Transitions and Fullscreen ones). Only these run code, so
+// `once=` or `ontology=` are not handlers.
+const EVENT_HANDLERS = new Set([
+  'onabort',
+  'onafterprint',
+  'onanimationcancel',
+  'onanimationend',
+  'onanimationiteration',
+  'onanimationstart',
+  'onauxclick',
+  'onbeforeinput',
+  'onbeforematch',
+  'onbeforeprint',
+  'onbeforetoggle',
+  'onbeforeunload',
+  'onblur',
+  'oncancel',
+  'oncanplay',
+  'oncanplaythrough',
+  'onchange',
+  'onclick',
+  'onclose',
+  'oncommand',
+  'oncontextlost',
+  'oncontextmenu',
+  'oncontextrestored',
+  'oncopy',
+  'oncuechange',
+  'oncut',
+  'ondblclick',
+  'ondrag',
+  'ondragend',
+  'ondragenter',
+  'ondragleave',
+  'ondragover',
+  'ondragstart',
+  'ondrop',
+  'ondurationchange',
+  'onemptied',
+  'onended',
+  'onerror',
+  'onfocus',
+  'onformdata',
+  'onfullscreenchange',
+  'onfullscreenerror',
+  'ongotpointercapture',
+  'onhashchange',
+  'oninput',
+  'oninvalid',
+  'onkeydown',
+  'onkeypress',
+  'onkeyup',
+  'onlanguagechange',
+  'onload',
+  'onloadeddata',
+  'onloadedmetadata',
+  'onloadstart',
+  'onlostpointercapture',
+  'onmessage',
+  'onmessageerror',
+  'onmousedown',
+  'onmouseenter',
+  'onmouseleave',
+  'onmousemove',
+  'onmouseout',
+  'onmouseover',
+  'onmouseup',
+  'onoffline',
+  'ononline',
+  'onpagehide',
+  'onpagereveal',
+  'onpageshow',
+  'onpageswap',
+  'onpaste',
+  'onpause',
+  'onplay',
+  'onplaying',
+  'onpointercancel',
+  'onpointerdown',
+  'onpointerenter',
+  'onpointerleave',
+  'onpointermove',
+  'onpointerout',
+  'onpointerover',
+  'onpointerrawupdate',
+  'onpointerup',
+  'onpopstate',
+  'onprogress',
+  'onratechange',
+  'onrejectionhandled',
+  'onreset',
+  'onresize',
+  'onscroll',
+  'onscrollend',
+  'onsecuritypolicyviolation',
+  'onseeked',
+  'onseeking',
+  'onselect',
+  'onselectionchange',
+  'onselectstart',
+  'onslotchange',
+  'onstalled',
+  'onstorage',
+  'onsubmit',
+  'onsuspend',
+  'ontimeupdate',
+  'ontoggle',
+  'ontouchcancel',
+  'ontouchend',
+  'ontouchmove',
+  'ontouchstart',
+  'ontransitioncancel',
+  'ontransitionend',
+  'ontransitionrun',
+  'ontransitionstart',
+  'onunhandledrejection',
+  'onunload',
+  'onvolumechange',
+  'onwaiting',
+  'onwebkitanimationend',
+  'onwebkitanimationiteration',
+  'onwebkitanimationstart',
+  'onwebkittransitionend',
+  'onwheel',
+]);
 
 interface AttrUse {
   name: string;
@@ -50,7 +197,7 @@ const attrUses = (tag: Tag): AttrUse[] =>
     if (name === 'style') {
       return [{ name, value, directive: 'style-src', chain: ['style-src-attr', 'style-src'] }];
     }
-    if (/^on[a-z]+$/.test(name)) {
+    if (EVENT_HANDLERS.has(name)) {
       return [{ name, value, directive: 'script-src', chain: ['script-src-attr', 'script-src'] }];
     }
     return name === 'href' && /^\s*javascript:/i.test(value)
@@ -79,7 +226,8 @@ const documentsOf = (html: string, iframes: Tag[]): Doc[] =>
 const attrSources = (policy: Policy, chain: string[]) =>
   chain.map((key) => policy.get(key)).find(Boolean) ?? policy.get('default-src');
 
-const siteHostOf = (siteUrl: string) => (URL.canParse(siteUrl) ? new URL(siteUrl) : new URL(SELF));
+const siteHostOf = (siteUrl: string) =>
+  URL.canParse(siteUrl) ? new URL(siteUrl) : new URL('http://vidimus.invalid');
 
 const shownOf = (target: { internal: boolean; url: URL }) =>
   target.internal ? target.url.pathname : target.url.origin;
@@ -98,6 +246,7 @@ export const csp: Audit = {
     const reachable = groupFindings();
     const scan = createRequestScanner(dist, config.siteUrl);
     const siteHost = siteHostOf(config.siteUrl);
+    const internal = internalOrigins(siteHost);
     const toUrl = (ref: string, from: string) => {
       try {
         const url = new URL(
@@ -106,13 +255,13 @@ export const csp: Audit = {
         );
         if (!/^(?:https?|wss?):$/.test(url.protocol)) return null;
         if (url.host !== siteHost.host) return { url, internal: false };
-        const origin = url.protocol.startsWith('ws') ? SELF_SOCKET : SELF;
+        const origin = url.protocol.startsWith('ws') ? internal.socket : internal.page;
         return { url: new URL(`${url.pathname}${url.search}`, origin), internal: true };
       } catch {
         return null;
       }
     };
-    const self = new URL(SELF);
+    const self = new URL(internal.page);
     const base = basePathOf(config.siteUrl);
     const hostRules = config.server.headers.map(({ match, headers }) => ({
       match: regex(match),
@@ -152,7 +301,6 @@ export const csp: Audit = {
               checked += 1;
               if (nonce && sources.includes(`'nonce-${nonce}'`)) {
                 pageNonces.add(nonce);
-                checked += 1;
                 continue;
               }
               if (blockAllowed(sources, body)) continue;
@@ -201,7 +349,13 @@ export const csp: Audit = {
           if (!target.internal && matchesAny(config.csp.ignore, target.url.href)) continue;
           probed += 1;
           for (const policy of policies) {
-            const { directive, allowed } = requestAllowed(policy, request.kind, target.url, self);
+            const { directive, allowed } = requestAllowed(
+              policy,
+              request.kind,
+              target.url,
+              self,
+              request.tag,
+            );
             if (allowed) continue;
             const shown = shownOf(target);
             reachable.add(
@@ -225,7 +379,7 @@ export const csp: Audit = {
       for (const { attrs } of iframes) {
         const target = attrs.src ? resolveHref(attrs.src, path, config.siteUrl) : null;
         if (!target || !/^https?:$/.test(target.url.protocol)) continue;
-        const url = target.internal ? new URL(target.url.pathname, SELF) : target.url;
+        const url = target.internal ? new URL(target.url.pathname, internal.page) : target.url;
         const shown = shownOf(target);
         for (const policy of policies) {
           const { directive, allowed } = frameAllowed(policy, url, self);

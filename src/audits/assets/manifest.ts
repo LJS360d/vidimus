@@ -24,7 +24,7 @@ const largestDeclared = (sizes: unknown) =>
 
 const readJson = (file: string) => {
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    return JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, '')) as unknown;
   } catch {
     return undefined;
   }
@@ -42,18 +42,32 @@ interface Check {
 }
 
 const checkStartUrl = ({ env, path, file, manifest, problem }: Check) => {
-  const scopeValue = typeof manifest.scope === 'string' ? manifest.scope : '.';
-  const scope = resolveHref(scopeValue, path, env.siteUrl)?.path;
   const startValue = typeof manifest.start_url === 'string' ? manifest.start_url : '';
   if (!startValue) {
     problem(`manifest ${path} has no start_url`, `Add "start_url": "/" to ${path}.`, file, 'warn');
     return;
   }
-  const start = resolveHref(startValue, path, env.siteUrl)?.path;
+  const resolved = resolveHref(startValue, path, env.siteUrl);
+  // W3C Web App Manifest: a start_url of another origin is ignored and the page URL used instead.
+  if (resolved && !resolved.internal) {
+    problem(
+      `manifest ${path} start_url ${startValue} is not same-origin, so browsers ignore it`,
+      `Set "start_url" to a path on this site in ${path}.`,
+      file,
+    );
+    return;
+  }
+  const start = resolved?.path;
+  const scopeValue =
+    typeof manifest.scope === 'string' && manifest.scope !== '' ? manifest.scope : undefined;
+  const scope =
+    scopeValue === undefined
+      ? start?.replace(/[^/]*$/, '')
+      : resolveHref(scopeValue, path, env.siteUrl)?.path;
   const root = scope?.endsWith('/') ? scope : `${scope}/`;
   if (!scope || !start || (start !== root.slice(0, -1) && !start.startsWith(root))) {
     problem(
-      `manifest ${path} start_url ${startValue} is outside scope ${scopeValue}`,
+      `manifest ${path} start_url ${startValue} is outside scope ${scopeValue ?? scope ?? startValue}`,
       `Set "start_url" inside "scope" in ${path}, or widen "scope".`,
       file,
     );
@@ -85,7 +99,7 @@ const checkIcons = ({ env, path, file, problem }: Check, icons: Manifest[]) => {
   for (const icon of icons) {
     const src = typeof icon.src === 'string' ? icon.src : '';
     const resolved = resolveHref(src, path, env.siteUrl);
-    const iconFile = resolved?.path ? localFile(env.dist, resolved.path) : null;
+    const iconFile = resolved?.path ? localFile(env.dist, resolved.path, true) : null;
     if (resolved?.path && !iconFile) {
       problem(
         `manifest icon ${resolved.path} not found`,
@@ -164,6 +178,7 @@ const checkManifest = (env: Env, path: string, linkedFrom: Set<string>, report: 
       `manifest ${path} display "${manifest.display}" is not valid`,
       `Set "display" in ${path} to one of ${[...DISPLAY_MODES].join(', ')}.`,
       file,
+      'warn',
     );
   }
   checkIcons(check, icons);

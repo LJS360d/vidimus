@@ -105,21 +105,41 @@ const TYPE_BASELINE: Record<string, string> = {
   color: '#336699',
 };
 
+const NON_PERSONAL_NAME =
+  /(?<![a-z])(?:user|product|company|file|domain|host|site|brand|project|business|organi[sz]ation|org|store|table|folder)[ _-]?name/i;
+
+// WHATWG autofill: the field name is the last token, except a trailing `webauthn`; tokens are
+// ASCII case-insensitive and surrounding whitespace is ignored.
+const autofillField = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => token !== 'webauthn')
+    .at(-1) ?? '';
+
 export const kindOf = (field: FieldInfo): Kind => {
   if (['email', 'url', 'tel', 'password'].includes(field.type)) return field.type as Kind;
-  const token = field.autocomplete.split(/\s+/).at(-1) ?? '';
+  const token = autofillField(field.autocomplete);
   if (/email/.test(token)) return 'email';
   if (/^tel/.test(token)) return 'tel';
   if (/url/.test(token)) return 'url';
   if (/password/.test(token)) return 'password';
   if (token === 'postal-code') return 'postal';
   const words = `${field.name} ${field.id} ${field.label}`;
+  const spaced = words.replace(/([a-z])([A-Z])/g, '$1 $2');
   if (/e-?mail/i.test(words)) return 'email';
   if (/pass(word)?\b|pwd/i.test(words)) return 'password';
-  if (/phone|mobile|^tel\b|\btel(ephone)?\b/i.test(words)) return 'tel';
+  if (/(?<![a-z])(?:phone|mobile|cell[ _-]?phone|tel(?:ephone)?)(?![a-z])/i.test(spaced))
+    return 'tel';
   if (/\b(url|website|homepage)\b/i.test(words)) return 'url';
-  if (/zip|postal|postcode/i.test(words)) return 'postal';
-  if (/name/i.test(words) && !/user ?name/i.test(words)) return 'name';
+  if (
+    /(?<![a-z])(?:zip|postal|post)[ _-]?code(?![a-z])|(?<![a-z])(?:zip|postal)(?![a-z])/i.test(
+      spaced,
+    )
+  )
+    return 'postal';
+  if (/name/i.test(spaced) && !NON_PERSONAL_NAME.test(spaced)) return 'name';
   return 'text';
 };
 
@@ -251,7 +271,7 @@ const baselineFor = (field: FieldInfo, configured: Record<string, string> = {}):
   if (user) return user[1];
   if (field.type === 'textarea') return fit(TYPE_BASELINE.textarea ?? '', field);
   if (field.type in TYPE_BASELINE) return field.min ?? field.max ?? TYPE_BASELINE[field.type] ?? '';
-  const token = field.autocomplete.split(/\s+/).at(-1) ?? '';
+  const token = autofillField(field.autocomplete);
   let value = AUTOCOMPLETE[token] ?? KIND_BASELINE[kindOf(field)];
   if (field.pattern && !matches(field.pattern, value)) value = fromPattern(field.pattern) ?? value;
   const fitted = fit(value, field);

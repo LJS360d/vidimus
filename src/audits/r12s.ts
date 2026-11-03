@@ -23,7 +23,7 @@ export const defectFix = (
     return 'Constrain the widest element listed so it fits the viewport, e.g. with max-width:100% or overflow-wrap:anywhere.';
   }
   if (rule === 'target-size') {
-    return `Make the element listed at least ${minTarget}x${minTarget}px, or add spacing so neighbouring target centres are ${minTarget}px apart.`;
+    return `Make the element listed at least ${minTarget}x${minTarget}px, or add spacing so no other target overlaps a ${minTarget}px circle centred on it.`;
   }
   if (rule === 'font-size')
     return `Set the font-size of the element listed to at least ${minFont}px.`;
@@ -79,20 +79,28 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       .map((el) => ({ el, r: el.getBoundingClientRect() }))
       .filter(
         ({ el, r }) =>
-          r.width > 0 && r.height > 0 && (rtl ? r.left < -1 : r.right > vw + 1) && !clipped(el),
+          r.width > 0 &&
+          r.height > 0 &&
+          (rtl ? r.left < -1 : r.right > vw + 1) &&
+          isPerceivable(el) &&
+          !clipped(el),
       );
     const innermost = overflowing.filter(
       ({ el }) => !overflowing.some((other) => other.el !== el && el.contains(other.el)),
     );
-    findings.push({
-      rule: 'overflow',
-      detail: `page scrolls sideways: ${scrollWidth}px of content in a ${vw}px viewport`,
-      nodes: innermost
-        .slice(0, 5)
-        .map(
-          ({ el, r }) => `${describe(el)} [w=${Math.round(r.width)} right=${Math.round(r.right)}]`,
-        ),
-    });
+    const twoDimensional = 'table, svg, canvas, img, picture';
+    const causes = innermost.filter(({ el }) => !el.closest(twoDimensional));
+    if (causes.length || !innermost.length)
+      findings.push({
+        rule: 'overflow',
+        detail: `page scrolls sideways: ${scrollWidth}px of content in a ${vw}px viewport`,
+        nodes: causes
+          .slice(0, 5)
+          .map(
+            ({ el, r }) =>
+              `${describe(el)} [w=${Math.round(r.width)} right=${Math.round(r.right)}]`,
+          ),
+      });
   }
 
   const targets = [
@@ -106,26 +114,34 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
     );
   const centre = ({ r }: { r: DOMRect }) => [r.x + r.width / 2, r.y + r.height / 2] as const;
-  for (const target of targets) {
-    if (Math.round(target.r.width) >= minTarget && Math.round(target.r.height) >= minTarget)
-      continue;
-    if (isInline(target.el)) continue;
+  // Compare unrounded sizes (23.6px is under 24), allowing one layout unit (1/64px) of rounding.
+  const slack = 1 / 64 + 0.001;
+  const undersized = (r: DOMRect) => r.width < minTarget - slack || r.height < minTarget - slack;
+  const spacingOverlap = (target: { r: DOMRect }, other: { r: DOMRect }) => {
     const [x, y] = centre(target);
-    const nearestNeighbourCentre = Math.min(
-      ...targets
-        .filter((other) => other !== target)
-        .map((other) => {
-          const [ox, oy] = centre(other);
-          return Math.hypot(x - ox, y - oy);
-        }),
+    const nearestX = Math.min(Math.max(x, other.r.left), other.r.right);
+    const nearestY = Math.min(Math.max(y, other.r.top), other.r.bottom);
+    let overlap = minTarget / 2 - Math.hypot(x - nearestX, y - nearestY);
+    if (undersized(other.r)) {
+      const [ox, oy] = centre(other);
+      overlap = Math.max(overlap, minTarget - Math.hypot(x - ox, y - oy));
+    }
+    return overlap;
+  };
+  for (const target of targets) {
+    if (!undersized(target.r)) continue;
+    if (isInline(target.el)) continue;
+    const overlap = Math.max(
+      0,
+      ...targets.filter((other) => other !== target).map((other) => spacingOverlap(target, other)),
     );
-    if (nearestNeighbourCentre >= minTarget) continue;
+    if (overlap <= 0) continue;
     findings.push({
       rule: 'target-size',
-      detail: `target under ${minTarget}px with a neighbour centre closer than ${minTarget}px`,
+      detail: `target under ${minTarget}px whose ${minTarget}px spacing circle overlaps another target`,
       nodes: [selectorOf(target.el)],
       samples: [
-        `${describe(target.el)}: ${Math.round(target.r.width)}x${Math.round(target.r.height)}px, neighbour centre ${nearestNeighbourCentre.toFixed(1)}px away`,
+        `${describe(target.el)}: ${+target.r.width.toFixed(1)}x${+target.r.height.toFixed(1)}px, spacing circle overlaps a neighbour by ${overlap.toFixed(1)}px`,
       ],
     });
   }
@@ -152,7 +168,7 @@ const findLayoutDefectsInPage = (minTarget: number, minFont: number): LayoutDefe
       nodes: [],
     });
   } else if (
-    /user-scalable\s*=\s*(no|0)\b|maximum-scale\s*=\s*(0*\.\d+|0+|1(\.0*)?)(?![\d.])/i.test(meta)
+    /user-scalable\s*=\s*(no|0)\b|maximum-scale\s*=\s*(0*\.\d+|0+|1(\.\d*)?)(?![\d.])/i.test(meta)
   ) {
     findings.push({ rule: 'viewport', detail: `pinch zoom is disabled: "${meta}"`, nodes: [] });
   }

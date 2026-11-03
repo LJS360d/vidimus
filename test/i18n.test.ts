@@ -61,6 +61,28 @@ describe('i18n key comparison', () => {
     assert.ok(finding?.fix);
   });
 
+  it('compares ICU argument names, not select and plural branch text', async () => {
+    const cwd = fixture({
+      'locales/en.json': JSON.stringify({
+        files: '{n, plural, one {1 file} other {files}}',
+        pronoun: '{gender, select, male {he} female {she} other {they}}',
+        nested: '{n, plural, one {{name} has # file} other {{name} has # files}}',
+      }),
+      'locales/fr.json': JSON.stringify({
+        files: '{n, plural, one {# fichier} other {fichiers}}',
+        pronoun: '{gender, select, male {il} female {elle} other {iel}}',
+        nested: '{n, plural, one {{name} a # fichier} other {{name} a # fichiers}}',
+      }),
+      'vidimus.config.json': JSON.stringify({
+        locales: ['en', 'fr'],
+        defaultLocale: 'en',
+        i18n: { files: 'locales/{locale}.json' },
+      }),
+    });
+    const { results } = await run({ cwd, env: {}, audits: ['i18n'], reporters: [] });
+    assert.deepEqual(results[0]?.findings, []);
+  });
+
   it('reports a missing locale file without hiding other locales', async () => {
     const cwd = fixture({
       'locales/en.json': JSON.stringify({ a: 'A', b: 'B' }),

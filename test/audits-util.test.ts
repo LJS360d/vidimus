@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
-import { disallowedBy, robotsDirectives, robotsRules } from '../src/audits/seo-robots.ts';
+import {
+  disallowedBy,
+  robotsDirectives,
+  robotsFindings,
+  robotsRules,
+} from '../src/audits/seo-robots.ts';
 import { fetchHeaders, groupFindings } from '../src/audits/util.ts';
 import { createHeaderSource } from '../src/core/headers.ts';
 import { run } from '../src/index.ts';
@@ -79,7 +84,7 @@ Sitemap: https://example.com/sitemap.xml # trailing`);
     assert.equal(blocked('/doc.pdf'), true);
     assert.equal(blocked('/doc.pdf?x=1'), false);
     assert.equal(blocked('/public'), false);
-    assert.equal(disallowedBy(robots.groups)('/anything'), true);
+    assert.equal(disallowedBy(robots.groups)('/anything'), false);
     assert.equal(
       disallowedBy(
         robotsRules('User-agent: Googlebot\nDisallow: /g\nUser-agent: *\nDisallow: /').groups,
@@ -88,9 +93,39 @@ Sitemap: https://example.com/sitemap.xml # trailing`);
     );
   });
 
+  it('does not let other googlebot-* crawlers replace the wildcard group', () => {
+    const groups = robotsRules(
+      'User-agent: Googlebot-Image\nDisallow: /x\n\nUser-agent: *\nDisallow: /about/',
+    ).groups;
+    assert.equal(disallowedBy(groups)('/about/'), true);
+    assert.equal(disallowedBy(groups)('/x'), false);
+  });
+
   it('breaks a tie between equally long rules in favour of Allow', () => {
     const groups = robotsRules('User-agent: *\nDisallow: /a\nAllow: /a').groups;
     assert.equal(disallowedBy(groups)('/a'), false);
+  });
+
+  it('reads a $ that is not the last character of a rule literally', () => {
+    const blocked = disallowedBy(
+      robotsRules('User-agent: *\nDisallow: /a$b\nDisallow: /c$').groups,
+    );
+    assert.equal(blocked('/a$b'), true);
+    assert.equal(blocked('/a'), false);
+    assert.equal(blocked('/c'), true);
+    assert.equal(blocked('/cx'), false);
+  });
+
+  it('warns only when robots.txt exceeds the 500 KiB parsing limit', () => {
+    const limit = 512_000;
+    const head = 'User-agent: *\nAllow: /\n';
+    const pad = (bytes: number) => `${head}${'x'.repeat(bytes - head.length)}`;
+    const warns = (text: string) =>
+      robotsFindings(robotsRules(text, Buffer.byteLength(text)), [], 'robots.txt').some((finding) =>
+        finding.message.includes('500 KiB'),
+      );
+    assert.equal(warns(pad(limit)), false);
+    assert.equal(warns(pad(limit + 1)), true);
   });
 
   it('reads X-Robots-Tag directives, ignoring other crawlers', () => {
@@ -99,6 +134,7 @@ Sitemap: https://example.com/sitemap.xml # trailing`);
     assert.deepEqual(robotsDirectives('unavailable_after: 25 Jun 2030 15:00:00 PST'), [
       'unavailable_after: 25 jun 2030 15:00:00 pst',
     ]);
+    assert.deepEqual(robotsDirectives('max-snippet:50, noindex'), ['max-snippet:50', 'noindex']);
   });
 });
 
@@ -157,6 +193,26 @@ describe('host header config parsers', () => {
     const { headers, source } = await headersOf({ 'netlify.toml': toml }, '/app/page');
     assert.deepEqual(headers, { 'x-quoted': 'q', 'x-single': 'single value', 'x-app': 'app' });
     assert.deepEqual(await source.for('/x'), { 'x-quoted': 'q', 'x-single': 'single value' });
+  });
+
+  it('unescapes netlify.toml basic strings and folds multi-line values', async () => {
+    const toml = `[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Quote = "say \\"hi\\" \\u00e9"
+    Content-Security-Policy = """
+      default-src 'self';
+      img-src 'self' data:"""
+    X-Literal = '''a\\nb'''
+    X-After = "after"
+`;
+    const { headers } = await headersOf({ 'netlify.toml': toml }, '/');
+    assert.deepEqual(headers, {
+      'x-quote': 'say "hi" é',
+      'content-security-policy': "default-src 'self'; img-src 'self' data:",
+      'x-literal': 'a\\nb',
+      'x-after': 'after',
+    });
   });
 
   it('notes patterns it cannot express and invalid files', async () => {

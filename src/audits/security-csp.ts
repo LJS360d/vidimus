@@ -25,7 +25,7 @@ const BYPASS_HOSTS = [
 const WILDCARD_HOST = /^(?:[a-z][a-z\d+.-]*:\/\/)?\*\.[^/]+/;
 const META_IGNORED = ['frame-ancestors', 'report-uri', 'sandbox'];
 
-export const ANY_ANCESTOR = /^(\*|[a-z][a-z\d+.-]*:)$/;
+export const ANY_ANCESTOR = /^(\*|[a-z][a-z\d+.-]*:(\/\/\*)?)$/;
 
 export const STARTER_CSP =
   "Send a Content-Security-Policy header, e.g. \"default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\", and hash or nonce inline scripts.";
@@ -59,7 +59,7 @@ const unsafeScripts = (policy: Policy) => {
 const scriptSourceIssues = (scripts: string[], where: string) => {
   const issues: Finding[] = [];
   if (!scripts.includes("'strict-dynamic'")) {
-    for (const source of ['*', 'https:', 'data:']) {
+    for (const source of ['*', 'https:', 'data:', 'blob:']) {
       if (!scripts.includes(source)) continue;
       issues.push(
         warn(
@@ -69,7 +69,9 @@ const scriptSourceIssues = (scripts: string[], where: string) => {
       );
     }
   }
-  if (scripts.includes('http:')) {
+  // Under 'strict-dynamic' CSP3 browsers ignore scheme sources; `https: http:` there is the
+  // recommended fallback for older browsers.
+  if (scripts.includes('http:') && !scripts.includes("'strict-dynamic'")) {
     issues.push(
       warn(
         `CSP ${where} allows http:`,

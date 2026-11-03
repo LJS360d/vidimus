@@ -13,7 +13,9 @@
   <meta property="og:title" content="{{ $title }}">
   <meta property="og:description" content="{{ .Description }}">
   <meta property="og:url" content="{{ .Params.canonical }}">
+  <meta property="og:type" content="website">
   <meta property="og:image" content="{{ site.Params.og }}">
+  <meta property="og:image:alt" content="vidimus: pre-publication checks for static websites">
   <meta name="twitter:card" content="summary_large_image">
   {{- $css := slice (resources.Get "css/main.css") (resources.Get "css/chroma.css") | resources.Concat "main.css" | minify | fingerprint }}
   <link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">

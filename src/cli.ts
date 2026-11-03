@@ -45,6 +45,13 @@ const toPort = (value: string) => {
   return port;
 };
 
+const toMilliseconds = (value: string) => {
+  const ms = Number(value);
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(ms))
+    throw new InvalidArgumentError('expected a whole number of milliseconds');
+  return ms;
+};
+
 const toTop = (value: string) => {
   const top = Number(value);
   if (!Number.isInteger(top) || top < 1)
@@ -145,8 +152,8 @@ withConfigOptions(
     ).choices(['spans', 'cpu']),
   )
   .option('--serial', 'run audits one at a time instead of in parallel')
-  .option('--timeout <ms>', 'stop the whole run after this many milliseconds', Number)
-  .option('--audit-timeout <ms>', 'error an audit that runs longer than this', Number)
+  .option('--timeout <ms>', 'stop the whole run after this many milliseconds', toMilliseconds)
+  .option('--audit-timeout <ms>', 'error an audit that runs longer than this', toMilliseconds)
   .action(async (audits: string[], flags: RunFlags) => {
     const { config } = await loadConfig(loadOptions(flags, runOverrides(flags)));
     const report = await run({
@@ -161,7 +168,7 @@ withConfigOptions(
       );
     const code = report.timedOut ? 2 : report.ok ? 0 : 1;
     process.exitCode = code;
-    if (report.timedOut) process.exit(code);
+    if (report.timedOut) process.stdout.write('', () => process.exit(code));
   });
 
 withConfigOptions(program.command('list').description('list available audits')).action(

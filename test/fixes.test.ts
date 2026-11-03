@@ -6,7 +6,7 @@ import { brokenLinkFix } from '../src/audits/links.ts';
 import { defectFix } from '../src/audits/r12s.ts';
 import { changedShotFix } from '../src/audits/shots/findings.ts';
 
-const techniques = 'https://www.w3.org/WAI/WCAG21/Techniques';
+const techniques = 'https://www.w3.org/WAI/WCAG22/Techniques';
 
 describe('a11y fixes', () => {
   it('links pa11y codes to their WCAG technique', () => {

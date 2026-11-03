@@ -26,7 +26,12 @@ export default defineConfig({
     ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
     ['meta', { property: 'og:title', content: 'vidimus' }],
     ['meta', { property: 'og:description', content: DESCRIPTION }],
+    ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:image', content: `${site}/og.png` }],
+    [
+      'meta',
+      { property: 'og:image:alt', content: 'vidimus: pre-publication checks for static websites' },
+    ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
   themeConfig: {
@@ -49,6 +54,7 @@ export default defineConfig({
     const path = page.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '');
     page.frontmatter.head ??= [];
     page.frontmatter.head.push(['link', { rel: 'canonical', href: `${site}/${path}` }]);
+    page.frontmatter.head.push(['meta', { property: 'og:url', content: `${site}/${path}` }]);
   },
   // Markdown <script> tags would be read as Vue SFC blocks, so page scripts come from frontmatter.
   transformHead: ({ pageData }) =>

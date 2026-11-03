@@ -9,15 +9,25 @@ const RESOURCE_ATTRS: Record<string, string[]> = {
   iframe: ['src'],
   video: ['src', 'poster'],
   audio: ['src'],
+  track: ['src'],
+  input: ['src'],
   object: ['data'],
   embed: ['src'],
-  form: ['action'],
   image: ['href', 'xlink:href'],
 };
 
-const LINK_RESOURCES = ['stylesheet', 'icon', 'preload', 'modulepreload', 'manifest'];
+const LINK_RESOURCES = [
+  'stylesheet',
+  'icon',
+  'apple-touch-icon',
+  'apple-touch-icon-precomposed',
+  'mask-icon',
+  'preload',
+  'modulepreload',
+  'manifest',
+];
 const LINK_ATTRS = ['href', 'imagesrcset'];
-const INSECURE = /^http:\/\//i;
+const INSECURE = /^(?:http|ws):\/\//i;
 
 const urlsIn = (tag: Tag, attr: string) => {
   const value = tag.attrs[attr];
@@ -31,6 +41,8 @@ const cssUrls = (css: string) => [
 ];
 
 const attrsToCheck = (tag: Tag) => {
+  // Only an image button fetches its src.
+  if (tag.name === 'input') return tag.attrs.type?.trim().toLowerCase() === 'image' ? ['src'] : [];
   if (tag.name !== 'link') return RESOURCE_ATTRS[tag.name] ?? [];
   return relTokens(tag).some((rel) => LINK_RESOURCES.includes(rel)) ? LINK_ATTRS : [];
 };
@@ -48,17 +60,41 @@ const insecureResources = (html: string) => {
   return [...new Set([...fromCss, ...fromTags].filter((url) => INSECURE.test(url)))];
 };
 
-export const mixedContentFindings = (html: string): Finding[] =>
-  insecureResources(html).map((url) => ({
+// A form submission is a navigation, not a subresource, so Mixed Content does not block it, but
+// browsers warn before sending it in clear text: a warning, not an error.
+const insecureFormTargets = (html: string) => [
+  ...new Set(
+    tags(html, 'form', 'button', 'input')
+      .map((tag) => (tag.name === 'form' ? tag.attrs.action : tag.attrs.formaction)?.trim() ?? '')
+      .filter((url) => /^http:\/\//i.test(url)),
+  ),
+];
+
+export const mixedContentFindings = (html: string): Finding[] => [
+  ...insecureResources(html).map((url) => ({
     message: `mixed content: ${url}`,
     fix: 'Load it over https:// or self-host it.',
-  }));
+  })),
+  ...insecureFormTargets(html).map((url) => ({
+    message: `form submits over http: ${url}`,
+    severity: 'warn' as const,
+    fix: 'Point the form action (or formaction) at an https:// URL.',
+  })),
+];
+
+const carriesSri = (tag: Tag) => {
+  const rels = relTokens(tag);
+  if (rels.includes('stylesheet')) return true;
+  return (
+    Boolean(tag.attrs.integrity) && (rels.includes('preload') || rels.includes('modulepreload'))
+  );
+};
 
 const crossOriginResources = (page: BuiltPage, siteUrl: string) => {
   const candidates = [
     ...tags(page.html, 'script').map((tag) => ({ tag, href: tag.attrs.src })),
     ...tags(page.html, 'link')
-      .filter((tag) => relTokens(tag).includes('stylesheet'))
+      .filter(carriesSri)
       .map((tag) => ({ tag, href: tag.attrs.href })),
   ];
   return candidates.flatMap(({ tag, href }) => {

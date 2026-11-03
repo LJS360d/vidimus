@@ -9,10 +9,23 @@ const REDACTED = '<redacted>';
 const redactValues = (record: Record<string, string>) =>
   Object.fromEntries(Object.keys(record).map((key) => [key, REDACTED]));
 
+const stripCredentials = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    if (!url.username && !url.password) return origin;
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return origin;
+  }
+};
+
 const serializableConfig = ({ plugins, reporters, ...config }: VidimusConfig): unknown => {
   const { state } = config.browser;
   const redacted = {
     ...config,
+    origin: stripCredentials(config.origin),
     browser: {
       ...config.browser,
       state: {
@@ -24,7 +37,13 @@ const serializableConfig = ({ plugins, reporters, ...config }: VidimusConfig): u
     },
     server: {
       ...config.server,
-      command: config.server.command.replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\S+/g, `$1=${REDACTED}`),
+      command: config.server.command
+        .replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\S+/g, `$1=${REDACTED}`)
+        // `--api-token s3cret` and `-p s3cret` style flags carry secrets too.
+        .replace(
+          /(\s--?[\w-]*(?:token|secret|passw(?:or)?d|key|auth)[\w-]*)\s+(?!-)\S+/gi,
+          `$1 ${REDACTED}`,
+        ),
     },
   };
   return JSON.parse(
@@ -91,7 +110,7 @@ export const buildReport = (input: ReportInput): RunReport => {
       !(config.strict && input.unusedIgnore) &&
       !(config.baseline.failOnStale && stale.length) &&
       results.every(({ status }) => status !== 'failed' && status !== 'errored'),
-    origin: input.origin,
+    origin: stripCredentials(input.origin),
     distDir: input.distDir,
     startedAt: input.startedAt.toISOString(),
     durationMs: Date.now() - input.startedAt.getTime(),

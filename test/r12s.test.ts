@@ -33,12 +33,12 @@ const page = (viewport: string, body: string) => `<!doctype html>
 <body style="font-size:16px">${body}</body></html>`;
 
 describe('r12s audit', () => {
-  it('skips unrendered text, inline links and screen-reader-only links, and allows zoom above 1', {
+  it('skips unrendered text, inline links and screen-reader-only links, and allows zoom to 200%', {
     skip: noBrowser,
   }, async () => {
     const cwd = fixture({
       'dist/index.html': page(
-        'width=device-width, initial-scale=1, maximum-scale=1.5',
+        'width=device-width, initial-scale=1, maximum-scale=2',
         '<a href="#main" style="position:absolute;top:20px;left:20px;width:1px;height:1px;padding:8px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%)">skip</a>' +
           '<a href="/x" style="display:inline-block;width:48px;height:48px">x</a>' +
           '<p>visible</p><ul style="display:none;font-size:8px"><li>hidden menu</li></ul>' +
@@ -53,6 +53,29 @@ describe('r12s audit', () => {
       overrides: { port: await freePort(), r12s: { viewports: [375] } },
     });
     assert.deepEqual(results[0]?.findings, []);
+  });
+
+  it('flags a maximum-scale below 2 because it stops text reaching 200%', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1, maximum-scale=1.5',
+        '<p>visible</p>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.ok(
+      messages.some((message) => message.includes('pinch zoom')),
+      messages.join('\n'),
+    );
   });
 
   it('skips screen-reader-only text clipped with rect(1px) or clip-path inset(100%)', {
@@ -74,6 +97,34 @@ describe('r12s audit', () => {
       overrides: { port: await freePort(), r12s: { viewports: [375] } },
     });
     assert.deepEqual(results[0]?.findings, []);
+  });
+
+  it('lists only perceivable boxes as the cause of sideways overflow', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<div id="wide" style="width:600px">wide</div>' +
+          '<div id="ghost" style="position:absolute;top:0;left:700px;width:300px;height:40px;visibility:hidden">ghost</div>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    const overflow = results[0]?.findings.find(({ message }) => message.startsWith('overflow'));
+    assert.ok(
+      overflow?.details?.some((line) => line.includes('wide')),
+      overflow?.details?.join('\n'),
+    );
+    assert.ok(
+      !overflow?.details?.some((line) => line.includes('ghost')),
+      overflow?.details?.join('\n'),
+    );
   });
 
   it('reports small text, crowded standalone links and locked zoom', {
@@ -105,6 +156,77 @@ describe('r12s audit', () => {
       messages.some((message) => message.startsWith('target-size')),
       messages.join('\n'),
     );
+  });
+
+  it('flags a small target whose 24px spacing circle overlaps a neighbour far away by centre', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<div style="position:relative;height:80px">' +
+          '<a href="/x" style="position:absolute;left:0;top:0;display:block;width:16px;height:16px">x</a>' +
+          '<button style="position:absolute;left:18px;top:0;width:200px;height:40px">Buy</button>' +
+          '</div>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    const messages = results[0]?.findings.map(({ message }) => message) ?? [];
+    assert.ok(
+      messages.some((message) => message.startsWith('target-size')),
+      messages.join('\n'),
+    );
+  });
+
+  it('counts a 23.6px target as undersized, without rounding it up', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<div style="position:relative;height:80px">' +
+          '<a href="/x" style="position:absolute;left:0;top:0;display:block;width:23.6px;height:23.6px">x</a>' +
+          '<a href="/y" style="position:absolute;left:22px;top:0;display:block;width:23.6px;height:23.6px">y</a>' +
+          '</div>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    const details = results[0]?.findings.flatMap(({ details }) => details ?? []) ?? [];
+    assert.ok(
+      details.some((detail) => detail.includes('23.6x23.6px')),
+      details.join('\n'),
+    );
+  });
+
+  it('does not flag sideways overflow caused only by two-dimensional content such as a table', {
+    skip: noBrowser,
+  }, async () => {
+    const cwd = fixture({
+      'dist/index.html': page(
+        'width=device-width, initial-scale=1',
+        '<table style="width:600px"><tr><td>wide data table cell</td><td>second column</td></tr></table>',
+      ),
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['r12s'],
+      reporters: [],
+      overrides: { port: await freePort(), r12s: { viewports: [375] } },
+    });
+    assert.deepEqual(results[0]?.findings, []);
   });
 
   it('groups small text by element and keeps measurements in details', {

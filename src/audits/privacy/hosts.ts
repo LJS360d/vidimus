@@ -28,6 +28,16 @@ export const classifyRequest = (
   return 'third-party';
 };
 
+export const referrerLeaksPath = (referrer: string | undefined) => {
+  if (!referrer) return false;
+  try {
+    const url = new URL(referrer);
+    return url.pathname !== '/' || url.search !== '';
+  } catch {
+    return false;
+  }
+};
+
 export const isFirstPartyCookie = (domain: string, firstPartyHosts: Set<string>) => {
   const bare = domain.replace(/^\./, '');
   return [...firstPartyHosts].some((host) => matchesHost(host, bare));

@@ -40,7 +40,20 @@ export const requiredHeaderFindings = (
         },
       ];
     }
-    if (!pattern || new RegExp(pattern, 'i').test(value)) return [];
+    if (!pattern || new RegExp(pattern, 'i').test(value)) {
+      // RFC 6797 §6.1.2: without includeSubDomains a subdomain can still be reached over http
+      // and set cookies for the parent; the HSTS preload list requires it too.
+      if (key !== 'strict-transport-security' || /(^|;)\s*includesubdomains\s*(;|$)/i.test(value))
+        return [];
+      return [
+        {
+          message: 'strict-transport-security lacks includeSubDomains',
+          details: [value],
+          severity: 'warn',
+          fix: `Add includeSubDomains once every subdomain serves https, in ${home}.`,
+        },
+      ];
+    }
     return [
       {
         message: `${key} header does not match ${pattern}`,

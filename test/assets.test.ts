@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { run } from '../src/index.ts';
@@ -22,6 +24,7 @@ const head = ({
   extra = '',
 } = {}) => `<!doctype html><head>${icon}${manifest}
 <meta property="og:title" content="Home">
+<meta property="og:type" content="website">
 <meta property="og:image" content="${ogImage}">
 <meta property="og:image:alt" content="Logo">
 <meta property="og:url" content="https://example.com/">
@@ -100,6 +103,14 @@ describe('assets audit', () => {
     assert.deepEqual(result.messages, []);
   });
 
+  it('warns when apple-touch-icon is not 180x180', async () => {
+    const cwd = site({}, { 'dist/touch.png': png(120, 120) });
+    const result = await audit(cwd);
+    assert.deepEqual(result.messages, [
+      'warn: apple-touch-icon /touch.png is 120x120, not 180x180',
+    ]);
+  });
+
   it('accepts /favicon.ico and reports broken icon hrefs grouped', async () => {
     const icon = '<link rel="shortcut icon" href="img/missing.png">';
     const cwd = site({
@@ -114,6 +125,31 @@ describe('assets audit', () => {
       'error: icon /img/missing.png not found',
     ]);
     assert.deepEqual(result.findings[1]?.where, ['/']);
+  });
+
+  it('does not accept an icon href that only matches an html page or directory index', async () => {
+    const icon = '<link rel="icon" href="/icon"><link rel="apple-touch-icon" href="/touch.png">';
+    const result = await audit(
+      site({
+        'dist/index.html': head({ icon }),
+        'dist/about/index.html': head({ icon }),
+        'dist/icon.html': head(),
+        'dist/app/site.webmanifest': JSON.stringify({
+          name: 'Site',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
+          icons: [
+            { src: 'icon-512.png', sizes: '512x512', purpose: 'any maskable' },
+            { src: '/icon', sizes: '192x192' },
+          ],
+        }),
+      }),
+    );
+    assert.deepEqual(result.messages, [
+      'error: icon /icon not found',
+      'error: manifest icon /icon not found',
+    ]);
   });
 
   it('warns when no page links a manifest', async () => {
@@ -143,6 +179,11 @@ describe('assets audit', () => {
       'error: manifest /app/site.webmanifest has no name or short_name',
       'error: manifest /app/site.webmanifest has no icons',
     ]);
+  });
+
+  it('accepts a manifest with a UTF-8 byte order mark', async () => {
+    const result = await audit(site({ 'dist/app/site.webmanifest': `﻿${manifest}` }));
+    assert.deepEqual(result.messages, []);
   });
 
   it('reports missing manifest icons and the lack of a 512px icon', async () => {
@@ -197,7 +238,7 @@ describe('assets audit', () => {
     const result = await audit(site({ 'dist/app/site.webmanifest': JSON.stringify(manifest) }));
     assert.deepEqual(result.messages, [
       'error: manifest /app/site.webmanifest start_url /elsewhere/ is outside scope /app/',
-      'error: manifest /app/site.webmanifest display "huge" is not valid',
+      'warn: manifest /app/site.webmanifest display "huge" is not valid',
       'warn: manifest /app/site.webmanifest has no maskable icon',
       'warn: manifest icon /app/icon-512.png declares 192x192 but is 512x512',
     ]);
@@ -207,7 +248,37 @@ describe('assets audit', () => {
       }),
     );
     assert.ok(missing.messages.includes('error: manifest start_url /x/ not found'));
+    const foreign = await audit(
+      site({
+        'dist/app/site.webmanifest': JSON.stringify({
+          ...manifest,
+          start_url: 'https://other.test/',
+        }),
+      }),
+    );
+    assert.ok(
+      foreign.messages.includes(
+        'error: manifest /app/site.webmanifest start_url https://other.test/ is not same-origin, so browsers ignore it',
+      ),
+      foreign.messages.join('\n'),
+    );
     assert.ok(result.findings.every((finding) => finding.fix));
+  });
+
+  it('derives the default manifest scope from start_url, not the manifest directory', async () => {
+    const link = '<link rel="manifest" href="/manifests/app.webmanifest">';
+    const pages = {
+      'dist/index.html': head({ manifest: link }),
+      'dist/about/index.html': head({ manifest: link }),
+      'dist/manifests/app.webmanifest': JSON.stringify({
+        name: 'S',
+        start_url: '/',
+        display: 'standalone',
+        icons: [{ src: '/app/icon-512.png', sizes: '512x512', purpose: 'maskable' }],
+      }),
+    };
+    const result = await audit(site(pages));
+    assert.deepEqual(result.messages, []);
   });
 
   it('fails a relative og:image and a missing one', async () => {
@@ -219,6 +290,28 @@ describe('assets audit', () => {
     const gone = head({ ogImage: 'https://example.com/gone.png' });
     const absent = await audit(site({ 'dist/index.html': gone }));
     assert.deepEqual(absent.messages, ['error: og:image /gone.png not found']);
+  });
+
+  it('ignores og tags placed in <body>', async () => {
+    const inBody =
+      '<!doctype html><link rel="icon" href="/icon.svg"><body>' +
+      '<meta property="og:title" content="Home"><meta property="og:type" content="website">' +
+      '<meta property="og:image" content="https://example.com/og.png">' +
+      '<meta property="og:url" content="https://example.com/">' +
+      '<meta name="twitter:card" content="summary_large_image"></body>';
+    const result = await audit(
+      site({ 'dist/index.html': inBody, 'dist/about/index.html': inBody }),
+    );
+    assert.deepEqual(
+      result.messages.filter((message) => message.includes('<meta')),
+      [
+        'warn: missing <meta property="og:title">',
+        'warn: missing <meta property="og:type">',
+        'warn: missing <meta property="og:image">',
+        'warn: missing <meta property="og:url">',
+        'warn: missing <meta name="twitter:card">',
+      ],
+    );
   });
 
   it('warns about a small og:image and missing social tags', async () => {
@@ -234,7 +327,9 @@ describe('assets audit', () => {
     );
     assert.deepEqual(result.messages, [
       'warn: missing <meta property="og:title">',
+      'warn: missing <meta property="og:type">',
       'warn: missing <meta property="og:image">',
+      'warn: missing <meta property="og:url">',
       'warn: missing <meta name="twitter:card">',
       'warn: og:image /og.png is 600x315, smaller than 1200x630',
     ]);
@@ -286,6 +381,32 @@ describe('assets audit', () => {
     assert.deepEqual(fine.messages, []);
   });
 
+  it('requires an absolute twitter:image and a known twitter:card value', async () => {
+    const relative = head({ extra: '<meta name="twitter:image" content="/og.png">' });
+    const relativeResult = await audit(site({ 'dist/index.html': relative }));
+    assert.deepEqual(relativeResult.messages, [
+      'error: twitter:image "/og.png" is not an absolute URL',
+    ]);
+    const card = head().replace('summary_large_image', 'big_card');
+    const cardResult = await audit(site({ 'dist/index.html': card }));
+    assert.deepEqual(cardResult.messages, [
+      'warn: twitter:card "big_card" is not a known card type',
+    ]);
+  });
+
+  it('warns when the four OGP required properties are incomplete', async () => {
+    const untyped = head().replace('<meta property="og:type" content="website">\n', '');
+    const typeResult = await audit(site({ 'dist/index.html': untyped }));
+    assert.deepEqual(typeResult.messages, ['warn: missing <meta property="og:type">']);
+    const unlinked = head().replace(
+      '<meta property="og:url" content="https://example.com/">\n',
+      '',
+    );
+    const urlResult = await audit(site({ 'dist/index.html': unlinked }));
+    assert.deepEqual(urlResult.messages, ['warn: missing <meta property="og:url">']);
+    assert.ok(urlResult.findings.every((finding) => finding.fix));
+  });
+
   it('fails an og:url on another origin', async () => {
     const extra = '<meta property="og:url" content="https://staging.example.com/">';
     const page = head().replace('<meta property="og:url" content="https://example.com/">', extra);
@@ -299,6 +420,37 @@ describe('assets audit', () => {
     const result = await audit(site({ 'dist/404.html': undefined }));
     assert.equal(result.status, 'warned');
     assert.deepEqual(result.messages, ['warn: no 404 page (404.html or 404/index.html)']);
+  });
+
+  it('counts change-password only as a redirect, not a served page', async () => {
+    const changePassword = (status: number, headers: Record<string, string> = {}) =>
+      new Promise<string[]>((resolve, reject) => {
+        const server = createServer((_req, res) => res.writeHead(status, headers).end());
+        server.on('error', reject);
+        server.listen(0, '127.0.0.1', async () => {
+          const { port } = server.address() as AddressInfo;
+          try {
+            const result = await audit(
+              site({
+                'dist/index.html': `${head()}<input type="password" autocomplete="current-password">`,
+                'vidimus.config.json': JSON.stringify({
+                  siteUrl: 'https://example.com',
+                  origin: `http://127.0.0.1:${port}`,
+                }),
+              }),
+            );
+            resolve(result.messages);
+          } catch (error) {
+            reject(error);
+          } finally {
+            server.close();
+          }
+        });
+      });
+    const warning = 'warn: no /.well-known/change-password on a site with password fields';
+    assert.deepEqual(await changePassword(200), [warning]);
+    assert.deepEqual(await changePassword(302), [warning]);
+    assert.deepEqual(await changePassword(302, { location: '/account/' }), []);
   });
 
   it('gives every finding a fix', async () => {

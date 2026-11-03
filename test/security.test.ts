@@ -24,11 +24,15 @@ const securityTxt = (expires = inDays(180)) =>
   `Contact: mailto:security@example.com\nExpires: ${expires}\n`;
 const WELL_KNOWN = 'dist/.well-known/security.txt';
 
-const audit = async (files: Record<string, string | undefined>, overrides = {}) => {
+const audit = async (files: Record<string, string | Buffer | undefined>, overrides = {}) => {
+  const contents: Record<string, string | Buffer | undefined> = {
+    [WELL_KNOWN]: securityTxt(),
+    ...files,
+  };
   const cwd = fixture(
     Object.fromEntries(
-      Object.entries({ [WELL_KNOWN]: securityTxt(), ...files }).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
+      Object.entries(contents).filter(
+        (entry): entry is [string, string | Buffer] => entry[1] !== undefined,
       ),
     ),
   );
@@ -97,7 +101,7 @@ describe('security audit', () => {
 
   it('reads headers from vercel.json, netlify.toml, firebase.json and staticwebapp.config.json', async () => {
     const wanted: [string, string][] = [
-      ['strict-transport-security', 'max-age=63072000'],
+      ['strict-transport-security', 'max-age=63072000; includeSubDomains'],
       ['x-content-type-options', 'nosniff'],
       ['referrer-policy', 'strict-origin-when-cross-origin'],
       ['permissions-policy', 'camera=()'],
@@ -144,6 +148,56 @@ describe('security audit', () => {
     assert.ok(messages(result).some((message) => message.startsWith('referrer-policy')));
   });
 
+  it('judges a Referrer-Policy fallback list by its last recognised token', async () => {
+    const policy = async (value: string) => {
+      const result = await audit({
+        'dist/index.html': page(),
+        'dist/_headers': GOOD_HEADERS.replace(/Referrer-Policy: .*/, `Referrer-Policy: ${value}`),
+      });
+      return messages(result).some((message) => message.startsWith('referrer-policy'));
+    };
+    assert.equal(await policy('unsafe-url, strict-origin'), false);
+    assert.equal(await policy('strict-origin, unsafe-url'), true);
+    assert.equal(await policy('unsafe-url, strict-origin, unknown-token'), false);
+    assert.equal(await policy('unsafe-url, unknown-token'), true);
+  });
+
+  it('requires an HSTS max-age of a year and asks for includeSubDomains', async () => {
+    const hsts = async (value: string) => {
+      const result = await audit({
+        'dist/index.html': page(),
+        'dist/_headers': GOOD_HEADERS.replace(
+          /Strict-Transport-Security: .*/,
+          `Strict-Transport-Security: ${value}`,
+        ),
+      });
+      return messages(result).some((message) => message.startsWith('strict-transport-security'));
+    };
+    assert.equal(await hsts('max-age=31000000; includeSubDomains'), true);
+    assert.equal(await hsts('max-age=31536000'), true);
+    assert.equal(await hsts('max-age=31536000; includeSubDomains'), false);
+    assert.equal(await hsts('max-age=63072000; IncludeSubDomains; preload'), false);
+    assert.equal(await hsts('max-age="31536000"; includeSubDomains'), false);
+    assert.equal(await hsts('max-age=31536001; includeSubDomains'), false);
+    assert.equal(await hsts('max-age=31999999; includeSubDomains'), false);
+    assert.equal(await hsts('max-age=31535999; includeSubDomains'), true);
+  });
+
+  it('warns, not fails, when HSTS lacks includeSubDomains', async () => {
+    const result = await audit({
+      'dist/index.html': page(),
+      'dist/_headers': GOOD_HEADERS.replace(
+        /Strict-Transport-Security: .*/,
+        'Strict-Transport-Security: max-age=63072000; preload',
+      ),
+    });
+    assert.equal(result.status, 'warned');
+    assert.deepEqual(
+      result.findings.map(({ message, severity }) => [message, severity]),
+      [['strict-transport-security lacks includeSubDomains', 'warn']],
+    );
+  });
+
   it('lets require entries be disabled', async () => {
     const result = await audit({
       'dist/index.html': page(),
@@ -182,6 +236,7 @@ describe('security audit', () => {
     const anyOrigin = ['no clickjacking protection: frame-ancestors allows any origin'];
     assert.deepEqual(await clickjacking('*'), anyOrigin);
     assert.deepEqual(await clickjacking('https:'), anyOrigin);
+    assert.deepEqual(await clickjacking('https://*'), anyOrigin);
     assert.deepEqual(await clickjacking('http: https:'), anyOrigin);
     assert.deepEqual(await clickjacking("* 'self'"), anyOrigin);
     assert.deepEqual(await clickjacking("'none'"), []);
@@ -231,22 +286,68 @@ describe('security audit', () => {
     assert.deepEqual(result.findings[0]?.where, ['/']);
   });
 
+  it('warns on blob: in script-src', async () => {
+    const result = await audit({
+      'dist/index.html': page(
+        `<meta http-equiv="content-security-policy" content="script-src 'self' blob:; object-src 'none'; base-uri 'self'">`,
+      ),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.deepEqual(messages(result), ['CSP script-src allows blob:']);
+    assert.ok(result.findings.every(({ fix }) => fix));
+  });
+
   it('fails on mixed content but not on plain http links', async () => {
     const result = await audit({
       'dist/index.html': page(`<img src="http://cdn.test/a.png">
 <img srcset="https://ok.test/b.png 1x, http://cdn.test/c.png 2x">
 <link rel="stylesheet" href="http://cdn.test/s.css" integrity="sha384-x" crossorigin="anonymous">
-<a href="http://example.test/">external</a>`),
+<a href="http://example.test/">external</a>
+<track src="http://cdn.test/t.vtt"><input type="image" src="http://cdn.test/i.png">
+<input type="text" src="http://cdn.test/ignored.png">
+<form action="http://cdn.test/post"><button formaction="https://ok.test/p">x</button></form>`),
       'dist/other.html': page('<img src="http://cdn.test/a.png">'),
       'dist/_headers': GOOD_HEADERS,
     });
     assert.equal(result.status, 'failed');
     assert.deepEqual(messages(result), [
+      'CSP lacks form-action',
       'mixed content: http://cdn.test/a.png',
       'mixed content: http://cdn.test/c.png',
       'mixed content: http://cdn.test/s.css',
+      'mixed content: http://cdn.test/t.vtt',
+      'mixed content: http://cdn.test/i.png',
+      'form submits over http: http://cdn.test/post',
     ]);
-    assert.deepEqual(result.findings[0]?.where, ['/', '/other.html']);
+    const image = result.findings.find(({ message }) => message.endsWith('/a.png'));
+    assert.deepEqual(image?.where, ['/', '/other.html']);
+    const form = result.findings.find(({ message }) => message.startsWith('form submits'));
+    assert.equal(form?.severity, 'warn');
+  });
+
+  it('fails on ws:// resources on an https page but not on wss://', async () => {
+    const result = await audit({
+      'dist/index.html': page(`<img src="ws://cdn.test/a.png">
+<script src="wss://ok.test/live.js"></script>`),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(messages(result), ['mixed content: ws://cdn.test/a.png']);
+  });
+
+  it('fails on mixed content in apple-touch-icon and mask-icon links', async () => {
+    const result = await audit({
+      'dist/index.html': page(`<link rel="apple-touch-icon" href="http://cdn.test/touch.png">
+<link rel="apple-touch-icon-precomposed" href="http://cdn.test/pre.png">
+<link rel="mask-icon" href="http://cdn.test/mask.svg" color="#000">`),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(messages(result), [
+      'mixed content: http://cdn.test/touch.png',
+      'mixed content: http://cdn.test/pre.png',
+      'mixed content: http://cdn.test/mask.svg',
+    ]);
   });
 
   it('finds mixed content hidden in css, style attributes, imagesrcset and svg images', async () => {
@@ -304,6 +405,20 @@ describe('security audit', () => {
     assert.match(result.findings[0]?.fix ?? '', /crossorigin="anonymous"/);
   });
 
+  it('checks SRI on cross-origin preload and modulepreload that carry integrity', async () => {
+    const result = await audit({
+      'dist/index.html':
+        page(`<link rel="preload" as="script" href="https://cdn.test/p.js" integrity="sha384-x">
+<link rel="modulepreload" href="https://cdn.test/m.js" integrity="sha384-x" crossorigin="anonymous">
+<link rel="preload" as="font" href="https://cdn.test/f.woff2" crossorigin>`),
+      'dist/_headers': GOOD_HEADERS,
+    });
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(messages(result), [
+      'cross-origin <link> with integrity but no crossorigin: https://cdn.test/p.js',
+    ]);
+  });
+
   it('skips header checks without _headers but still checks the HTML', async () => {
     const result = await audit({
       'dist/index.html': page(
@@ -348,7 +463,7 @@ describe('security audit', () => {
 });
 
 describe('security.txt', () => {
-  const txt = async (files: Record<string, string | undefined>, config = {}) =>
+  const txt = async (files: Record<string, string | Buffer | undefined>, config = {}) =>
     audit({
       'dist/index.html': page(),
       'dist/_headers': GOOD_HEADERS,
@@ -400,11 +515,13 @@ Version: x
 
   it('checks Contact URIs', async () => {
     const result = await txt({
-      [WELL_KNOWN]: `Contact: security@example.com\nContact: http://example.com/sec\nContact: tel:+1-201-555-0123\nExpires: ${inDays(30)}\n`,
+      [WELL_KNOWN]: `Contact: security@example.com\nContact: http://example.com/sec\nContact: ftp://example.com/sec\nContact: javascript:alert(1)\nContact: tel:+1-201-555-0123\nExpires: ${inDays(30)}\n`,
     });
     assert.deepEqual(findings(result), [
       'error: security.txt Contact "security@example.com" is not a mailto:, tel: or https:// URI',
       'error: security.txt Contact "http://example.com/sec" is not a mailto:, tel: or https:// URI',
+      'error: security.txt Contact "ftp://example.com/sec" is not a mailto:, tel: or https:// URI',
+      'error: security.txt Contact "javascript:alert(1)" is not a mailto:, tel: or https:// URI',
     ]);
   });
 
@@ -417,9 +534,49 @@ Version: x
       `warn: security.txt Expires ${far} is more than a year away`,
     ]);
     const garbled = await txt({ [WELL_KNOWN]: securityTxt('soon') });
-    assert.deepEqual(findings(garbled), ['error: security.txt Expires "soon" is not a date']);
+    assert.deepEqual(findings(garbled), [
+      'error: security.txt Expires "soon" is not an RFC 3339 date-time',
+    ]);
     const twice = await txt({ [WELL_KNOWN]: `${securityTxt()}Expires: ${inDays(10)}\n` });
     assert.deepEqual(findings(twice), ['error: security.txt has more than one Expires field']);
+  });
+
+  it('requires Expires to be an RFC 3339 date-time with an offset', async () => {
+    const future = new Date(Date.now() + 180 * DAY);
+    const date = future.toISOString().slice(0, 10);
+    const local = future.toISOString().slice(0, 19);
+    for (const expires of [date, local, `${local}+0000`]) {
+      const result = await txt({ [WELL_KNOWN]: securityTxt(expires) });
+      assert.deepEqual(findings(result), [
+        `error: security.txt Expires "${expires}" is not an RFC 3339 date-time`,
+      ]);
+    }
+    const offset = await txt({ [WELL_KNOWN]: securityTxt(`${local}+00:00`) });
+    assert.deepEqual(findings(offset), []);
+    const year = future.getUTCFullYear() + (future.getUTCMonth() < 1 ? 0 : 1);
+    for (const expires of [`${year}-02-30T00:00:00Z`, `${date}T24:00:00Z`, `${date}T10:60:00Z`]) {
+      const result = await txt({ [WELL_KNOWN]: securityTxt(expires) });
+      assert.deepEqual(findings(result), [
+        `error: security.txt Expires "${expires}" is not an RFC 3339 date-time`,
+      ]);
+    }
+  });
+
+  it('requires UTF-8, a Canonical field when signed and one Preferred-Languages line', async () => {
+    const latin1 = await txt({
+      [WELL_KNOWN]: Buffer.from(`${securityTxt()}Comment: caf\xe9\n`, 'latin1'),
+    });
+    assert.deepEqual(findings(latin1), ['error: security.txt is not valid UTF-8']);
+    const signed = await txt({
+      [WELL_KNOWN]: `-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\n${securityTxt()}-----BEGIN PGP SIGNATURE-----\nVersion: x\n`,
+    });
+    assert.deepEqual(findings(signed), ['warn: signed security.txt has no Canonical field']);
+    const languages = await txt({
+      [WELL_KNOWN]: `${securityTxt()}Preferred-Languages: en\nPreferred-Languages: de\n`,
+    });
+    assert.deepEqual(findings(languages), [
+      'error: security.txt has more than one Preferred-Languages field',
+    ]);
   });
 
   it('is skipped when turned off or when the site is under a base path', async () => {
@@ -598,12 +755,12 @@ describe('security audit against an origin answering every page with 404', () =>
 });
 
 describe('unsafe CSP with strict-dynamic', () => {
-  it('ignores unsafe-inline and https: behind strict-dynamic, reads script-src-elem and uppercase keywords', async () => {
+  it('ignores unsafe-inline, https: and http: behind strict-dynamic, reads script-src-elem and uppercase keywords', async () => {
     const meta = (csp: string) =>
       page(`<meta http-equiv="content-security-policy" content="${csp}">`);
     const result = await audit({
       'dist/index.html': meta(
-        "script-src 'nonce-x' 'strict-dynamic' 'unsafe-inline' https:; object-src 'none'; base-uri 'self'",
+        "script-src 'nonce-x' 'strict-dynamic' 'unsafe-inline' https: http:; object-src 'none'; base-uri 'self'",
       ),
       'dist/a/index.html': meta(
         "script-src 'self'; script-src-elem 'UNSAFE-INLINE'; object-src 'none'; base-uri 'self'",

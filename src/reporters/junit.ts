@@ -8,16 +8,22 @@ const escapeXml = (text: string) =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;')
-    .replace(/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '');
+    .replace(/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
+    // XML §2.11 turns a raw CR in text into LF.
+    .replaceAll('\r', '&#13;');
 
 const attrs = (values: Record<string, string | number>) =>
   Object.entries(values)
-    .map(([key, value]) => `${key}="${escapeXml(String(value))}"`)
+    // XML §3.3.3 normalises raw tab, LF and CR in attribute values to spaces; refs survive.
+    .map(
+      ([key, value]) =>
+        `${key}="${escapeXml(String(value)).replace(/[\t\n\r]/g, (c) => `&#${c.charCodeAt(0)};`)}"`,
+    )
     .join(' ');
 
 const seconds = (ms: number) => (ms / 1000).toFixed(3);
 
-const findingCase = (suite: string, finding: Finding) => {
+const findingCase = (suite: string, finding: Finding, tag: 'failure' | 'error') => {
   const body = [
     ...(finding.details ?? []),
     ...(finding.where ?? []).map((where) => `on: ${where}`),
@@ -28,7 +34,7 @@ const findingCase = (suite: string, finding: Finding) => {
   const outcome =
     finding.severity === 'warn'
       ? `<system-out>${escapeXml('warning: ')}${body}</system-out>`
-      : `<failure ${attrs({ message: finding.message })}>${body}</failure>`;
+      : `<${tag} ${attrs({ message: finding.message })}>${body}</${tag}>`;
   return `    <testcase ${attrs({ classname: `vidimus.${suite}`, name: finding.message, ...(finding.file && { file: finding.file }) })}>
       ${outcome}
     </testcase>`;
@@ -49,15 +55,16 @@ const summaryCase = ({ name, status, summary }: AuditResult) => {
 type Counts = Record<'tests' | 'failures' | 'errors' | 'skipped', number>;
 
 const suite = (result: AuditResult, suppressed: Finding[] | undefined) => {
+  const errored = result.status === 'errored';
+  const tag = errored ? 'error' : 'failure';
   const cases = result.findings.length
-    ? result.findings.map((finding) => findingCase(result.name, finding))
+    ? result.findings.map((finding) => findingCase(result.name, finding, tag))
     : [summaryCase(result)];
+  const failing = result.findings.filter(({ severity }) => severity !== 'warn').length;
   const counts: Counts = {
     tests: cases.length,
-    failures: result.findings.length
-      ? result.findings.filter(({ severity }) => severity !== 'warn').length
-      : Number(result.status === 'failed'),
-    errors: result.status === 'errored' ? 1 : 0,
+    failures: result.findings.length ? (errored ? 0 : failing) : Number(result.status === 'failed'),
+    errors: result.findings.length ? (errored ? failing : 0) : Number(errored),
     skipped: result.status === 'skipped' ? 1 : 0,
   };
   const xml = `  <testsuite ${attrs({ name: result.name, ...counts, time: seconds(result.durationMs) })}>

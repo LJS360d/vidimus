@@ -86,13 +86,14 @@ The server:
 - maps `/about/` to `about/index.html`, and `/about` to `about`, `about/index.html` or
   `about.html`, whichever exists
 - answers anything else with a plain `404 Not found`, unless `server.fallback` is set
-- sets `content-type` from the file extension (HTML files get the charset they declare: a BOM or a `<meta charset>` in the first 1024 bytes, else `utf-8`) and gzips text, JSON, XML, SVG and manifests when
+- sets `content-type` from the file extension (HTML files get the charset they declare: a BOM or a `<meta charset>` in the first 1024 bytes, a meta UTF-16 label without a BOM counts as `utf-8`, else `utf-8`) and gzips text, JSON, XML, SVG and manifests when
   the client accepts it (`server.gzip`)
 - adds the headers of every `server.headers` rule whose `match` regex matches the request path
 
 `server.fallback` names a build file, relative to `distDir`, that answers page requests no
 file matches: paths without an extension, or requests that accept `text/html`. Missing assets
-such as `/assets/app.js` still get a `404`. Set it to match your host:
+such as `/assets/app.js` still get a `404`, and so does any request outside the base path of
+`siteUrl`. Set it to match your host:
 
 | Host | `server.fallback` | `server.fallbackStatus` |
 | --- | --- | --- |
@@ -191,8 +192,8 @@ export default defineConfig({
 - `routes.paths` lists paths relative to the `siteUrl` base path, each starting with `/`.
 - `routes.discover: 'sitemap'` adds the URLs of `sitemap.xml`, `sitemap-index.xml` or
   `sitemap_index.xml` in `distDir`, plus the sitemaps named by `Sitemap:` lines in `robots.txt`
-  (`.xml.gz` is read too), following sitemap indexes. URLs on another origin than
-  `siteUrl` are skipped.
+  (`.xml.gz` is read too), following sitemap indexes. Without `siteUrl`, the origin of the first sitemap URL is used instead. URLs and sitemap references on another
+  origin than `siteUrl` are skipped, and their files are not read from `distDir`. A relative `Sitemap:` line or index `<loc>` is skipped too, with a `sitemap reference is not an absolute URL` finding in the `seo` audit. A `.xml.gz` that is not valid gzip yields no URLs and a `sitemap is not valid gzip` finding in the `seo` audit. A `<loc>` with a bare `&` or a named entity other than the XML five (`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`) yields a `sitemap <loc> is not entity-escaped` finding, unless it is a CDATA section. A `<loc>` of 2,048 characters or more, a `<lastmod>` that is not a W3C Datetime, and a sitemap index listing more than 50,000 sitemaps each yield a finding in the `seo` audit.
 - `routes.discover: 'crawl'` opens the built pages and `routes.paths` in the browser, waits for
   `render.waitFor`, and follows same-origin `<a href>` links in the rendered DOM, breadth
   first, until `routes.limit` new routes are found. Links to files with an extension other

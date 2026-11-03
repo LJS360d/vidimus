@@ -43,9 +43,16 @@ describe('budget compression', () => {
     'dist/a.js.br': 'x'.repeat(50),
   };
 
-  it('uses precompressed siblings and the configured codec', async () => {
-    const sibling = await audit(files, { js: 100 });
+  it('uses precompressed siblings only when they match the configured codec', async () => {
+    const sibling = await audit(files, { js: 100, compression: 'brotli' });
     assert.deepEqual(sibling.findings, []);
+    const brOnly = await audit(files, { js: 100 });
+    assert.match(brOnly.findings[0]?.message ?? '', /gzipped/);
+    const gzSibling = await audit(
+      { ...files, 'dist/a.js.gz': 'x'.repeat(50) },
+      { js: 100, compression: 'none' },
+    );
+    assert.match(gzSibling.findings[0]?.message ?? '', /12 kB raw/);
     const { 'dist/a.js.br': _, ...plain } = files;
     const gzip = await audit(plain, { js: 100 });
     assert.match(gzip.findings[0]?.message ?? '', /gzipped/);
@@ -99,6 +106,18 @@ describe('imageSize', () => {
     assert.deepEqual(imageSize(jpeg), { width: 800, height: 600, type: 'jpeg' });
   });
 
+  it('reads ICO as its largest embedded image, where a 0 dimension means 256', () => {
+    const entry = (width: number, height: number) =>
+      Buffer.from([width, height, 0, 0, 1, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const ico = Buffer.concat([
+      Buffer.from([0, 0, 1, 0, 3, 0]),
+      entry(16, 16),
+      entry(48, 48),
+      entry(0, 0),
+    ]);
+    assert.deepEqual(imageSize(ico), { width: 256, height: 256, type: 'ico' });
+  });
+
   it('reads WebP VP8, VP8L and VP8X', () => {
     const riff = (chunk: string, body: number[]) =>
       Buffer.concat([
@@ -115,7 +134,7 @@ describe('imageSize', () => {
     assert.deepEqual(imageSize(extended), { width: 1200, height: 630, type: 'webp' });
   });
 
-  it('reads AVIF dimensions from the primary item and accepts mif1 major brand', () => {
+  it('reads AVIF dimensions from the primary item, swaps them for a quarter-turn irot, and accepts mif1 major brand', () => {
     const box = (type: string, ...parts: Buffer[]) => {
       const body = Buffer.concat(parts);
       const head = Buffer.alloc(8);
@@ -129,7 +148,7 @@ describe('imageSize', () => {
       return out;
     };
     const ispe = (width: number, height: number) => box('ispe', u32(0, width, height));
-    const build = (major: string, compatible: string) => {
+    const build = (major: string, compatible: string, angle?: number) => {
       const ftyp = box(
         'ftyp',
         Buffer.from(major, 'latin1'),
@@ -137,13 +156,21 @@ describe('imageSize', () => {
         Buffer.from(compatible, 'latin1'),
       );
       const pitm = box('pitm', u32(0), Buffer.from([0, 2]));
-      const ipco = box('ipco', ispe(16, 16), ispe(64, 32));
-      const ipma = box('ipma', u32(0, 1), Buffer.from([0, 2, 1, 2]));
+      const irot = angle === undefined ? [] : [box('irot', Buffer.from([angle]))];
+      const ipco = box('ipco', ispe(16, 16), ispe(64, 32), ...irot);
+      const ipma = box(
+        'ipma',
+        u32(0, 1),
+        angle === undefined ? Buffer.from([0, 2, 1, 2]) : Buffer.from([0, 2, 2, 2, 3]),
+      );
       const meta = box('meta', u32(0), pitm, box('iprp', ipco, ipma));
       return Buffer.concat([ftyp, meta]);
     };
     assert.deepEqual(imageSize(build('avif', 'mif1')), { width: 64, height: 32, type: 'avif' });
     assert.deepEqual(imageSize(build('mif1', 'avif')), { width: 64, height: 32, type: 'avif' });
+    assert.deepEqual(imageSize(build('avif', 'mif1', 2)), { width: 64, height: 32, type: 'avif' });
+    assert.deepEqual(imageSize(build('avif', 'mif1', 1)), { width: 32, height: 64, type: 'avif' });
+    assert.deepEqual(imageSize(build('avif', 'mif1', 3)), { width: 32, height: 64, type: 'avif' });
     assert.equal(imageSize(build('mif1', 'heic')), undefined);
     const full = build('mif1', 'avif');
     for (let cut = 0; cut < full.length; cut += 3) {
@@ -161,12 +188,34 @@ describe('imageSize', () => {
     assert.deepEqual(imageSize(avif), { width: 64, height: 32, type: 'avif' });
   });
 
+  it('does not fall back to an ambiguous ispe box when the primary item has none', () => {
+    const avif = Buffer.alloc(60);
+    avif.write('ftypavif', 4, 'latin1');
+    avif.write('ispe', 20, 'latin1');
+    avif.writeUInt32BE(64, 28);
+    avif.writeUInt32BE(32, 32);
+    avif.write('ispe', 40, 'latin1');
+    avif.writeUInt32BE(512, 48);
+    avif.writeUInt32BE(512, 52);
+    assert.equal(imageSize(avif), undefined);
+  });
+
   it('reads SVG attributes and viewBox', () => {
     const sized = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="48px" height="24">');
     assert.deepEqual(imageSize(sized), { width: 48, height: 24, type: 'svg' });
     const boxed = Buffer.from('<?xml version="1.0"?><svg width="100%" viewBox="0 0 512 256">');
     assert.deepEqual(imageSize(boxed), { width: 512, height: 256, type: 'svg' });
     assert.equal(imageSize(Buffer.from('not an image')), undefined);
+  });
+
+  it('scales the viewBox aspect ratio when only one of width or height is given', () => {
+    const widthOnly = Buffer.from('<svg width="200" viewBox="0 0 512 256">');
+    assert.deepEqual(imageSize(widthOnly), { width: 200, height: 100, type: 'svg' });
+    const heightOnly = Buffer.from('<svg height="100" viewBox="0 0 512 256">');
+    assert.deepEqual(imageSize(heightOnly), { width: 200, height: 100, type: 'svg' });
+    assert.equal(imageSize(Buffer.from('<svg width="200" viewBox="0 0 0 256">')), undefined);
+    const rounded = Buffer.from('<svg width="100" viewBox="0 0 3 2">');
+    assert.deepEqual(imageSize(rounded), { width: 100, height: 67, type: 'svg' });
   });
 
   it('walks JPEG markers and rejects truncated or malformed files', () => {
@@ -357,6 +406,21 @@ describe('budget audit', () => {
     assert.deepEqual(result.findings[0]?.where, ['/', '/other.html']);
   });
 
+  it('warns when width or height does not parse as a number (100px does)', async () => {
+    const result = await audit({
+      'dist/index.html': `<img src="/a.png" width="100%" height="auto"><img src="/b.png" width="auto" height="auto">
+<img src="/c.png" width="10px" height="10"><img src="/d.png" width="10" height="10">`,
+    });
+    assert.equal(result.status, 'warned');
+    assert.deepEqual(
+      result.findings.map((f) => f.message),
+      [
+        '<img src="/a.png"> has no width and height (layout shift)',
+        '<img src="/b.png"> has no width and height (layout shift)',
+      ],
+    );
+  });
+
   it('respects the exclude option and skips without pages', async () => {
     const result = await audit({ 'dist/index.html': '<img src="/x.png">' }, { exclude: ['^/$'] });
     assert.equal(result.status, 'skipped');
@@ -454,5 +518,23 @@ describe('budget exact asset files', () => {
       { image: 1000 },
     );
     assert.deepEqual(result.findings, []);
+  });
+});
+
+describe('imageSizeOf on large files', () => {
+  it('falls back to the whole file when the header is past the first 64 KiB', () => {
+    const app = Buffer.alloc(4 + 65_533);
+    app.writeUInt16BE(0xffef, 0);
+    app.writeUInt16BE(65_535, 2);
+    const sof = Buffer.from([0xff, 0xc0, 0, 11, 8, 0, 40, 0, 30, 1, 1, 0x11, 0]);
+    const jpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      app,
+      app,
+      sof,
+      Buffer.from([0xff, 0xd9]),
+    ]);
+    const cwd = fixture({ 'late.jpg': jpeg });
+    assert.deepEqual(imageSizeOf(join(cwd, 'late.jpg')), { width: 30, height: 40, type: 'jpeg' });
   });
 });

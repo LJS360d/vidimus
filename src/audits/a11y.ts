@@ -25,7 +25,7 @@ export const techniqueUrl = (code: string) => {
   const techniques = code.split('.')[4]?.split(/[,+]/) ?? [];
   for (const technique of techniques) {
     const dir = TECHNIQUE_DIRS.find(([pattern]) => pattern.test(technique))?.[1];
-    if (dir) return `https://www.w3.org/WAI/WCAG21/Techniques/${dir}/${technique}`;
+    if (dir) return `https://www.w3.org/WAI/WCAG22/Techniques/${dir}/${technique}`;
   }
   return undefined;
 };

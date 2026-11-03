@@ -48,12 +48,11 @@ with the configured rules. With no pages left the audit is skipped (`no built HT
 
 The markup in an `<iframe srcdoc="…">` is validated as its own document, usually a fragment,
 and its example locations read `/path/ <iframe srcdoc>:line:column`. An `<iframe>` without
-`title` fails `element-required-attributes`, and invalid `sandbox` or `allow` values fail
-`attribute-allowed-values`.
+`title` fails `element-required-attributes`.
 
 ### Configuration sources
 
-1. `html.extends`, `['html-validate:standard']` by default.
+1. `html.extends`, the `html-validate:standard` and `html-validate:a11y` presets by default.
 2. A `.htmlvalidate.json` (or `.htmlvalidate.js`, `.htmlvalidate.cjs`, `.htmlvalidate.mjs`, checked in that order) in the project root, if present, replaces `html.extends` completely:
    its `extends`, `rules` and other keys are used as is.
 3. `html.rules` is merged on top of the rules from either source.
@@ -97,7 +96,7 @@ A clean run ends with `✔ html: 24 pages, valid`.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `html.extends` | `['html-validate:standard']` | html-validate presets; ignored when a `.htmlvalidate.*` file exists |
+| `html.extends` | the standard and a11y presets | html-validate presets; ignored when a `.htmlvalidate.*` file exists |
 | `html.rules` | `{}` | html-validate rules applied on top, e.g. `{ 'no-inline-style': 'off' }` |
 | `html.exclude` | `[]` | URL path patterns to skip |
 
@@ -146,3 +145,71 @@ html: { rules: { 'void-style': ['error', { style: 'selfclose' }] } }
 - **Third-party markup you cannot change** (an embedded widget): skip its pages with
   `html.exclude`, or turn the offending rule off. To accept today's problems and fail only on new
   ones, record a [findings baseline](../configuration#severity-ignores-and-the-findings-baseline).
+
+## Standards
+
+The rules come from html-validate. Each rule's text is on the [rules index](https://html-validate.org/rules/).
+
+### html-validate rules
+
+[html-validate](https://html-validate.org/rules/)
+
+- `html-validate:standard` (on by default): element content models and nesting
+  (`element-permitted-content`, `element-permitted-order`, `element-permitted-parent`, `close-order`).
+- `no-dup-id`, `unrecognized-char-ref` and `no-raw-characters`: unique IDs and character references.
+- `attribute-allowed-values`, `element-required-attributes` and `no-deprecated-attr`: allowed values,
+  required attributes and deprecated attributes.
+- `html-validate:a11y` (on by default): `empty-title`, `empty-heading`, `meta-refresh`,
+  `hidden-focusable`, `multiple-labeled-controls` and `no-implicit-button-type`.
+
+### HTML Living Standard
+
+[HTML Living Standard](https://html.spec.whatwg.org/multipage/)
+
+- File encoding: a byte-order mark decides first. Otherwise the first `<meta>` within the first
+  1024 bytes (outside comments) whose `charset` attribute, or `content` charset with
+  `http-equiv="content-type"`, names a known encoding decides; a `charset=` inside any other
+  attribute does not count, and a BOM-less `utf-16` label is read as UTF-8 (13.2.3.2).
+- `<iframe srcdoc>`: the value is decoded as an attribute value before validation (13.2.5.73 and
+  13.2.5.80). Named references use the full table, and a legacy name without `;` decodes unless an
+  `=` or an ASCII alphanumeric follows it. Numeric references in 0x80-0x9F use the windows-1252
+  table, and NUL, surrogates and values above U+10FFFF become U+FFFD. The first duplicate
+  `srcdoc` attribute is used (13.2.5.33).
+- `<iframe srcdoc>` discovery: only iframes the tokenizer sees as elements are checked. Markup in
+  comments and in the raw text of `<textarea>`, `<title>`, `<script>`, `<style>`, `<xmp>`,
+  `<noembed>`, `<noframes>` and `<iframe>` is ignored (13.2.5).
+
+### Encoding Standard
+
+[Encoding Standard](https://encoding.spec.whatwg.org/)
+
+- Charset labels are resolved by `TextDecoder`, which follows the label table. A label it does not
+  know is skipped like the prescan does, and with no known label the page is decoded as UTF-8
+  (browsers fall back to a locale default such as windows-1252; the host's `Content-Type` usually
+  says UTF-8).
+
+### WCAG 2.1
+
+[WCAG 2.1](https://www.w3.org/TR/WCAG21/)
+
+- `wcag/h37` (a11y preset): every `<img>` has an `alt` attribute (1.1.1 Non-text Content, technique
+  H37). The other `wcag/*` rules in the a11y preset are listed on the [rules index](https://html-validate.org/rules/).
+
+### WAI-ARIA 1.2
+
+[WAI-ARIA 1.2](https://www.w3.org/TR/wai-aria-1.2/)
+
+- `no-abstract-role`: abstract roles are not used on elements.
+- `aria-hidden-body`: `aria-hidden` is not set on `<body>`.
+
+### Not checked
+
+- Only `*.html` files are validated. `.htm` and `.xhtml` pages are skipped.
+- Files are decoded from their bytes. The HTTP `Content-Type` charset is not read, although
+  browsers prefer it over `<meta charset>`.
+- `<noscript>` is parsed as markup, so an `<iframe srcdoc>` inside it is validated, although a
+  browser with scripting on treats that text as raw.
+- `<template>` content is skipped when looking for `<iframe srcdoc>`, so those documents are not
+  validated.
+- Contrast, focus order, reflow and accessible names are not evaluated. See [a11y](./a11y) and
+  [r12s](./r12s).

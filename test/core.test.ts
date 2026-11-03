@@ -17,11 +17,25 @@ import { fixture } from './helpers.ts';
 describe('html parsing', () => {
   it('decodes named, numeric and out-of-range entities', () => {
     assert.equal(decodeEntities('A &ndash; B &Eacute;&eacute; &frac12; &AMP;'), 'A – B Éé ½ &');
-    assert.equal(
-      decodeEntities('&#x1F680; &#99999999; &#x110000; &nope;'),
-      '🚀 &#99999999; &#x110000; &nope;',
-    );
+    assert.equal(decodeEntities('&#x1F680; &nope;'), '🚀 &nope;');
+    // A numeric reference without its semicolon still decodes (WHATWG numeric character reference).
+    assert.equal(decodeEntities('&#65&#x42 &#128'), 'AB €');
+    const start = performance.now();
+    decodeEntities(`&${'a'.repeat(100_000)}`);
+    assert.ok(performance.now() - start < 500);
     assert.equal(decodeEntities('&constructor; &toString;'), '&constructor; &toString;');
+  });
+
+  it('decodes the full WHATWG named table case-sensitively, legacy names without semicolon per 13.2.5.73', () => {
+    assert.equal(decodeEntities('&Lt; &Alpha; &lt; &AMP; &Lt'), '≪ Α < & &Lt');
+    assert.equal(decodeEntities('&copy 2024 &notit; &copy2'), '© 2024 ¬it; ©2');
+    assert.equal(decodeEntities('?a=1&copy=2&para=3', true), '?a=1&copy=2&para=3');
+    assert.equal(decodeEntities('&copy; &para;', true), '© ¶');
+  });
+
+  it('maps numeric references per WHATWG 13.2.5.80', () => {
+    assert.equal(decodeEntities('&#150; &#x80; &#x9F; &#129;'), '– € Ÿ \u0081');
+    assert.equal(decodeEntities('&#0; &#xD800; &#xDFFF; &#x110000; &#99999999;'), '� � � � �');
   });
 
   it('reads attributes that follow a quoted value without whitespace', () => {
@@ -49,7 +63,10 @@ describe('html parsing', () => {
   });
 
   it('reads text content with entities and nested tags', () => {
-    assert.equal(textOf('<title> Foo &ndash; <b>Bar</b>\n</title>', 'title'), 'Foo – Bar');
+    assert.equal(textOf('<h1> Foo &ndash; <b>Bar</b>\n</h1>', 'h1'), 'Foo – Bar');
+    // <title> is RCDATA: markup there is text.
+    assert.equal(textOf('<title>1 < 2 <b>x</b></title>', 'title'), '1 < 2 <b>x</b>');
+    assert.equal(textOf('<title>a&nbsp;b</title>', 'title'), 'a\u00a0b');
     assert.equal(textOf('<p>x</p>', 'title'), undefined);
   });
 
@@ -523,5 +540,28 @@ describe('config coercion and patterns', () => {
         JSON.stringify(overrides),
       );
     }
+  });
+});
+
+describe('markup stripping edge cases', () => {
+  it('runs unclosed raw-text elements and comments to the end', () => {
+    assert.deepEqual(
+      tags('<p>a</p><script>var x = "<a href=/in-script>"').map(({ name }) => name),
+      ['p', 'script'],
+    );
+    assert.equal(stripComments('a<!-->b<!--->c<!-- d --!>e').replace(/ +/g, ''), 'abce');
+    assert.equal(
+      stripComments('<script>if (a<!--b) {}</script>'),
+      '<script>if (a<!--b) {}</script>',
+    );
+  });
+
+  it('stays linear on long unclosed openers', () => {
+    const start = performance.now();
+    tags('<title a '.repeat(20_000));
+    tags('<a href="x"'.repeat(10_000));
+    tags('<script>'.repeat(20_000));
+    stripComments('<!-- '.repeat(20_000));
+    assert.ok(performance.now() - start < 1000);
   });
 });

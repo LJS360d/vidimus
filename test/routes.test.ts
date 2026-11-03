@@ -163,6 +163,23 @@ describe('routes', () => {
     assert.deepEqual(paths, ['/', '/docs/seo']);
   });
 
+  it('ignores sitemap URLs on another host when siteUrl is unset', async () => {
+    const { paths } = await collect(
+      {
+        'dist/index.html': SHELL,
+        'dist/sitemap.xml': `<urlset>
+          <url><loc>https://example.com/docs/seo</loc></url>
+          <url><loc>https://other.test/blog/x</loc></url>
+        </urlset>`,
+      },
+      {
+        server: { fallback: 'index.html' },
+        routes: { discover: 'sitemap' },
+      },
+    );
+    assert.deepEqual(paths, ['/', '/docs/seo']);
+  });
+
   it('follows robots.txt sitemap lines to gzipped sitemaps', async () => {
     const { paths } = await collect(
       {

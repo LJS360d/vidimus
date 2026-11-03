@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import { extname } from 'node:path';
-import { isNoindex, localFile, meta, originOf, resolveHref } from '../../core/html.ts';
+import { headOf, isNoindex, localFile, meta, originOf, resolveHref } from '../../core/html.ts';
 import type { PageSource } from '../../core/types.ts';
 import type { Env, Report } from './env.ts';
 
@@ -10,8 +10,11 @@ const OG_UNSUPPORTED = new Set(['svg', 'avif']);
 
 const SOCIAL_FIXES: Record<string, (origin: string) => string> = {
   'og:title': () => 'Add <meta property="og:title" content="<page title>"> to the <head>.',
+  'og:type': () => 'Add <meta property="og:type" content="website"> to the <head>.',
   'og:image': (origin) =>
     `Add <meta property="og:image" content="${origin}/og.png"> pointing at a 1200x630 image.`,
+  'og:url': (origin) =>
+    `Add <meta property="og:url" content="${origin}/"> with the page's full URL to the <head>.`,
   'twitter:card': () =>
     'Add <meta name="twitter:card" content="summary_large_image"> to the <head>.',
 };
@@ -23,10 +26,10 @@ interface Page {
   exampleOrigin: string;
 }
 
-const tag = ({ page }: Page, name: string) => meta(page.html, name)?.trim();
+const tag = ({ page }: Page, name: string) => meta(headOf(page.html), name)?.trim();
 
 const checkRequiredTags = (p: Page) => {
-  for (const property of ['og:title', 'og:image', 'twitter:card']) {
+  for (const property of ['og:title', 'og:type', 'og:image', 'og:url', 'twitter:card']) {
     if (tag(p, property)) continue;
     p.report(
       {
@@ -136,6 +139,15 @@ const checkTwitterImage = (p: Page) => {
   const { env, page, report } = p;
   const image = tag(p, 'twitter:image');
   const resolved = image ? resolveHref(image, page.path, env.siteUrl) : null;
+  if (image && resolved && !resolved.absolute) {
+    report(
+      {
+        message: `twitter:image "${image}" is not an absolute URL`,
+        fix: `Use an absolute URL, e.g. <meta name="twitter:image" content="${p.exampleOrigin}${resolved.url.pathname}">.`,
+      },
+      page.path,
+    );
+  }
   if (!resolved?.path) return;
   const file = localFile(env.dist, resolved.path);
   if (!file) {
@@ -157,6 +169,22 @@ const checkTwitterImage = (p: Page) => {
         fix: 'Export the image as PNG or JPEG and point twitter:image at it.',
       },
       page.path,
+    );
+  }
+};
+
+const TWITTER_CARDS = new Set(['summary', 'summary_large_image', 'app', 'player']);
+
+const checkTwitterCard = (p: Page) => {
+  const card = tag(p, 'twitter:card');
+  if (card && !TWITTER_CARDS.has(card)) {
+    p.report(
+      {
+        message: `twitter:card "${card}" is not a known card type`,
+        severity: 'warn',
+        fix: 'Set twitter:card to summary, summary_large_image, app or player.',
+      },
+      p.page.path,
     );
   }
 };
@@ -184,6 +212,7 @@ export const checkOpenGraph = (env: Env, report: Report) => {
     checkRequiredTags(p);
     checkOgImage(p, tag(p, 'og:image'));
     checkTwitterImage(p);
+    checkTwitterCard(p);
     checkOgUrl(p, siteOrigin);
   }
 };

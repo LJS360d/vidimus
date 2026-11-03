@@ -4,6 +4,17 @@ import type { Finding } from '../core/types.ts';
 
 const YEAR = 366 * 24 * 60 * 60 * 1000;
 
+const RFC3339 =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt]([01]\d|2[0-3]):[0-5]\d:([0-5]\d|60)(\.\d+)?([Zz]|[+-]([01]\d|2[0-3]):[0-5]\d)$/;
+
+// RFC 3339 §5.6/§5.7: hours 00-23, minutes 00-59, and the day must exist in its month.
+const isRfc3339 = (value: string) => {
+  const [, year, month, day] = RFC3339.exec(value) ?? [];
+  if (!year) return false;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  return date.getUTCMonth() === Number(month) - 1 && date.getUTCDate() === Number(day);
+};
+
 const EXAMPLE =
   'Contact: mailto:security@example.com and Expires: <a date less than a year away, e.g. 2027-01-01T00:00:00Z>';
 
@@ -30,12 +41,42 @@ const contactFindings = (contacts: string[]): Finding[] => {
     ];
   }
   return contacts
-    .filter((contact) => /^http:/i.test(contact) || !/^[a-z][a-z\d+.-]*:/i.test(contact))
+    .filter((contact) => !/^(mailto:|tel:|https:\/\/)/i.test(contact))
     .map((contact) => ({
       message: `security.txt Contact "${contact}" is not a mailto:, tel: or https:// URI`,
       fix: 'Write the contact as a URI, e.g. "mailto:security@example.com" or "https://example.com/security".',
     }));
 };
+
+const isUtf8 = (bytes: Buffer) => {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const canonicalFindings = (text: string, canonical: string[]): Finding[] =>
+  /^-----BEGIN PGP SIGNED MESSAGE-----/m.test(text) && !canonical.length
+    ? [
+        {
+          message: 'signed security.txt has no Canonical field',
+          severity: 'warn',
+          fix: 'Add the URL the signed file is served from, e.g. "Canonical: https://example.com/.well-known/security.txt".',
+        },
+      ]
+    : [];
+
+const preferredLanguagesFindings = (languages: string[]): Finding[] =>
+  languages.length > 1
+    ? [
+        {
+          message: 'security.txt has more than one Preferred-Languages field',
+          fix: 'Keep a single Preferred-Languages line listing all languages, e.g. "Preferred-Languages: en, de".',
+        },
+      ]
+    : [];
 
 const expiresFindings = (expires: string[], now: number): Finding[] => {
   const [expiry] = expires;
@@ -56,11 +97,11 @@ const expiresFindings = (expires: string[], now: number): Finding[] => {
     ];
   }
   const time = Date.parse(expiry);
-  if (Number.isNaN(time)) {
+  if (!isRfc3339(expiry) || Number.isNaN(time)) {
     return [
       {
-        message: `security.txt Expires "${expiry}" is not a date`,
-        fix: 'Write Expires as an ISO 8601 date and time, e.g. "Expires: 2027-01-01T00:00:00Z".',
+        message: `security.txt Expires "${expiry}" is not an RFC 3339 date-time`,
+        fix: 'Write Expires as an RFC 3339 date-time with a UTC or numeric offset, e.g. "Expires: 2027-01-01T00:00:00Z".',
       },
     ];
   }
@@ -97,7 +138,9 @@ export const securityTxtFindings = (dist: string, now: number): Finding[] => {
       },
     ];
   }
-  const fields = securityTxtFields(readFileSync(file, 'utf8'));
+  const bytes = readFileSync(file);
+  const text = bytes.toString('utf8');
+  const fields = securityTxtFields(text);
   const problems: Finding[] = [
     ...(file === legacy
       ? [
@@ -108,8 +151,18 @@ export const securityTxtFindings = (dist: string, now: number): Finding[] => {
           },
         ]
       : []),
+    ...(isUtf8(bytes)
+      ? []
+      : [
+          {
+            message: 'security.txt is not valid UTF-8',
+            fix: 'Save security.txt as UTF-8 text, as RFC 9116 §4 requires.',
+          },
+        ]),
     ...contactFindings(fields.get('contact') ?? []),
     ...expiresFindings(fields.get('expires') ?? [], now),
+    ...canonicalFindings(text, fields.get('canonical') ?? []),
+    ...preferredLanguagesFindings(fields.get('preferred-languages') ?? []),
   ];
   return problems.map((problem) => ({ ...problem, file }));
 };

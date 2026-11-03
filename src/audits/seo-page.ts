@@ -1,5 +1,13 @@
 import type { VidimusConfig } from '../config/types.ts';
-import { type BuiltPage, linksWithRel, localFile, resolveHref, tags } from '../core/html.ts';
+import {
+  type BuiltPage,
+  linksWithRel,
+  localFile,
+  relTokens,
+  resolveHref,
+  type Tag,
+  tags,
+} from '../core/html.ts';
 import type { Finding } from '../core/types.ts';
 import { stripBase } from '../core/util.ts';
 
@@ -18,8 +26,10 @@ export interface Pointer {
   href: string;
 }
 
-const LANG_CODE = /^[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?$/;
-const LANG_HINT = 'Use a language code such as "en" or "pt-BR" (ISO 639-1, optional region)';
+const LANG_CODE =
+  /^(?:x(?:-[a-z0-9]{1,8})+|en-gb-oed|sgn-(?:be-fr|be-nl|ch-de)|i-(?:ami|bnn|default|enochian|hak|klingon|lux|mingo|navajo|pwn|tao|tay|tsu)|[a-z]{2,3}(?:-[a-z]{3}){0,2}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|\d{3}))?(?:-(?:[a-z0-9]{5,8}|\d[a-z0-9]{3}))*(?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*(?:-x(?:-[a-z0-9]{1,8})+)?)$/;
+const LANG_HINT =
+  'Use a BCP 47 language tag such as "en", "pt-BR" or "zh-Hant-TW" (RFC 5646 well-formed, 2-3 letter language)';
 
 const outside = (length: number, { min, max }: { min: number; max: number }) =>
   length < min || length > max;
@@ -41,12 +51,21 @@ export const isRedirect = (html: string) =>
   );
 
 export const langFindings = (html: string, path: string): Finding[] => {
-  const lang = tags(html, 'html')[0]?.attrs.lang?.trim();
-  if (!lang) {
+  const attr = tags(html, 'html')[0]?.attrs.lang;
+  if (attr === undefined) {
     return [
       issue(path, {
         message: 'missing <html lang>',
         fix: 'Add a lang attribute to <html>, e.g. <html lang="en">.',
+      }),
+    ];
+  }
+  const lang = attr.trim();
+  if (!lang) {
+    return [
+      warning(path, {
+        message: 'empty <html lang> (language unknown)',
+        fix: 'Set <html lang> to the page language, e.g. <html lang="en">, so assistive tech and translators can tell what language the page is in.',
       }),
     ];
   }
@@ -78,12 +97,13 @@ export const lengthFindings = (
       ),
     ];
   }
-  if (!outside(value.length, range)) return [];
+  const length = [...value].length;
+  if (!outside(length, range)) return [];
   const target = label === 'title' ? '<title>' : 'meta description content';
   return [
     warning(path, {
       message: `${label} outside ${min}-${max} characters`,
-      details: [`${path}: ${value.length}`],
+      details: [`${path}: ${length}`],
       fix: `Rewrite the ${target} to ${min}-${max} characters, or adjust seo.${setting}.`,
     }),
   ];
@@ -126,8 +146,24 @@ export const h1Findings = (html: string, path: string): Finding[] => {
   ];
 };
 
-export const canonicalOf = (page: BuiltPage, site: SiteInfo) => {
-  const links = linksWithRel(page.html, 'canonical');
+const headerLinks = (value: string): Tag[] =>
+  [...value.matchAll(/<([^>]*)>([^<]*)/g)].map(([, href = '', params = ''], index) => {
+    const attrs: Record<string, string> = { href };
+    for (const [, name = '', raw = ''] of params.matchAll(
+      /;\s*([a-z*-]+)\s*=\s*("[^"]*"|[^;,\s]*)/gi,
+    )) {
+      attrs[name.toLowerCase()] = raw.replace(/^"|"$/g, '');
+    }
+    return { name: 'link', attrs, index };
+  });
+
+const linksOf = (page: BuiltPage, rel: string, header: string | undefined) => [
+  ...linksWithRel(page.html, rel),
+  ...headerLinks(header ?? '').filter((tag) => relTokens(tag).includes(rel)),
+];
+
+export const canonicalOf = (page: BuiltPage, site: SiteInfo, header?: string) => {
+  const links = linksOf(page, 'canonical', header);
   const href = links[0]?.attrs.href ?? '';
   const target = links.length === 1 ? resolveHref(href, page.path, site.siteUrl) : null;
   const file =
@@ -189,13 +225,13 @@ export const canonicalFindings = (
   return found;
 };
 
-export const hreflangOf = (page: BuiltPage, site: SiteInfo) => {
+export const hreflangOf = (page: BuiltPage, site: SiteInfo, header?: string) => {
   const { path } = page;
   const seen = new Set<string>();
   const targets = new Set<string>();
   const pointers: Pointer[] = [];
   const found: Finding[] = [];
-  for (const link of linksWithRel(page.html, 'alternate')) {
+  for (const link of linksOf(page, 'alternate', header)) {
     const lang = link.attrs.hreflang?.trim().toLowerCase();
     if (!lang) continue;
     if (seen.has(lang)) {
@@ -217,7 +253,7 @@ export const hreflangOf = (page: BuiltPage, site: SiteInfo) => {
     }
     const href = link.attrs.href ?? '';
     const target = resolveHref(href, path, site.siteUrl);
-    if (!target?.absolute) {
+    if (!target?.absolute || !/^https?:/i.test(target.href)) {
       found.push(
         issue(path, {
           message: 'hreflang URL is not absolute',

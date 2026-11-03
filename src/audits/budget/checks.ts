@@ -106,13 +106,17 @@ const hasFilledStyle = (style: string) =>
   /position\s*:\s*absolute/i.test(style) ||
   (/(^|;)\s*width\s*:\s*100%/i.test(style) && /(^|;)\s*height\s*:\s*100%/i.test(style));
 
+// WHATWG "rules for parsing dimension values": leading digits count (`100px` is 100), a
+// percentage does not map to an aspect ratio.
+const isDimension = (value = '') => /^[\t\n\f\r ]*\d+(?:\.\d+)?(?![\d.]*%)/.test(value);
+
 const checkDimensions = ({ env, page, report }: Check, attrs: Record<string, string>) => {
   const src = attrs.src || srcsetUrls(attrs.srcset)[0] || '';
   const style = attrs.style ?? '';
   if (
     hasFilledStyle(style) ||
     src.trim().toLowerCase().startsWith('data:') ||
-    (attrs.width && attrs.height) ||
+    (isDimension(attrs.width) && isDimension(attrs.height)) ||
     /aspect-ratio\s*:/i.test(style)
   )
     return;

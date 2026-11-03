@@ -1,6 +1,6 @@
 ---
 title: lighthouse
-description: How the lighthouse audit runs Google Lighthouse on your pages, compares category scores with thresholds and saves the reports. Old `*.html` reports in the output directory are removed at the start of each run.
+description: How the lighthouse audit runs Google Lighthouse on your pages, compares category scores with thresholds and saves the reports.
 ---
 
 # lighthouse: category scores

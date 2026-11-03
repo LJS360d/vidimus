@@ -47,9 +47,28 @@ const hintFindings = (hints: Map<string, Seen>): Finding[] =>
     };
   });
 
+const gpcFindings = (hosts: Collected['gpc']): Finding[] =>
+  sorted(hosts).map(([host, { where, examples }]) => ({
+    message: `third-party request to ${host} with Global Privacy Control set`,
+    details: [...examples],
+    where: whereOf(where),
+    severity: 'warn',
+    fix: `Stop sending visitor data to ${host} when navigator.globalPrivacyControl is true: do not load it in that case, or stop selling or sharing the data with it.`,
+  }));
+
+const referrerFindings = (referrers: Collected['referrers']): Finding[] =>
+  sorted(referrers).map(([host, { where, examples }]) => ({
+    message: `third-party request to ${host} sends the page path in Referer`,
+    details: [...examples],
+    where: whereOf(where),
+    severity: 'warn',
+    fix: `Set a Referrer-Policy such as strict-origin-when-cross-origin on these pages so ${host} receives only the origin, not the page path or query.`,
+  }));
+
 const cookieFindings = (jar: Collected['cookieJar']): Finding[] =>
-  sorted(jar).map(([key, { where, firstParty }]) => ({
+  sorted(jar).map(([key, { where, attributes, firstParty }]) => ({
     message: `cookie ${key}`,
+    details: [...attributes].sort(),
     where: whereOf(where),
     ...(firstParty && { severity: 'warn' as const }),
     fix: firstParty ? FIRST_PARTY_COOKIE_FIX : THIRD_PARTY_COOKIE_FIX,
@@ -103,6 +122,8 @@ export const privacyFindings = (c: Collected, rejectSelector: string): Finding[]
   ...hintFindings(c.hints),
   ...cookieFindings(c.cookieJar),
   ...storageFindings(c.storageJar),
+  ...gpcFindings(c.gpc),
+  ...referrerFindings(c.referrers),
   ...rejectedFindings(c.rejected, rejectSelector),
   ...c.failed,
 ];
@@ -116,6 +137,8 @@ export const privacySummary = (c: Collected, pages: number) => {
     !rejected.storage.size &&
     !c.hosts.size &&
     !c.hints.size &&
+    !c.gpc.size &&
+    !c.referrers.size &&
     !c.cookieJar.size &&
     !c.storageJar.size;
   if (clean) return `${pages} pages, no third-party requests, cookies or storage writes${failures}`;

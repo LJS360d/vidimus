@@ -71,13 +71,51 @@ const parsePo = (text: string, useSource: boolean): Record<string, string> => {
 
 const pluralBase = (key: string) =>
   key.replace(/\[\d+\]$/, '').replace(/_(zero|one|two|few|many|other)$/, '');
-const placeholders = (value: unknown) =>
-  new Set(
-    [...String(value).matchAll(/\{\{\s*([\w.]+)\s*\}\}|\{\s*([\w.]+)\s*[,}]/g)].map(
-      (match) => match[1] ?? match[2],
-    ),
-  );
-const sameSet = (a: Set<string | undefined>, b: Set<string | undefined>) =>
+const ICU_ARG = /\{\s*([\w.]+)\s*([,}])/y;
+const ICU_TYPE = /\s*(\w+)\s*([,}])/y;
+const ICU_BRANCHED = new Set(['select', 'plural', 'selectordinal']);
+
+const icuArguments = (text: string): string[] => {
+  const names: string[] = [];
+  let at = 0;
+  const message = (): void => {
+    while (at < text.length) {
+      const char = text[at++];
+      if (char === '}') return;
+      if (char !== '{') continue;
+      ICU_ARG.lastIndex = at - 1;
+      const arg = ICU_ARG.exec(text);
+      if (!arg) continue;
+      names.push(arg[1] ?? '');
+      at = ICU_ARG.lastIndex;
+      if (arg[2] === '}') continue;
+      ICU_TYPE.lastIndex = at;
+      const type = ICU_TYPE.exec(text);
+      if (!type) continue;
+      at = ICU_TYPE.lastIndex;
+      if (type[2] === '}') continue;
+      if (!ICU_BRANCHED.has(type[1] ?? '')) {
+        const end = text.indexOf('}', at);
+        at = end < 0 ? text.length : end + 1;
+        continue;
+      }
+      let open = text.indexOf('{', at);
+      let close = text.indexOf('}', at);
+      while (open >= 0 && (close < 0 || open < close)) {
+        at = open + 1;
+        message();
+        open = text.indexOf('{', at);
+        close = text.indexOf('}', at);
+      }
+      at = close < 0 ? text.length : close + 1;
+    }
+  };
+  while (at < text.length) message();
+  return names;
+};
+
+const placeholders = (value: unknown) => new Set(icuArguments(String(value)));
+const sameSet = (a: Set<string>, b: Set<string>) =>
   a.size === b.size && [...a].every((name) => b.has(name));
 const isBlank = (value: unknown) => String(value).trim() === '';
 const hasLetters = (value: unknown) => /\p{L}/u.test(String(value));

@@ -99,10 +99,12 @@ const routeOf = (href: string, origin: string, hash: boolean) => {
 };
 
 const fromSitemap = (config: VidimusConfig, dist: string) => {
-  const siteOrigin = originOf(config.siteUrl);
-  return readSitemaps(dist, config.siteUrl, robotsSitemapPaths(dist, config.siteUrl))
-    .flatMap(({ urls }) => urls)
-    .filter((url) => !siteOrigin || originOf(url) === siteOrigin)
+  const urls = readSitemaps(dist, config.siteUrl, robotsSitemapPaths(dist, config.siteUrl)).flatMap(
+    ({ urls }) => urls,
+  );
+  const siteOrigin = originOf(config.siteUrl) || originOf(urls[0] ?? '');
+  return urls
+    .filter((url) => originOf(url) === siteOrigin)
     .map((url) => pathnameOf(url, config.siteUrl))
     .filter((path): path is string => path !== null);
 };
