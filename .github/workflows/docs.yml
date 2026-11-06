@@ -25,7 +25,7 @@ jobs:
           docs-tools: 'true'
       - run: pnpm run docs:build
       # The audits read the build as it is, before the React and Angular route copies below.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docs-dist
           path: docs/dist
@@ -80,7 +80,7 @@ jobs:
       - run: pnpm run build
       - run: pnpm run docs:audit ${{ matrix.audits }}
       - if: always() && matrix.group == 'lighthouse'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lighthouse-reports
           path: docs/.vidimus/lighthouse
@@ -111,7 +111,7 @@ jobs:
       - name: Compare with the previous deployment
         run: pnpm run docs:audit shots --set severity.shots=warn
       - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: shots
           path: docs/.vidimus/shots
