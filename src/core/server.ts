@@ -84,8 +84,13 @@ const acceptsGzip = (header: string) => {
   return (match?.q ?? 0) > 0;
 };
 
-const wantsPage = (req: IncomingMessage, pathname: string) =>
-  !extname(pathname) || /text\/html/.test(String(req.headers.accept ?? ''));
+// The fallback answers routes, not assets: a missing `/app.js` must stay a 404 (RFC 9110 §15.5.5)
+// even when the client accepts HTML. A route with a dot (`/users/jane.doe`) has no known type.
+const wantsPage = (req: IncomingMessage, pathname: string) => {
+  const ext = extname(pathname).toLowerCase();
+  if (!ext || ext === '.html' || ext === '.htm') return true;
+  return !(ext in TYPES) && /text\/html/.test(String(req.headers.accept ?? ''));
+};
 
 export const RENDERED_HEADER = 'x-vidimus-rendered';
 export const LINKS_HEADER = 'x-vidimus-links';

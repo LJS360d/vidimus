@@ -91,8 +91,9 @@ The server:
 - adds the headers of every `server.headers` rule whose `match` regex matches the request path
 
 `server.fallback` names a build file, relative to `distDir`, that answers page requests no
-file matches: paths without an extension, or requests that accept `text/html`. Missing assets
-such as `/assets/app.js` still get a `404`, and so does any request outside the base path of
+file matches: paths without an extension or ending in `.html`, and requests that accept
+`text/html` for a path whose extension is not a known file type (`/users/jane.doe`). Missing
+assets such as `/assets/app.js` get a `404` whatever the `Accept` header, and so does any request outside the base path of
 `siteUrl`. Set it to match your host:
 
 | Host | `server.fallback` | `server.fallbackStatus` |

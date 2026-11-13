@@ -219,6 +219,15 @@ describe('static server SPA fallback', () => {
   it('serves the fallback for html navigations to dotted paths', async () => {
     const port = await start();
     assert.equal((await get('/v1.2', { accept: 'text/html' }, port)).body, 'shell');
+    assert.equal((await get('/users/jane.doe', { accept: 'text/html' }, port)).body, 'shell');
+  });
+
+  it('404s a missing asset even when the client accepts html (RFC 9110 §15.5.5)', async () => {
+    const port = await start();
+    for (const path of ['/nope/x.js', '/missing.css', '/gone.avif']) {
+      const res = await get(path, { accept: 'text/html,*/*' }, port);
+      assert.equal(res.status, 404, path);
+    }
   });
 
   it('sends the configured status, GitHub Pages style', async () => {

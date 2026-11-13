@@ -211,7 +211,7 @@ The built-in server follows these standards. Each case names its clause.
 - RFC 9110 §12.5.3: gzip is sent only when `Accept-Encoding` gives `gzip` or `x-gzip` a q-value above 0, or gives `*` one when no gzip entry is listed; `gzip;q=0` is refused.
 - RFC 9110 §12.5.5: compressible responses carry `Vary: accept-encoding`, merged with a configured `vary`.
 - RFC 9110 §10.2.2 and §15.4.2: the directory redirect is a `301` with an absolute-path `Location`, and keeps the query string.
-- RFC 9110 §15.5.5: a path with no file and no fallback gets `404`.
+- RFC 9110 §15.5.5: a path with no file and no fallback gets `404`. A missing file with a known asset extension (`.js`, `.css`, `.avif`, ...) gets `404` even when the request accepts `text/html`, so the fallback never hides a broken asset.
 - RFC 9110 §15.6.1: a failure before any status is sent (for example a file that cannot be opened) gets `500`; a read error after `200` has started aborts the connection instead of ending the body normally.
 
 ### HTTP Caching
