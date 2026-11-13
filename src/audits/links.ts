@@ -36,6 +36,15 @@ const malformedFragment = (link: string) => {
   }
 };
 
+// Text Fragments (`#:~:text=…`, `#id:~:text=…`): the `:~:` fragment directive is stripped before
+// the browser looks for an element, so it never names an id. linkinator compares the whole string.
+const TEXT_DIRECTIVE = ':~:';
+// The page itself loaded (200), so only the fragment failed; any id before `:~:` goes unchecked.
+const textFragment = ({ url, status }: { url: string; status?: number }) => {
+  const hash = url.indexOf('#');
+  return status === 200 && hash >= 0 && url.includes(TEXT_DIRECTIVE, hash);
+};
+
 const parentPath = (parent: string | undefined, origin: string) =>
   parent ? pathOf(parent, origin) : '(root)';
 
@@ -94,7 +103,7 @@ export const links: Audit = {
       const set = parents.get(result.url) ?? new Set();
       set.add(parentPath(result.parent, origin));
       parents.set(result.url, set);
-      if (result.state !== 'BROKEN') return;
+      if (result.state !== 'BROKEN' || textFragment(result)) return;
       // linkinator gives up on a malformed %-fragment before fetching; browsers ignore the
       // fragment, so only the page itself is re-checked below.
       if (malformedFragment(result.url)) suspect.push(result);

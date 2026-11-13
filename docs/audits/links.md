@@ -170,6 +170,12 @@ export default defineConfig({
 - `<base>`: the first `<base>` with an `href` sets the base URL. On pages served by the built-in server, an earlier `<base>` without `href` is removed before linkinator reads the page, so it does not hide the real base.
 - Fragments, with `links.checkFragments`: a `#fragment` matches an element `id` (case-sensitive) or an `<a name>`. `#top` is always valid, in any case.
 
+### URL Fragment Text Directives (WICG)
+
+[URL Fragment Text Directives](https://wicg.github.io/scroll-to-text-fragment/)
+
+- The fragment directive (everything from `:~:`, as in `#:~:text=hello`) is removed by the browser before it looks for an element, so it never names an `id`. A link with one passes when its page loads; the page itself is still checked.
+
 ### mailto and tel (RFC 6068, RFC 3966)
 
 [RFC 6068](https://www.rfc-editor.org/rfc/rfc6068), [RFC 3966](https://www.rfc-editor.org/rfc/rfc3966)
@@ -181,4 +187,5 @@ export default defineConfig({
 - Targets are checked by HTTP status only. A page that answers `200` with an error body passes.
 - The `<base>` fix applies only to pages the built-in server serves. With `--origin` or `server.command`, an href-less `<base>` placed before a `<base href>` still hides the real base from linkinator.
 - With `links.checkFragments`, a permalink anchor (`<a id="x" href="#y">`) counts as a target for `#y`, so such fragments pass.
+- Whether a text directive's text appears on the page, and the `id` before `:~:` in `#id:~:text=…`, are not checked.
 - The syntax of `mailto:` and `tel:` links is not validated (RFC 6068, RFC 3966); they are only skipped.

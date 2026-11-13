@@ -96,6 +96,24 @@ describe('links fragments', () => {
     });
     assert.deepEqual(results[0]?.findings, []);
   });
+  it('accepts Text Fragment directives and still checks the page behind them', async () => {
+    const cwd = fixture({
+      'dist/index.html':
+        '<title>home</title><h1>x</h1><a href="/target/#:~:text=hello">t</a><a href="/missing/#:~:text=x">m</a>',
+      'dist/target/index.html': '<title>target</title><h1>x</h1><p>hello</p>',
+    });
+    const { results } = await run({
+      cwd,
+      env: {},
+      audits: ['links'],
+      reporters: [],
+      overrides: { port: 0, links: { checkExternal: false, checkFragments: true } },
+    });
+    assert.deepEqual(
+      results[0]?.findings.map(({ message }) => message.replace(/http:\/\/[^/]+/, '')),
+      ['404 /missing/'],
+    );
+  });
   it('still reports a missing page behind a malformed fragment', async () => {
     const cwd = fixture({
       'dist/index.html':
