@@ -249,7 +249,7 @@ per-framework notes and [Adopting](../adopting) for rolling out `seo` on a large
 [Google robots meta tag](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag)
 
 - Directive and `name` values are case-insensitive, and the `robots` and `googlebot` meta tags are merged.
-- X-Robots-Tag: a directive without an agent prefix applies to all crawlers, and a `googlebot:` prefix applies to Googlebot. Tokens after a prefix for another crawler (for example `bingbot:`) are ignored until a `googlebot:` prefix appears. Directives with a value, such as `max-snippet:50`, do not change this.
+- X-Robots-Tag: a directive without an agent prefix applies to all crawlers, and a `googlebot:` prefix applies to Googlebot. A `googlebot-news:` prefix only governs Google News, so it is ignored like another crawler's. Tokens after a prefix for another crawler (for example `bingbot:`) are ignored until a `googlebot:` prefix appears. Directives with a value, such as `max-snippet:50`, do not change this.
 
 ### rel=canonical
 

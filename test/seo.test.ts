@@ -251,6 +251,12 @@ describe('seo audit', () => {
       undefined,
     );
     assert.ok(find(await headers('none'), /noindex in the production build/));
+    // googlebot-news only governs Google News; web search still indexes the page.
+    assert.equal(
+      find(await headers('googlebot-news: noindex'), /noindex in the production build/),
+      undefined,
+    );
+    assert.ok(find(await headers('googlebot: noindex'), /noindex in the production build/));
   });
 
   it('reads rel=canonical from a Link header instead of reporting no canonical', async () => {

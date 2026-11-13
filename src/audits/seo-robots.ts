@@ -14,7 +14,9 @@ export interface Robots {
 const FULL_BLOCKS = new Set(['/', '/*', '/*$']);
 const PARSING_LIMIT = 512_000;
 
-const isGooglebot = (agent: string) => agent === 'googlebot' || agent.startsWith('googlebot-');
+// Google reads two robots meta tokens: `googlebot` for all its text results and `googlebot-news`
+// for news only, so a `googlebot-news:` directive does not keep a page out of web search.
+const isGooglebot = (agent: string) => agent === 'googlebot';
 
 export const robotsRules = (text: string, bytes = Buffer.byteLength(text)): Robots => {
   const sitemaps: string[] = [];
