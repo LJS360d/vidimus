@@ -214,7 +214,7 @@ per-framework notes and [Adopting](../adopting) for rolling out `seo` on a large
 
 [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309)
 
-- §2.1: consecutive `User-agent` lines form one group, and a rule line ends the group. §2.2.4: a `Sitemap:` line does not end a group.
+- §2.1: consecutive `User-agent` lines form one group, and a rule line (`Allow` or `Disallow`) ends the group. §2.2.4: a `Sitemap:` line does not end a group, and neither do records that are not rules (`Crawl-delay`, `Host`, `Clean-param`), which crawlers ignore.
 - §2.2: lines end in CR, LF or CRLF. A group whose only rule is an empty `Disallow:` still matches its agent, so an empty `Googlebot` group allows everything instead of falling back to `*`.
 - §2.2.1: a page is matched against the `googlebot` group, else the `*` group. Other `googlebot-*` agents such as `Googlebot-Image` do not stand in for it. Agent names are case-insensitive.
 - §2.2.2: the longest matching rule wins, and `Allow` wins a tie. Paths are case-sensitive. An empty `Disallow:` value allows everything and is ignored.

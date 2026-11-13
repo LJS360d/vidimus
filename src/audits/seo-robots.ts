@@ -41,12 +41,15 @@ export const robotsRules = (text: string, bytes = Buffer.byteLength(text)): Robo
       // A group with no rules still matches its agent and allows everything (§2.2.1).
       const name = value.toLowerCase();
       if (!groups.has(name)) groups.set(name, []);
-    } else {
+    } else if (key === 'allow' || key === 'disallow') {
+      // Other records (Crawl-delay, Host, Clean-param, ...) are not rules: RFC 9309 §2.2 groups
+      // hold allow and disallow only, and crawlers ignore the rest, so they do not end a run of
+      // User-agent lines.
       inRules = true;
       if (key === 'disallow' && FULL_BLOCKS.has(value)) {
         for (const agent of agents) fullBlocks.add(agent);
       }
-      if ((key === 'allow' || key === 'disallow') && value) {
+      if (value) {
         for (const agent of agents) {
           const name = agent.toLowerCase();
           if (key === 'allow') allows.add(agent);

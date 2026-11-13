@@ -776,6 +776,13 @@ describe('seo audit', () => {
 describe('robots.txt matching (RFC 9309)', () => {
   const blocked = (text: string, path: string) => disallowedBy(robotsRules(text).groups)(path);
 
+  it('keeps User-agent lines in one group across records that are not rules', () => {
+    const text = 'User-agent: *\nCrawl-delay: 5\nUser-agent: googlebot\nDisallow: /x';
+    // Crawl-delay is ignored (RFC 9309 §2.2), so both agents share Disallow: /x.
+    assert.equal(blocked(text.replace('googlebot', 'other'), '/x'), true);
+    assert.equal(blocked(text, '/x'), true);
+  });
+
   it('splits lines on bare CR', () => {
     assert.equal(blocked('User-agent: *\rDisallow: /private/\r', '/private/a'), true);
   });
