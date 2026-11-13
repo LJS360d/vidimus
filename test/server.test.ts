@@ -40,6 +40,9 @@ describe('static server', () => {
     'dist/favicon.ico': 'ico',
     'dist/sound.wav': 'wav',
     'dist/LOGO.PNG': 'png',
+    'dist/photo.jxl': 'jxl',
+    'dist/live.m3u8': '#EXTM3U',
+    'dist/org.jsonld': '{}',
     'secret.txt': 'nope',
   });
 
@@ -153,6 +156,12 @@ describe('static server', () => {
     assert.equal((await get('/data.csv')).headers['content-type'], 'text/csv; charset=utf-8');
     assert.equal((await get('/feed.rss')).headers['content-type'], 'application/rss+xml');
     assert.equal((await get('/archive.zip')).headers['content-type'], 'application/zip');
+    assert.equal((await get('/photo.jxl')).headers['content-type'], 'image/jxl');
+    assert.equal(
+      (await get('/live.m3u8')).headers['content-type'],
+      'application/vnd.apple.mpegurl',
+    );
+    assert.equal((await get('/org.jsonld')).headers['content-type'], 'application/ld+json');
   });
 
   it('uses IANA-registered media type names, and no charset parameter on JSON (RFC 8259 §11, RFC 2361)', async () => {

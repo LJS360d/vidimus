@@ -68,6 +68,20 @@ const TYPES: Record<string, string> = {
   '.mkv': 'video/x-matroska',
   '.bmp': 'image/bmp',
   '.eot': 'application/vnd.ms-fontobject',
+  // IANA-registered types modern builds ship; served as octet-stream they would not render.
+  '.jxl': 'image/jxl',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.apng': 'image/apng',
+  '.m4v': 'video/mp4',
+  '.m3u8': 'application/vnd.apple.mpegurl',
+  '.mpd': 'application/dash+xml',
+  '.opus': 'audio/ogg',
+  '.weba': 'audio/webm',
+  '.jsonld': 'application/ld+json',
+  '.geojson': 'application/geo+json',
+  '.xsl': 'application/xslt+xml',
+  '.xslt': 'application/xslt+xml',
 };
 
 const COMPRESSIBLE = /text|json|xml|svg|manifest|wasm/;
@@ -163,13 +177,13 @@ const handle = (
     return;
   }
   const ext = extname(file).toLowerCase();
-  const type =
-    ext === '.html' || ext === '.htm'
-      ? `text/html; charset=${fileCharset(file)}`
-      : (TYPES[ext] ?? 'application/octet-stream');
+  const isHtml = ext === '.html' || ext === '.htm';
+  const type = isHtml
+    ? `text/html; charset=${fileCharset(file)}`
+    : (TYPES[ext] ?? 'application/octet-stream');
   const gzip =
     options.gzip &&
-    !(forLinks && ext === '.html') &&
+    !(forLinks && isHtml) &&
     COMPRESSIBLE.test(type) &&
     acceptsGzip(String(req.headers['accept-encoding'] ?? ''));
   const ruleHeaders = options.headers
@@ -203,7 +217,7 @@ const handle = (
   const done = (error: Error | null) => {
     if (error) res.destroy();
   };
-  if (forLinks && ext === '.html') {
+  if (forLinks && isHtml) {
     readFile(fd, 'latin1', (error, html) => {
       closeSync(fd);
       if (error) res.destroy();

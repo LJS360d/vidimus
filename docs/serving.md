@@ -265,6 +265,7 @@ The built-in server follows these standards. Each case names its clause.
 - Each table entry uses a registered essence, for example `image/vnd.microsoft.icon` for `.ico`, `audio/wave` for `.wav`, `text/csv` for `.csv`, `text/calendar` for `.ics`, and `text/markdown` (RFC 7763) for `.md`.
 - RFC 9239: `.js` and `.mjs` are `text/javascript`.
 - RFC 8259 §11: `.json` and `.map` are `application/json`, with no charset parameter.
+- Newer registered types: `.jxl` `image/jxl`, `.heic`/`.heif` `image/heic`/`image/heif`, `.m3u8` `application/vnd.apple.mpegurl`, `.mpd` `application/dash+xml`, `.jsonld` `application/ld+json`, `.geojson` `application/geo+json` (RFC 7946), `.xsl`/`.xslt` `application/xslt+xml`, `.m4v` `video/mp4`, `.opus` `audio/ogg` (RFC 7845), `.weba` `audio/webm`.
 
 **Not checked**
 
@@ -273,4 +274,4 @@ The built-in server follows these standards. Each case names its clause.
 - `X-Content-Type-Options` is not set by the built-in server; header rules are checked by the [security](./audits/security) audit.
 - `/about/index` answers `200` as well as `/about`, with the same content and no canonical hint.
 - `.xhtml` is served as `application/xhtml+xml` without charset detection; `.htm` is detected like `.html`.
-- `.exr` is sent as `image/x-exr`, because IANA has no registered name for it.
+- `.exr` is sent as `image/x-exr`, because IANA has no registered name for it; `.apng` is sent as the unregistered `image/apng` that browsers and the WHATWG MIME Sniffing table use.
