@@ -1,5 +1,23 @@
 # vidimus
 
+## 0.22.0
+
+### Minor Changes
+
+- 1cb5eb3: Node 22.22 or later is now required: html-validate 11 and lighthouse 13 need it, and CI now tests 22.22.0 as the floor.
+
+### Patch Changes
+
+- 9e1250c: Built-in server: registered media types for `.jxl`, `.heic`, `.heif`, `.m4v`, `.m3u8`, `.mpd`, `.opus`, `.weba`, `.jsonld`, `.geojson`, `.xsl` and `.xslt`, plus `image/apng` for `.apng`; `.htm` pages get the same links-mode handling as `.html`.
+- 1792be7: Built-in server: a missing asset with a known extension (`.js`, `.css`, ...) gets `404` even when the request accepts `text/html`, instead of the SPA fallback page.
+- ee7405c: `seo`: an X-Robots-Tag `googlebot-news: noindex` no longer counts as noindex for web search.
+- 03125f0: `security`: the default HSTS check counts only a directive named exactly `max-age`, so `x-max-age=…; max-age=0` fails.
+- 8f24245: A path segment longer than the file-name limit no longer crashes an audit with `ENAMETOOLONG`.
+- f19ce64: JUnit: each `testsuite` carries `package`, `id`, `timestamp`, `hostname`, `<properties/>`, `<system-out>` and `<system-err/>`, each `testcase` a `time`, and each `<failure>`/`<error>` a `type`, as Ant's `JUnit.xsd` requires.
+- 92640aa: `links`: Text Fragment links (`#:~:text=…`) are no longer reported broken; the page behind them is still checked.
+- ae718e3: `vidimus config` and the reporters' start line redact cookie and storage values, origin credentials and `server.command` secrets, as the JSON report already did.
+- 7739813: `seo`: robots.txt records that are not rules (`Crawl-delay`, `Host`) no longer split a run of `User-agent` lines into separate groups.
+
 ## 0.21.0
 
 ### Minor Changes
