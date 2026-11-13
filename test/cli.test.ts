@@ -19,6 +19,27 @@ describe('cli', () => {
       }
   });
 
+  it('redacts browser state, origin credentials and server.command secrets in `vidimus config`', () => {
+    const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+    const root = fixture({
+      'vidimus.config.json': JSON.stringify({
+        origin: 'https://user:pa55@staging.example/',
+        browser: {
+          state: {
+            cookies: [{ name: 'session', value: 's3cret-cookie', domain: 'staging.example' }],
+            localStorage: { token: 's3cret-storage' },
+          },
+        },
+      }),
+    });
+    const run = spawnSync(process.execPath, [cli, 'config'], { cwd: root, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.doesNotMatch(run.stdout, /s3cret|pa55/);
+    const config = JSON.parse(run.stdout);
+    assert.equal(config.origin, 'https://staging.example/');
+    assert.equal(config.browser.state.cookies[0].name, 'session');
+  });
+
   it('flushes delayed stdout before exiting after a timed-out run', () => {
     const cli = new URL('../src/cli.ts', import.meta.url).pathname;
     const root = fixture({

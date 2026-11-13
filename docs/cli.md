@@ -108,7 +108,10 @@ npx vidimus config --no-config              # every key with its default
 npx vidimus config --set port=5000 > resolved.json
 ```
 
-Plugins and reporter objects are printed by name. `config` accepts `-c`, `--no-config` and
+Plugins and reporter objects are printed by name. Secrets are redacted as in the
+[JSON report](./reporters): `browser.state` cookie, storage and script values, credentials in
+`origin`, and `KEY=value` or `--token value` style arguments in `server.command`, so the output
+is safe to paste into a CI log or an issue. `config` accepts `-c`, `--no-config` and
 `--set`; the run flags such as `--dist` are not available here, use `--set distDir=…`.
 
 ## `profile diff`

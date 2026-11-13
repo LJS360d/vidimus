@@ -6,6 +6,7 @@ import { CONFIG_FILES, type LoadConfigOptions, loadConfig } from './config/load.
 import type { UserConfig } from './config/types.ts';
 import { UsageError } from './core/errors.ts';
 import { diffProfiles, type ProfileLevel } from './core/profile.ts';
+import { serializableConfig } from './core/report.ts';
 import { auditRegistry, run } from './core/run.ts';
 import { version } from './core/version.ts';
 import { REPORTERS } from './reporters/registry.ts';
@@ -191,8 +192,10 @@ withConfigOptions(
 ).action(async (flags: ConfigFlags) => {
   const { config, source } = await loadConfig(loadOptions(flags));
   console.error(`source: ${source ?? '(defaults only)'}`);
+  // Same redaction as the report: cookie and storage values, origin credentials and
+  // secret-looking server.command arguments never reach stdout or CI logs.
   const printable = {
-    ...config,
+    ...(serializableConfig(config) as object),
     plugins: config.plugins.map(({ name }) => name),
     reporters: config.reporters.map((reporter) =>
       typeof reporter === 'string' || 'type' in reporter ? reporter : reporter.name,

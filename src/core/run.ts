@@ -15,7 +15,7 @@ import { importPeer, launchBrowser, sharedBrowser, withState } from './peer.ts';
 import type { Browser, LaunchOptions } from './peer-types.ts';
 import { type ProfileLevel, span, startProfile, stopProfile } from './profile.ts';
 import { createRenderer } from './render.ts';
-import { buildReport, unfinishedResult } from './report.ts';
+import { buildReport, redactCommand, stripCredentials, unfinishedResult } from './report.ts';
 import { clientRenderedBundle, clientRenderedHint, resolveRoutes } from './routes.ts';
 import { serve } from './server.ts';
 import { createSuppression } from './suppression.ts';
@@ -374,8 +374,11 @@ const execute = async (
     const hint = needsServer ? clientRenderedHint(config, bundle) : undefined;
     info = {
       audits: audits.map(({ name }) => name),
-      origin: needsServer ? origin : '',
-      serving: server && [config.distDir, command].filter(Boolean).join(' with '),
+      // Reporters print these, so credentials in --origin and secrets in server.command stay out.
+      origin: needsServer ? stripCredentials(origin) : '',
+      serving:
+        server &&
+        [config.distDir, command && redactCommand(command)].filter(Boolean).join(' with '),
       notes: hint ? [hint] : [],
     };
     for (const reporter of reporters) await reporter.onStart?.(info);

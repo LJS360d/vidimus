@@ -9,7 +9,7 @@ const REDACTED = '<redacted>';
 const redactValues = (record: Record<string, string>) =>
   Object.fromEntries(Object.keys(record).map((key) => [key, REDACTED]));
 
-const stripCredentials = (origin: string) => {
+export const stripCredentials = (origin: string) => {
   try {
     const url = new URL(origin);
     if (!url.username && !url.password) return origin;
@@ -21,7 +21,16 @@ const stripCredentials = (origin: string) => {
   }
 };
 
-const serializableConfig = ({ plugins, reporters, ...config }: VidimusConfig): unknown => {
+export const redactCommand = (command: string) =>
+  command
+    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\S+/g, `$1=${REDACTED}`)
+    // `--api-token s3cret` and `-p s3cret` style flags carry secrets too.
+    .replace(
+      /(\s--?[\w-]*(?:token|secret|passw(?:or)?d|key|auth)[\w-]*)\s+(?!-)\S+/gi,
+      `$1 ${REDACTED}`,
+    );
+
+export const serializableConfig = ({ plugins, reporters, ...config }: VidimusConfig): unknown => {
   const { state } = config.browser;
   const redacted = {
     ...config,
@@ -37,13 +46,7 @@ const serializableConfig = ({ plugins, reporters, ...config }: VidimusConfig): u
     },
     server: {
       ...config.server,
-      command: config.server.command
-        .replace(/\b([A-Za-z_][A-Za-z0-9_]*)=\S+/g, `$1=${REDACTED}`)
-        // `--api-token s3cret` and `-p s3cret` style flags carry secrets too.
-        .replace(
-          /(\s--?[\w-]*(?:token|secret|passw(?:or)?d|key|auth)[\w-]*)\s+(?!-)\S+/gi,
-          `$1 ${REDACTED}`,
-        ),
+      command: redactCommand(config.server.command),
     },
   };
   return JSON.parse(
