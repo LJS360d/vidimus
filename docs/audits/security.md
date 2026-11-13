@@ -329,7 +329,7 @@ Each standard below is one the audit checks against; the bullets list the cases 
 
 [HTTP Strict Transport Security (RFC 6797)](https://www.rfc-editor.org/rfc/rfc6797)
 
-- §6.1.1: `max-age` is required and, by default, must be at least 31536000 seconds.
+- §6.1.1: `max-age` is required and, by default, must be at least 31536000 seconds. Only a directive named exactly `max-age` counts: `x-max-age=99999999; max-age=0` fails.
 - §6.1.2: a policy without `includeSubDomains` is a warning (`strict-transport-security lacks includeSubDomains`), since one http subdomain can set cookies for the parent domain.
 - §6.2: a quoted `max-age` value is accepted.
 - §6.1: directive names match case-insensitively.

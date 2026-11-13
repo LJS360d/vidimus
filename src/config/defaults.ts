@@ -174,8 +174,9 @@ export const defaults = (cwd: string): VidimusConfig => ({
     require: {
       'strict-transport-security':
         // max-age >= 31536000 (one year): every 8-digit number from 31536000 up, or 9+ digits.
-        // A missing includeSubDomains is a separate warning.
-        '^(?=.*\\bmax-age="?0*(3153600\\d|315360[1-9]\\d|31536[1-9]\\d{2}|3153[7-9]\\d{3}|315[4-9]\\d{4}|31[6-9]\\d{5}|3[2-9]\\d{6}|[4-9]\\d{7}|[1-9]\\d{8,}))',
+        // A missing includeSubDomains is a separate warning. The directive must start the value or
+        // follow a `;` (RFC 6797 §6.1), so `x-max-age=…` does not count.
+        '^(?=(?:.*;)?\\s*max-age\\s*=\\s*"?0*(3153600\\d|315360[1-9]\\d|31536[1-9]\\d{2}|3153[7-9]\\d{3}|315[4-9]\\d{4}|31[6-9]\\d{5}|3[2-9]\\d{6}|[4-9]\\d{7}|[1-9]\\d{8,}))',
       'x-content-type-options': '^nosniff$',
       'referrer-policy':
         '^(?!(?:.*,)?\\s*(?:unsafe-url|no-referrer-when-downgrade)\\s*(?:,(?!\\s*(?:no-referrer|no-referrer-when-downgrade|same-origin|origin|strict-origin|origin-when-cross-origin|strict-origin-when-cross-origin|unsafe-url)\\s*(?:,|$))[^,]*)*$).+$',

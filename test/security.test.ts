@@ -181,6 +181,9 @@ describe('security audit', () => {
     assert.equal(await hsts('max-age=31536001; includeSubDomains'), false);
     assert.equal(await hsts('max-age=31999999; includeSubDomains'), false);
     assert.equal(await hsts('max-age=31535999; includeSubDomains'), true);
+    // RFC 6797 §6.1: only the max-age directive counts, not a name that ends in it.
+    assert.equal(await hsts('x-max-age=99999999; max-age=0; includeSubDomains'), true);
+    assert.equal(await hsts('includeSubDomains; max-age = 31536000'), false);
   });
 
   it('warns, not fails, when HSTS lacks includeSubDomains', async () => {
