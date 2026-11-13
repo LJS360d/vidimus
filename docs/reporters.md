@@ -233,10 +233,10 @@ JUnit XML, for CI systems that show test reports. The mapping:
 | JUnit | vidimus |
 | --- | --- |
 | `<testsuites name="vidimus">` | the run, with totals and duration in seconds |
-| `<testsuite name="…">` | one audit |
-| `<testcase classname="vidimus.<audit>" name="<message>">` | one finding, with `file` when the finding has one |
-| `<failure message="…">` | an error-level finding of a failed audit; the body has details, `on:` pages and `fix:` |
-| `<error message="…">` | an error-level finding of an errored audit; the body has details, `on:` pages and `fix:` |
+| `<testsuite name="…" package="vidimus" id="…" timestamp="…" hostname="…">` | one audit, starting with an empty `<properties/>` and ending with `<system-out>` and `<system-err/>` |
+| `<testcase classname="vidimus.<audit>" name="<message>" time="0.000">` | one finding, with `file` when the finding has one |
+| `<failure message="…" type="failure">` | an error-level finding of a failed audit; the body has details, `on:` pages and `fix:` |
+| `<error message="…" type="error">` | an error-level finding of an errored audit; the body has details, `on:` pages and `fix:` |
 | `<system-out>warning: …</system-out>` | a warning; it does not count as a failure |
 
 An audit without findings has a single test case named after its summary: empty when it passed
@@ -335,6 +335,8 @@ Spec: [JUnit XML (Ant de facto schema)](https://github.com/windyroad/JUnit-Schem
 - `tests`, `failures`, `errors` and `skipped` on each `testsuite` and on `testsuites` equal the matching child counts; an errored audit's findings count as `errors`, not `failures`.
 - `time` is decimal seconds with three decimals, on both `testsuites` and `testsuite`.
 - A warning is a `<system-out>` line and does not count as a failure.
+- Each `testsuite` has the attributes and children Ant's `JUnit.xsd` requires: `package`, `id`, `timestamp` (UTC, without a zone, as its pattern requires), `hostname`, a leading `<properties/>`, and trailing `<system-out>` and `<system-err/>`. Each `testcase` has `time`, and each `<failure>` and `<error>` a `type`.
+- Beyond the XSD, the output uses the extensions [Jenkins, GitLab and Testmo read](https://github.com/testmoapp/junitxml): totals on `<testsuites>`, `skipped` counts and `<skipped>`, `file` on `testcase`, and a `<system-out>` inside a warning's `testcase`.
 
 ### XML 1.0 (Fifth Edition)
 
@@ -411,7 +413,7 @@ Spec: [FORCE_COLOR and isTTY](https://nodejs.org/api/util.html#utilstyletextform
 ## Not checked
 
 - Output is not validated against `report.schema.json` or any SARIF or JUnit schema at run time.
-- The JUnit output is not checked against an XSD.
+- The JUnit output is not validated against an XSD at run time; the extensions listed under JUnit XML make it fail a strict Ant `JUnit.xsd` check.
 - GitHub's SARIF upload limits (10 MB gzipped, 25,000 results) are not checked.
 - The HTML report always says `lang="en"`, since there is no locale config to read a language from.
 - Object-form options are not type-checked: `verbose` is used by truthiness, and only an unknown `type` is rejected.

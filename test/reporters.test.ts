@@ -171,8 +171,22 @@ describe('junit reporter', () => {
     const xml = toJUnit(report);
     assert.match(xml, /<testsuites name="vidimus" tests="4" failures="1" errors="1" skipped="1"/);
     assert.match(xml, /404 &lt;https:\/\/x\.test\/\?a=1&amp;b=2&gt;/);
-    assert.match(xml, /<error message="pa11y missing"\/>/);
+    assert.match(xml, /<error message="pa11y missing" type="error"\/>/);
     assert.match(xml, /<skipped message="not configured"\/>/);
+  });
+
+  it('writes the suite attributes and elements Ant JUnit.xsd requires', () => {
+    const xml = toJUnit(report);
+    const suites = xml.match(/<testsuite [^>]*>/g) ?? [];
+    assert.equal(suites.length, 4);
+    suites.forEach((tag, index) => {
+      assert.match(tag, new RegExp(`package="vidimus" id="${index}"`));
+      // xs:dateTime without a zone, per the XSD pattern.
+      assert.match(tag, /timestamp="\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d" hostname="[^"]+"/);
+    });
+    assert.equal(xml.match(/<testsuite [^>]*>\n {4}<properties\/>/g)?.length, 4);
+    assert.equal(xml.match(/<system-out\/>\n {4}<system-err\/>\n {2}<\/testsuite>/g)?.length, 4);
+    for (const tag of xml.match(/<testcase [^>]*>/g) ?? []) assert.match(tag, / time="\d+\.\d{3}"/);
   });
 
   it('counts errored audit findings as errors, not failures', () => {
