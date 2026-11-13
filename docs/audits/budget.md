@@ -217,7 +217,7 @@ The audit follows these specifications. Each link points to the specification it
 
 ### PNG (W3C PNG 3rd edition)
 
-[PNG (W3C PNG 3rd edition)](https://www.w3.org/TR/png-3/)
+[PNG (W3C PNG 3rd edition)](https://www.w3.org/TR/png-3/) (W3C Recommendation, June 2025)
 
 - Only the first four signature bytes are checked. The chunk type at byte 12 must be `IHDR`, and width and height are its big-endian `uint32` values at bytes 16 and 20.
 
@@ -229,7 +229,7 @@ The audit follows these specifications. Each link points to the specification it
 
 ### JPEG (ITU-T T.81)
 
-[JPEG (ITU-T T.81)](https://www.w3.org/Graphics/JPEG/itu-t81.pdf)
+[JPEG (ITU-T T.81)](https://www.itu.int/rec/T-REC-T.81)
 
 - The first start-of-frame marker from SOF0 to SOF15, excluding DHT (C4), JPG (C8) and DAC (CC), gives the image size: height at bytes 5 and 6 and width at bytes 7 and 8 after the `0xFF` marker byte.
 - While scanning, `0xFF` fill bytes are skipped, and the markers that carry no length (SOI, TEM and RSTn) are stepped over.
@@ -240,9 +240,9 @@ The audit follows these specifications. Each link points to the specification it
 
 - In a JPEG `APP1` block that starts with `Exif\0\0`, orientation tag `0x0112` with a value from 5 to 8 swaps width and height.
 
-### WebP container (RIFF)
+### WebP container (RFC 9649)
 
-[WebP container (RIFF)](https://developers.google.com/speed/webp/docs/riff_container)
+[WebP Image Format (RFC 9649)](https://www.rfc-editor.org/rfc/rfc9649)
 
 - `VP8 ` reads 14-bit width and height at bytes 26 and 28; `VP8L` requires signature `0x2F` at byte 20 and reads 14-bit width and height; `VP8X` reads a 24-bit canvas size plus one.
 
@@ -256,7 +256,7 @@ The audit follows these specifications. Each link points to the specification it
 
 ### SVG 2
 
-[SVG 2](https://www.w3.org/TR/SVG2/)
+[SVG 2](https://www.w3.org/TR/SVG2/) (W3C Candidate Recommendation)
 
 - Width and height are read from the first `<svg>` tag in the first 4 KB. Values in unitless numbers or `px` count; other units fall back to `viewBox`.
 - With a four-number `viewBox`, a lone `width` or `height` gives the other side from the viewBox aspect ratio.

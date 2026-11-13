@@ -314,7 +314,7 @@ Each standard below is one the audit checks against; the bullets list the cases 
 
 ### Content Security Policy Level 3
 
-[Content Security Policy Level 3](https://www.w3.org/TR/CSP3/)
+[Content Security Policy Level 3](https://www.w3.org/TR/CSP3/) (W3C Working Draft)
 
 - `<meta>` delivery: `frame-ancestors`, `report-uri` and `sandbox` in a `<meta>` policy are ignored by browsers, so they are warned about and never count.
 - Duplicate directives: the first occurrence wins; later ones are ignored.
@@ -373,7 +373,7 @@ Each standard below is one the audit checks against; the bullets list the cases 
 
 ### Referrer Policy
 
-[Referrer Policy](https://www.w3.org/TR/referrer-policy/)
+[Referrer Policy](https://www.w3.org/TR/referrer-policy/) (W3C Candidate Recommendation)
 
 - A comma-separated fallback list is judged by its last recognised token; unknown tokens are skipped.
 - `unsafe-url` and `no-referrer-when-downgrade` fail when they are that effective token.
@@ -388,7 +388,7 @@ Each standard below is one the audit checks against; the bullets list the cases 
 
 ### Mixed Content
 
-[Mixed Content](https://www.w3.org/TR/mixed-content/)
+[Mixed Content](https://www.w3.org/TR/mixed-content/) (W3C Candidate Recommendation)
 
 - `http://` and `ws://` subresources are errors; `https://` and `wss://` are not.
 - A plain `<a href>` is navigation, not a subresource, so it is not flagged.
@@ -426,7 +426,7 @@ Each standard below is one the audit checks against; the bullets list the cases 
 ### Not checked
 
 - The HSTS `preload` directive and the rest of the hstspreload.org requirements.
-- Permissions-Policy: only presence is checked. The value is not parsed as an [RFC 8941](https://www.rfc-editor.org/rfc/rfc8941) Structured Field dictionary, and its features are not checked against the [Permissions Policy](https://www.w3.org/TR/permissions-policy/) spec.
+- Permissions-Policy: only presence is checked. The value is not parsed as an [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651) Structured Field dictionary, and its features are not checked against the [Permissions Policy](https://www.w3.org/TR/permissions-policy/) spec.
 - `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`, `Cross-Origin-Resource-Policy` and `Origin-Agent-Cluster` are not required by default; add them under `security.require`.
 - Trusted Types (`trusted-types`, `require-trusted-types-for`) is not checked.
 - `upgrade-insecure-requests` and `block-all-mixed-content` are ignored: any `http://` URL is reported even where the policy would upgrade or block it.

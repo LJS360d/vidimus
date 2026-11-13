@@ -138,7 +138,7 @@ If your framework generates the hashes itself, a finding usually means something
 
 ### Content Security Policy Level 3
 
-[Content Security Policy Level 3](https://www.w3.org/TR/CSP3/), W3C Recommendation.
+[Content Security Policy Level 3](https://www.w3.org/TR/CSP3/), a W3C Working Draft that every current browser ships.
 
 - Hash sources: `sha256`, `sha384` and `sha512` are computed over the exact bytes of the block; `base64` and `base64url` spellings of the same digest are equal (§2.3.2).
 - Nonce sources match the element's `nonce` attribute as an exact, case-sensitive string (§2.3.2).

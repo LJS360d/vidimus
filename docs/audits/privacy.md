@@ -224,7 +224,7 @@ The audit implements the standards below. Each case is checked in the code; clau
 
 ### Global Privacy Control
 
-[Global Privacy Control](https://w3c.github.io/gpc/)
+[Global Privacy Control](https://www.w3.org/TR/gpc/) (W3C Working Draft)
 
 - Each page is loaded again with the `Sec-GPC: 1` header and `navigator.globalPrivacyControl` set to `true`; third-party requests that still fire are warnings.
 

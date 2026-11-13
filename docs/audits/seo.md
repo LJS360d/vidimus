@@ -275,7 +275,7 @@ per-framework notes and [Adopting](../adopting) for rolling out `seo` on a large
 
 ### BCP 47
 
-[RFC 5646](https://www.rfc-editor.org/rfc/rfc5646)
+[RFC 5646](https://www.rfc-editor.org/rfc/rfc5646) and [RFC 4647](https://www.rfc-editor.org/rfc/rfc4647), which together are [BCP 47](https://www.rfc-editor.org/info/bcp47)
 
 - `<html lang>` and hreflang values must be well-formed under §2.1: language, extended language, script, region, variant, extension and private use (`x-…`) subtags, plus the grandfathered tags such as `en-GB-oed`.
 - Matching is case-insensitive.

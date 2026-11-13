@@ -286,7 +286,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### Twitter/X Cards
 
-[Twitter/X Cards](https://developer.x.com/en/docs/twitter-for-websites/cards/overview/markup)
+[Twitter/X Cards](https://web.archive.org/web/20250102034750/https://developer.x.com/en/docs/x-for-websites/cards/overview/markup) (archived copy: X no longer publishes the Cards reference)
 
 - `twitter:card` is required and must be `summary`, `summary_large_image`, `app` or `player`.
 - `twitter:image` must be an absolute URL (vidimus rule for the absolute form; SVG and AVIF are
@@ -301,7 +301,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### Change-password URL
 
-[Change-password URL](https://wicg.github.io/change-password-url/)
+[Change-password URL](https://w3c.github.io/webappsec-change-password-url/)
 
 - `/.well-known/change-password` is expected to redirect to the password change page. With
   `origin` set, the live response must be a 3xx with a `Location` header.
@@ -324,7 +324,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### IAB Tech Lab ads.txt
 
-[IAB Tech Lab ads.txt](https://iabtechlab.com/ads-txt/)
+[IAB Tech Lab ads.txt 1.1](https://iabtechlab.com/ads-txt/)
 
 - A record is `domain, account ID, DIRECT|RESELLER` with an optional certification ID; the relation
   is compared case-insensitively, `#` starts a comment, and `KEY=value` variable lines are skipped.
@@ -347,7 +347,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### JPEG (ITU-T T.81)
 
-[JPEG (ITU-T T.81)](https://www.w3.org/Graphics/JPEG/itu-t81.pdf)
+[JPEG (ITU-T T.81)](https://www.itu.int/rec/T-REC-T.81)
 
 - The size comes from the first start-of-frame marker; the DHT, JPG and DAC markers are not
   start-of-frame markers.
@@ -357,7 +357,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### WebP
 
-[WebP](https://developers.google.com/speed/webp/docs/riff_container)
+[WebP (RFC 9649)](https://www.rfc-editor.org/rfc/rfc9649)
 
 - Dimensions come from the `VP8 `, `VP8L` or `VP8X` chunk, whichever the file has.
 
@@ -372,7 +372,7 @@ spec the check follows; checks marked "vidimus rule" are not from the spec.
 
 ### SVG
 
-[SVG](https://www.w3.org/TR/SVG2/)
+[SVG 2](https://www.w3.org/TR/SVG2/) (W3C Candidate Recommendation)
 
 - `width` and `height` are used when both are unitless or in `px`; otherwise the `viewBox` size is
   used, and a single attribute takes the other side from the `viewBox` aspect ratio.
