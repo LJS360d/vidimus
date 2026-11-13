@@ -289,8 +289,15 @@ export const isNoindex = (html: string) =>
         .some((token) => NOINDEX_TOKENS.has(token.trim().toLowerCase())),
   );
 
-export const isFile = (path: string) =>
-  statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+// `throwIfNoEntry` only covers ENOENT: a segment over the file-name limit (ENAMETOOLONG), a file
+// used as a directory (ENOTDIR) or an unreadable directory still throw, and none of them is a file.
+export const isFile = (path: string) => {
+  try {
+    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+  } catch {
+    return false;
+  }
+};
 
 export const localFile = (dist: string, pathname: string, exact = false) => {
   const key = `${dist}\0${pathname}\0${exact}`;

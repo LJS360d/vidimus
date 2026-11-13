@@ -3,7 +3,15 @@ import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { decodeHtml } from '../src/core/charset.ts';
-import { createPageReader, isNoindex, localFile, meta, tags, textOf } from '../src/core/html.ts';
+import {
+  createPageReader,
+  isFile,
+  isNoindex,
+  localFile,
+  meta,
+  tags,
+  textOf,
+} from '../src/core/html.ts';
 import { run } from '../src/index.ts';
 import { fixture } from './helpers.ts';
 
@@ -360,5 +368,15 @@ describe('decodeHtml', () => {
   it('drops a UTF-8 BOM like the UTF-16 ones', () => {
     const text = decodeHtml(Buffer.from([0xef, 0xbb, 0xbf, 0x3c, 0x70, 0x3e]));
     assert.equal(text, '<p>');
+  });
+});
+
+describe('isFile', () => {
+  it('returns false instead of throwing on over-long names and files used as directories', () => {
+    const root = fixture({ 'dist/a.html': 'a' });
+    assert.equal(isFile(join(root, 'dist', 'a'.repeat(300))), false);
+    assert.equal(isFile(join(root, 'dist', 'a.html', 'x')), false);
+    assert.equal(localFile(join(root, 'dist'), `/${'b'.repeat(300)}/`), null);
+    assert.equal(isFile(join(root, 'dist', 'a.html')), true);
   });
 });
