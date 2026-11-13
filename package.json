@@ -32,7 +32,7 @@
     "ci"
   ],
   "engines": {
-    "node": ">=22.18"
+    "node": ">=22.22"
   },
   "packageManager": "pnpm@12.18.0",
   "bin": {

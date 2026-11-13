@@ -198,7 +198,7 @@ a JUnit or JSON file as an artifact if your instance does not display annotation
 
 ## Other CI
 
-Any CI that runs Node 22.18 or later works: the exit code gates the job, and the reports go to
+Any CI that runs Node 22.22 or later works: the exit code gates the job, and the reports go to
 files.
 
 ```sh

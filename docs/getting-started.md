@@ -5,7 +5,7 @@ description: Install vidimus, run it on your build, read its findings, configure
 
 # Getting started
 
-vidimus runs on Node 22.18 or later and checks the output of your build: Astro, Eleventy,
+vidimus runs on Node 22.22 or later and checks the output of your build: Astro, Eleventy,
 Hugo, Next.js static export, VitePress, plain HTML, anything that produces a folder of pages.
 
 ```sh
